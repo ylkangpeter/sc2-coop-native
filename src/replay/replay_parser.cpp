@@ -131,7 +131,11 @@ std::optional<ReplayRecord> ReplayParser::ParseFile(const std::wstring& replay_p
             record.p1.prestige_name = slots[0].prestige_name;
             record.p1.masteries = slots[0].masteries;
             record.p1.commander_level = slots[0].commander_level;
-            record.brutal_plus = slots[0].brutal_plus;
+            if (slots[0].brutal_plus >= 1 && slots[0].brutal_plus <= 6) {
+                record.brutal_plus = slots[0].brutal_plus;
+            } else {
+                record.brutal_plus = 0;
+            }
         }
         if (slots.size() >= 2) {
             record.p2.commander = slots[1].commander.empty() ? "Unknown" : slots[1].commander;
@@ -139,7 +143,7 @@ std::optional<ReplayRecord> ReplayParser::ParseFile(const std::wstring& replay_p
             record.p2.prestige_name = slots[1].prestige_name;
             record.p2.masteries = slots[1].masteries;
             record.p2.commander_level = slots[1].commander_level;
-            if (slots[1].brutal_plus > record.brutal_plus) {
+            if (record.brutal_plus == 0 && slots[1].brutal_plus >= 1 && slots[1].brutal_plus <= 6) {
                 record.brutal_plus = slots[1].brutal_plus;
             }
         }
@@ -160,7 +164,7 @@ std::optional<ReplayRecord> ReplayParser::ParseFile(const std::wstring& replay_p
     if (slots.size() > 2) d1 = DifficultyFromInt(slots[2].difficulty);
     if (slots.size() > 3) d2 = DifficultyFromInt(slots[3].difficulty);
 
-    if (record.brutal_plus > 0) {
+    if (record.brutal_plus >= 1 && record.brutal_plus <= 6) {
         record.difficulty = "Brutal+" + std::to_string(record.brutal_plus);
     } else if (!d1.empty() && d1 == d2) {
         record.difficulty = d1;

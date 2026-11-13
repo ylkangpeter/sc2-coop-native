@@ -493,11 +493,20 @@ private:
         }
         // 25: m_trophyId (type 6: int 32 bits)
         DecodeInt(0, 32, buf);
-        // 26: m_rewardOverrides (type 68: array (0,17) of 67)
+        // 26: m_rewardOverrides (type 68: array (0,17) of 67 [m_key (type 6), m_rewards (type 64: array (0,17) of 6)])
         int64_t ro_count = DecodeInt(0, 17, buf);
-        for (int64_t ro = 0; ro < ro_count; ++ro) DecodeInt(0, 32, buf);
-        // 27: m_brutalPlusDifficulty (type 6: int 32 bits)
+        for (int64_t ro = 0; ro < ro_count; ++ro) {
+            DecodeInt(0, 32, buf); // m_key
+            int64_t rw_count = DecodeInt(0, 17, buf); // m_rewards length
+            for (int64_t rw = 0; rw < rw_count; ++rw) {
+                DecodeInt(0, 32, buf); // reward id
+            }
+        }
+        // 27: m_brutalPlusDifficulty (type 6: int 32 bits, valid values 0..6)
         slot.brutal_plus = static_cast<int>(DecodeInt(0, 32, buf));
+        if (slot.brutal_plus < 0 || slot.brutal_plus > 6) {
+            slot.brutal_plus = 0;
+        }
         // 28: m_retryMutationIndexes (type 66: array (0,3) of 6)
         int64_t ret_count = DecodeInt(0, 3, buf);
         for (int64_t rt = 0; rt < ret_count; ++rt) DecodeInt(0, 32, buf);

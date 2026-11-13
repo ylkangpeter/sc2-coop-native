@@ -100,6 +100,9 @@ bool Database::Open(const std::string& db_path) {
     // Auto-migrate schema: add details_json if older DB exists
     sqlite3_exec(m_db, "ALTER TABLE replays ADD COLUMN details_json TEXT;", nullptr, nullptr, nullptr);
 
+    // Auto-clean any historically corrupted brutal_plus values (> 6 or < 0)
+    sqlite3_exec(m_db, "UPDATE replays SET brutal_plus = 0, difficulty = 'Brutal' WHERE brutal_plus > 6 OR brutal_plus < 0;", nullptr, nullptr, nullptr);
+
     return true;
 }
 
@@ -146,7 +149,7 @@ bool Database::BatchSaveReplays(const std::vector<ReplayRecord>& recs) {
         sqlite3_bind_text(stmt, 7, rec.form_length.c_str(), -1, SQLITE_TRANSIENT);
         sqlite3_bind_text(stmt, 8, rec.result.c_str(), -1, SQLITE_TRANSIENT);
         sqlite3_bind_text(stmt, 9, rec.difficulty.c_str(), -1, SQLITE_TRANSIENT);
-        sqlite3_bind_int(stmt, 10, rec.brutal_plus);
+        sqlite3_bind_int(stmt, 10, (rec.brutal_plus >= 1 && rec.brutal_plus <= 6) ? rec.brutal_plus : 0);
         sqlite3_bind_text(stmt, 11, rec.enemy_race.c_str(), -1, SQLITE_TRANSIENT);
         sqlite3_bind_text(stmt, 12, rec.region.c_str(), -1, SQLITE_TRANSIENT);
         sqlite3_bind_int(stmt, 13, rec.is_weekly ? 1 : 0);
@@ -674,7 +677,7 @@ StatsSummary Database::CalculateStats(const StatsFilter& filter) {
     };
 
     std::string sql_diff = "SELECT "
-                           "CASE WHEN brutal_plus > 0 THEN 'Brutal+' || brutal_plus ELSE difficulty END as d_label, "
+                           "CASE WHEN (brutal_plus >= 1 AND brutal_plus <= 6) THEN 'Brutal+' || brutal_plus ELSE difficulty END as d_label, "
                            "SUM(CASE WHEN result='Victory' THEN 1 ELSE 0 END) as wins, "
                            "SUM(CASE WHEN result='Defeat' THEN 1 ELSE 0 END) as losses, "
                            "COUNT(*) as total "

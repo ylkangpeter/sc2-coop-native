@@ -117,8 +117,10 @@ void TabGames::Render(AppState& state) {
 
             // Col 6: Difficulty
             ImGui::TableSetColumnIndex(6);
-            if (r.brutal_plus > 0) {
+            if (r.brutal_plus >= 1 && r.brutal_plus <= 6) {
                 ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f), "%s", r.difficulty.c_str());
+            } else if (r.brutal_plus > 6 || r.brutal_plus < 0) {
+                ImGui::TextUnformatted("Brutal");
             } else {
                 ImGui::TextUnformatted(r.difficulty.c_str());
             }
