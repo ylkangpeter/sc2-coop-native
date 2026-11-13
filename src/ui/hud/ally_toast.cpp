@@ -2,6 +2,7 @@
 #include "../../db/database.h"
 #include "../../app_state.h"
 #include "../../utils/win32_utils.h"
+#include <backends/imgui_impl_win32.h>
 
 #include <algorithm>
 #include <iomanip>
@@ -132,13 +133,23 @@ void AllyToastWindow::Update(float delta_time) {
 void AllyToastWindow::Render() {
     if (!m_hwnd) return;
 
-    const int width = 520;
-    const int height = 72;
+    HWND sc2_hwnd = Win32Utils::FindStarCraftIIWindow();
+    HMONITOR hMon = MonitorFromWindow(sc2_hwnd ? sc2_hwnd : GetDesktopWindow(), MONITOR_DEFAULTTONEAREST);
+    float dpi_scale = ImGui_ImplWin32_GetDpiScaleForMonitor(hMon);
+    if (dpi_scale <= 0.0f) dpi_scale = 1.0f;
 
-    int screen_w = GetSystemMetrics(SM_CXSCREEN);
-    int screen_h = GetSystemMetrics(SM_CYSCREEN);
-    int win_x = (screen_w - width) / 2;
-    int win_y = (int)(screen_h * 0.05f); // Near top center
+    MONITORINFO mi = { sizeof(mi) };
+    GetMonitorInfoW(hMon, &mi);
+    int mon_x = mi.rcMonitor.left;
+    int mon_y = mi.rcMonitor.top;
+    int mon_w = mi.rcMonitor.right - mi.rcMonitor.left;
+    int mon_h = mi.rcMonitor.bottom - mi.rcMonitor.top;
+
+    const int width = (int)(540 * dpi_scale);
+    const int height = (int)(76 * dpi_scale);
+
+    int win_x = mon_x + (mon_w - width) / 2;
+    int win_y = mon_y + (int)(mon_h * 0.05f); // Near top center
 
     HDC hdcScreen = GetDC(nullptr);
     HDC hdcMem = CreateCompatibleDC(hdcScreen);
@@ -180,18 +191,25 @@ void AllyToastWindow::Render() {
 
     SetBkMode(hdcMem, TRANSPARENT);
 
-    HFONT hFontBold = CreateFontW(17, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+    HFONT hFontBold = CreateFontW((int)(18 * dpi_scale), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
                                   DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                                   CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
-    HFONT hFontSmall = CreateFontW(14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+    HFONT hFontSmall = CreateFontW((int)(14 * dpi_scale), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                                    DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                                    CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
+
+    int pad_x = (int)(16 * dpi_scale);
+    int mid_x = (int)(270 * dpi_scale);
+    int top_y1 = (int)(10 * dpi_scale);
+    int top_y2 = (int)(36 * dpi_scale);
+    int bot_y1 = (int)(38 * dpi_scale);
+    int bot_y2 = height - (int)(10 * dpi_scale);
 
     // Line 1: Ally Name & Stats
     SelectObject(hdcMem, hFontBold);
     SetTextColor(hdcMem, RGB(46, 204, 113));
     std::wstring ally_title = L"ALLY: " + ToWide(m_ally_name);
-    RECT rcTitle = { 16, 10, 260, 34 };
+    RECT rcTitle = { pad_x, top_y1, mid_x, top_y2 };
     DrawTextW(hdcMem, ally_title.c_str(), -1, &rcTitle, DT_SINGLELINE | DT_VCENTER);
 
     SelectObject(hdcMem, hFontBold);
@@ -203,7 +221,7 @@ void AllyToastWindow::Render() {
     }
     std::wstring stats_w = oss.str();
     SetTextColor(hdcMem, RGB(255, 230, 100)); // Gold
-    RECT rcStats = { 260, 10, width - 16, 34 };
+    RECT rcStats = { mid_x, top_y1, width - pad_x, top_y2 };
     DrawTextW(hdcMem, stats_w.c_str(), -1, &rcStats, DT_SINGLELINE | DT_VCENTER | DT_RIGHT);
 
     // Line 2: Note / Hint
@@ -216,7 +234,7 @@ void AllyToastWindow::Render() {
         note_w = L"No custom note (Edit notes in Players tab)";
         SetTextColor(hdcMem, RGB(130, 150, 175));
     }
-    RECT rcNote = { 16, 36, width - 16, 60 };
+    RECT rcNote = { pad_x, bot_y1, width - pad_x, bot_y2 };
     DrawTextW(hdcMem, note_w.c_str(), -1, &rcNote, DT_SINGLELINE | DT_VCENTER);
 
     // Fix non-zero alpha on text pixels

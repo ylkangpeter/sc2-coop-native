@@ -33,6 +33,8 @@ public:
 
     void PostNewMatch(const ReplayRecord& rec, bool is_best_time);
     void ProcessPendingMatches();
+    void OnDpiChanged(float new_dpi_scale);
+    float GetDpiScale() const { return m_dpi_scale; }
 
 private:
     UIManager() = default;
@@ -54,6 +56,8 @@ private:
     IDXGISwapChain* m_pSwapChain = nullptr;
     ID3D11RenderTargetView* m_mainRenderTargetView = nullptr;
     bool m_minimized = false;
+    float m_dpi_scale = 1.0f;
+    float m_initial_dpi_scale = 1.0f;
 
     NOTIFYICONDATAW m_nid = {};
     bool m_tray_active = false;

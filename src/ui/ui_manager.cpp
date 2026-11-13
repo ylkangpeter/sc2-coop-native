@@ -48,6 +48,21 @@ LRESULT WINAPI UIManager::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPa
             }
             return 0;
 
+        case WM_DPICHANGED: {
+            RECT* const prcNewWindow = (RECT*)lParam;
+            SetWindowPos(hWnd,
+                         nullptr,
+                         prcNewWindow->left,
+                         prcNewWindow->top,
+                         prcNewWindow->right - prcNewWindow->left,
+                         prcNewWindow->bottom - prcNewWindow->top,
+                         SWP_NOZORDER | SWP_NOACTIVATE);
+
+            float new_dpi_scale = (float)LOWORD(wParam) / 96.0f;
+            UIManager::Instance().OnDpiChanged(new_dpi_scale);
+            return 0;
+        }
+
         case WM_SYSCOMMAND:
             if ((wParam & 0xfff0) == SC_KEYMENU) // Disable ALT application menu
                 return 0;
@@ -204,6 +219,26 @@ void UIManager::SetupTheme() {
     colors[ImGuiCol_TableBorderLight]      = ImVec4(0.16f, 0.20f, 0.28f, 0.40f);
     colors[ImGuiCol_TableRowBg]            = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
     colors[ImGuiCol_TableRowBgAlt]         = ImVec4(0.10f, 0.12f, 0.18f, 0.50f);
+
+    if (m_dpi_scale > 1.0f) {
+        style.ScaleAllSizes(m_dpi_scale);
+    }
+}
+
+void UIManager::OnDpiChanged(float new_dpi_scale) {
+    if (new_dpi_scale <= 0.0f) new_dpi_scale = 1.0f;
+    float prev_scale = m_dpi_scale;
+    m_dpi_scale = new_dpi_scale;
+
+    ImGuiStyle& style = ImGui::GetStyle();
+    if (prev_scale > 0.0f) {
+        style.ScaleAllSizes(new_dpi_scale / prev_scale);
+    }
+
+    ImGuiIO& io = ImGui::GetIO();
+    if (m_initial_dpi_scale > 0.0f) {
+        io.FontGlobalScale = new_dpi_scale / m_initial_dpi_scale;
+    }
 }
 
 void UIManager::LoadFonts() {
@@ -216,10 +251,12 @@ void UIManager::LoadFonts() {
         "C:\\Windows\\Fonts\\segoeui.ttf",
     };
 
+    float font_size = 16.0f * (m_dpi_scale > 0.0f ? m_dpi_scale : 1.0f);
+
     ImFont* font = nullptr;
     for (const char* p : font_paths) {
         if (std::filesystem::exists(p)) {
-            font = io.Fonts->AddFontFromFileTTF(p, 16.0f, nullptr, io.Fonts->GetGlyphRangesChineseSimplifiedCommon());
+            font = io.Fonts->AddFontFromFileTTF(p, font_size, nullptr, io.Fonts->GetGlyphRangesChineseSimplifiedCommon());
             if (font) break;
         }
     }
@@ -298,8 +335,27 @@ bool UIManager::Init(HINSTANCE hInstance, int nCmdShow) {
              L"SC2CoopNativeClass", nullptr };
     RegisterClassExW(&m_wc);
 
+    HMONITOR hPrimaryMon = MonitorFromPoint(POINT{0, 0}, MONITOR_DEFAULTTOPRIMARY);
+    float dpi_scale = ImGui_ImplWin32_GetDpiScaleForMonitor(hPrimaryMon);
+    if (dpi_scale <= 0.0f) dpi_scale = 1.0f;
+    m_dpi_scale = dpi_scale;
+    m_initial_dpi_scale = dpi_scale;
+
+    MONITORINFO mi = { sizeof(mi) };
+    GetMonitorInfoW(hPrimaryMon, &mi);
+    int mon_w = mi.rcWork.right - mi.rcWork.left;
+    int mon_h = mi.rcWork.bottom - mi.rcWork.top;
+
+    int win_w = (int)(1100 * dpi_scale);
+    int win_h = (int)(700 * dpi_scale);
+    if (win_w > (int)(mon_w * 0.95f)) win_w = (int)(mon_w * 0.95f);
+    if (win_h > (int)(mon_h * 0.95f)) win_h = (int)(mon_h * 0.95f);
+
+    int win_x = mi.rcWork.left + (mon_w - win_w) / 2;
+    int win_y = mi.rcWork.top + (mon_h - win_h) / 2;
+
     m_hwnd = CreateWindowW(m_wc.lpszClassName, L"StarCraft II Co-op Native v1.0.0",
-                           WS_OVERLAPPEDWINDOW, 100, 100, 1100, 700,
+                           WS_OVERLAPPEDWINDOW, win_x, win_y, win_w, win_h,
                            nullptr, nullptr, m_wc.hInstance, nullptr);
 
     if (!CreateDeviceD3D(m_hwnd)) {

@@ -148,4 +148,12 @@ std::string Win32Utils::CleanPlayerName(const std::string& raw_name) {
     return s;
 }
 
+HWND Win32Utils::FindStarCraftIIWindow() {
+    HWND hwnd = FindWindowW(L"StarCraft II", nullptr);
+    if (!hwnd) {
+        hwnd = FindWindowW(nullptr, L"StarCraft II");
+    }
+    return hwnd;
+}
+
 } // namespace sc2

@@ -94,19 +94,23 @@ void SummaryOverlay::Init(HINSTANCE hInstance) {
     };
     RegisterClassExW(&wc);
 
-    int screen_w = GetSystemMetrics(SM_CXSCREEN);
-    int screen_h = GetSystemMetrics(SM_CYSCREEN);
+    HWND sc2_hwnd = Win32Utils::FindStarCraftIIWindow();
+    HMONITOR hMon = MonitorFromWindow(sc2_hwnd ? sc2_hwnd : GetDesktopWindow(), MONITOR_DEFAULTTONEAREST);
+    MONITORINFO mi = { sizeof(mi) };
+    GetMonitorInfoW(hMon, &mi);
+    int mon_w = mi.rcMonitor.right - mi.rcMonitor.left;
+    int mon_h = mi.rcMonitor.bottom - mi.rcMonitor.top;
 
-    m_overlay_h = screen_h;
-    m_overlay_w = (int)(screen_h * 1.0f); // 100vh width, matching original CSS
-    if (m_overlay_w > screen_w) m_overlay_w = screen_w;
+    m_overlay_h = mon_h;
+    m_overlay_w = (int)(mon_h * 1.0f); // 100vh width, matching original CSS
+    if (m_overlay_w > mon_w) m_overlay_w = mon_w;
 
     m_hwnd = CreateWindowExW(
         WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
         wc.lpszClassName,
         L"SC2 Match Summary Overlay",
         WS_POPUP,
-        screen_w, 0, m_overlay_w, m_overlay_h,
+        mi.rcMonitor.left + mon_w, mi.rcMonitor.top, m_overlay_w, m_overlay_h,
         nullptr, nullptr, hInstance, nullptr
     );
 
@@ -310,12 +314,18 @@ void SummaryOverlay::Update(float delta_time) {
 
 void SummaryOverlay::UpdatePosition() {
     if (!m_hwnd) return;
-    int screen_w = GetSystemMetrics(SM_CXSCREEN);
-    int screen_h = GetSystemMetrics(SM_CYSCREEN);
+    HWND sc2_hwnd = Win32Utils::FindStarCraftIIWindow();
+    HMONITOR hMon = MonitorFromWindow(sc2_hwnd ? sc2_hwnd : GetDesktopWindow(), MONITOR_DEFAULTTONEAREST);
+    MONITORINFO mi = { sizeof(mi) };
+    GetMonitorInfoW(hMon, &mi);
+    int mon_x = mi.rcMonitor.left;
+    int mon_y = mi.rcMonitor.top;
+    int mon_w = mi.rcMonitor.right - mi.rcMonitor.left;
+    int mon_h = mi.rcMonitor.bottom - mi.rcMonitor.top;
 
-    m_overlay_h = screen_h;
-    m_overlay_w = (int)(screen_h * 1.0f);
-    if (m_overlay_w > screen_w) m_overlay_w = screen_w;
+    m_overlay_h = mon_h;
+    m_overlay_w = (int)(mon_h * 1.0f);
+    if (m_overlay_w > mon_w) m_overlay_w = mon_w;
 
     // Cubic ease-out when sliding in, cubic ease-in when sliding out
     float progress = m_anim_t;
@@ -329,19 +339,27 @@ void SummaryOverlay::UpdatePosition() {
         ease_factor = std::pow(progress, 2.0f);
     }
 
-    int cur_x = screen_w - (int)(m_overlay_w * ease_factor);
-    SetWindowPos(m_hwnd, HWND_TOPMOST, cur_x, 0, m_overlay_w, m_overlay_h,
+    int cur_x = mon_x + mon_w - (int)(m_overlay_w * ease_factor);
+    int cur_y = mon_y;
+    SetWindowPos(m_hwnd, HWND_TOPMOST, cur_x, cur_y, m_overlay_w, m_overlay_h,
                  SWP_NOACTIVATE | SWP_NOSIZE);
 }
 
 void SummaryOverlay::Render() {
     if (!m_hwnd) return;
 
-    int screen_w = GetSystemMetrics(SM_CXSCREEN);
-    int screen_h = GetSystemMetrics(SM_CYSCREEN);
-    m_overlay_h = screen_h;
-    m_overlay_w = (int)(screen_h * 1.0f);
-    if (m_overlay_w > screen_w) m_overlay_w = screen_w;
+    HWND sc2_hwnd = Win32Utils::FindStarCraftIIWindow();
+    HMONITOR hMon = MonitorFromWindow(sc2_hwnd ? sc2_hwnd : GetDesktopWindow(), MONITOR_DEFAULTTONEAREST);
+    MONITORINFO mi = { sizeof(mi) };
+    GetMonitorInfoW(hMon, &mi);
+    int mon_x = mi.rcMonitor.left;
+    int mon_y = mi.rcMonitor.top;
+    int mon_w = mi.rcMonitor.right - mi.rcMonitor.left;
+    int mon_h = mi.rcMonitor.bottom - mi.rcMonitor.top;
+
+    m_overlay_h = mon_h;
+    m_overlay_w = (int)(mon_h * 1.0f);
+    if (m_overlay_w > mon_w) m_overlay_w = mon_w;
 
     const int width = m_overlay_w;
     const int height = m_overlay_h;
@@ -931,10 +949,11 @@ void SummaryOverlay::Render() {
     float ease_factor = (m_anim_state == OverlayAnimState::SlidingIn || m_anim_state == OverlayAnimState::Visible)
                             ? (1.0f - std::pow(1.0f - progress, 3.0f))
                             : std::pow(progress, 2.0f);
-    int cur_x = screen_w - (int)(m_overlay_w * ease_factor);
+    int cur_x = mon_x + mon_w - (int)(m_overlay_w * ease_factor);
+    int cur_y = mon_y;
 
     POINT ptZero = { 0, 0 };
-    POINT ptDst = { cur_x, 0 };
+    POINT ptDst = { cur_x, cur_y };
     SIZE sz = { width, height };
     BLENDFUNCTION blend = { AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
     UpdateLayeredWindow(m_hwnd, hdcScreen, &ptDst, &sz, hdcMem, &ptZero, RGB(0, 0, 0), &blend, ULW_ALPHA);

@@ -5,6 +5,7 @@
 #include "app_state.h"
 #include "ui/ui_manager.h"
 #include "db/database.h"
+#include <backends/imgui_impl_win32.h>
 
 static LONG WINAPI CrashHandler(EXCEPTION_POINTERS* pException) {
     std::ofstream f("crash_log.txt", std::ios::app);
@@ -22,6 +23,9 @@ static LONG WINAPI CrashHandler(EXCEPTION_POINTERS* pException) {
 
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLine, int nCmdShow) {
     SetUnhandledExceptionFilter(CrashHandler);
+
+    // Enable modern Per-Monitor V2 DPI Awareness for crisp High-DPI scaling
+    ImGui_ImplWin32_EnableDpiAwareness();
 
     // Single instance check
     HANDLE hMutex = CreateMutexW(nullptr, TRUE, L"SC2CoopNativeSingleInstanceMutex");
