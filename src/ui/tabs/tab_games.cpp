@@ -94,7 +94,11 @@ void TabGames::Render(AppState& state) {
             std::string p1_clean = Win32Utils::CleanPlayerName(r.p1.name);
             ImGui::Text("%s", p1_clean.c_str());
             ImGui::SameLine();
-            ImGui::TextDisabled("(%s P%d)", r.p1.commander.c_str(), r.p1.prestige);
+            if (r.p1.prestige >= 0 && r.p1.prestige <= 3) {
+                ImGui::TextDisabled("(%s P%d)", r.p1.commander.c_str(), r.p1.prestige);
+            } else {
+                ImGui::TextDisabled("(%s)", r.p1.commander.c_str());
+            }
 
             // Col 3: Player 2 (Ally)
             ImGui::TableSetColumnIndex(3);
@@ -102,7 +106,11 @@ void TabGames::Render(AppState& state) {
                 std::string p2_clean = Win32Utils::CleanPlayerName(r.p2.name);
                 ImGui::Text("%s", p2_clean.c_str());
                 ImGui::SameLine();
-                ImGui::TextDisabled("(%s P%d)", r.p2.commander.c_str(), r.p2.prestige);
+                if (r.p2.prestige >= 0 && r.p2.prestige <= 3) {
+                    ImGui::TextDisabled("(%s P%d)", r.p2.commander.c_str(), r.p2.prestige);
+                } else {
+                    ImGui::TextDisabled("(%s)", r.p2.commander.c_str());
+                }
             } else {
                 ImGui::TextDisabled("-");
             }

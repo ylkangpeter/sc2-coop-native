@@ -59,7 +59,11 @@ void ModalGameDetail::Render(AppState& state) {
             else if (r.p1.prestige == 3) p1_pres_name = it1->second.p3;
             else p1_pres_name = it1->second.p0;
         }
-        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "Prestige %d: %s", r.p1.prestige, p1_pres_name.c_str());
+        if (r.p1.prestige >= 0 && r.p1.prestige <= 3) {
+            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "Prestige %d: %s", r.p1.prestige, p1_pres_name.c_str());
+        } else {
+            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "Prestige: %s", p1_pres_name.c_str());
+        }
         ImGui::Text("APM: %d", r.p1.apm);
         ImGui::EndGroup();
         ImGui::EndChild();
@@ -88,7 +92,11 @@ void ModalGameDetail::Render(AppState& state) {
             else if (r.p2.prestige == 3) p2_pres_name = it2->second.p3;
             else p2_pres_name = it2->second.p0;
         }
-        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "Prestige %d: %s", r.p2.prestige, p2_pres_name.c_str());
+        if (r.p2.prestige >= 0 && r.p2.prestige <= 3) {
+            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "Prestige %d: %s", r.p2.prestige, p2_pres_name.c_str());
+        } else {
+            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "Prestige: %s", p2_pres_name.c_str());
+        }
         ImGui::Text("APM: %d", r.p2.apm);
         ImGui::EndGroup();
         ImGui::EndChild();

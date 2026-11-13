@@ -112,6 +112,9 @@ public:
     bool SaveReplay(const ReplayRecord& rec);
     bool BatchSaveReplays(const std::vector<ReplayRecord>& recs);
     bool HasReplay(const std::string& file_path);
+    bool HasValidReplay(const std::string& file_path);
+    std::vector<std::string> GetCorruptedReplayPaths();
+    void SanitizeInvalidPrestiges();
     int GetTotalReplayCount();
 
     // Query games for Games Tab

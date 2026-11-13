@@ -58,7 +58,9 @@ public:
     void Init();
     void LoadSettings();
     void SaveSettings();
-    void StartScanAsync();
+    void StartScanAsync(bool force_reparse);
+    void StartScanAsync() { StartScanAsync(false); }
+    void AutoRepairCorruptedReplaysAsync();
     void StopScan();
 
 private:

@@ -28,9 +28,12 @@ void AppState::Init() {
         SaveSettings();
     }
 
+    // Auto-repair any corrupted replays in background
+    AutoRepairCorruptedReplaysAsync();
+
     // Auto-start initial background scan if replays directory is configured
     if (!account_folder.empty() && std::filesystem::exists(Win32Utils::Utf8ToWide(account_folder))) {
-        StartScanAsync();
+        StartScanAsync(false);
     }
 }
 
@@ -83,7 +86,7 @@ void AppState::StopScan() {
     is_scanning = false;
 }
 
-void AppState::StartScanAsync() {
+void AppState::StartScanAsync(bool force_reparse) {
     if (is_scanning) return;
     StopScan();
 
@@ -92,7 +95,7 @@ void AppState::StartScanAsync() {
     scan_progress = 0;
     scan_total = 0;
 
-    m_scan_thread = std::thread([this]() {
+    m_scan_thread = std::thread([this, force_reparse]() {
         std::wstring root_w = Win32Utils::Utf8ToWide(account_folder);
         if (!std::filesystem::exists(root_w)) {
             is_scanning = false;
@@ -129,8 +132,8 @@ void AppState::StartScanAsync() {
 
             std::string u8path = Win32Utils::WideToUtf8(p.wstring());
 
-            // Check if already parsed
-            if (!Database::Instance().HasReplay(u8path)) {
+            // Check if parsing is needed
+            if (force_reparse || !Database::Instance().HasValidReplay(u8path)) {
                 auto parsed = ReplayParser::ParseFile(p.wstring());
                 if (parsed.has_value()) {
                     batch.push_back(parsed.value());
@@ -161,6 +164,35 @@ void AppState::StartScanAsync() {
         }
         is_scanning = false;
     });
+}
+
+void AppState::AutoRepairCorruptedReplaysAsync() {
+    std::thread([this]() {
+        auto corrupted = Database::Instance().GetCorruptedReplayPaths();
+        if (corrupted.empty()) return;
+
+        std::vector<ReplayRecord> batch;
+        for (const auto& u8path : corrupted) {
+            std::wstring wpath = Win32Utils::Utf8ToWide(u8path);
+            if (std::filesystem::exists(wpath)) {
+                auto parsed = ReplayParser::ParseFile(wpath);
+                if (parsed.has_value()) {
+                    batch.push_back(parsed.value());
+                    if (batch.size() >= 30) {
+                        Database::Instance().BatchSaveReplays(batch);
+                        batch.clear();
+                    }
+                }
+            }
+        }
+        if (!batch.empty()) {
+            Database::Instance().BatchSaveReplays(batch);
+            batch.clear();
+        }
+
+        // Clamp any remaining invalid values in DB (e.g. deleted files)
+        Database::Instance().SanitizeInvalidPrestiges();
+    }).detach();
 }
 
 } // namespace sc2

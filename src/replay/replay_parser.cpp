@@ -125,28 +125,28 @@ std::optional<ReplayRecord> ReplayParser::ParseFile(const std::wstring& replay_p
     std::vector<DecodedSlot> slots;
     if (MpqReader::ReadFile(replay_path, "replay.initData", initdata_bytes)) {
         slots = S2Decoder::DecodeInitDataSlots(initdata_bytes, cache_handles);
+        int bp0 = 0, bp1 = 0;
         if (slots.size() >= 1) {
             record.p1.commander = slots[0].commander.empty() ? "Unknown" : slots[0].commander;
-            record.p1.prestige = slots[0].prestige;
+            record.p1.prestige = (slots[0].prestige >= 0 && slots[0].prestige <= 3) ? slots[0].prestige : 0;
             record.p1.prestige_name = slots[0].prestige_name;
             record.p1.masteries = slots[0].masteries;
             record.p1.commander_level = slots[0].commander_level;
             if (slots[0].brutal_plus >= 1 && slots[0].brutal_plus <= 6) {
-                record.brutal_plus = slots[0].brutal_plus;
-            } else {
-                record.brutal_plus = 0;
+                bp0 = slots[0].brutal_plus;
             }
         }
         if (slots.size() >= 2) {
             record.p2.commander = slots[1].commander.empty() ? "Unknown" : slots[1].commander;
-            record.p2.prestige = slots[1].prestige;
+            record.p2.prestige = (slots[1].prestige >= 0 && slots[1].prestige <= 3) ? slots[1].prestige : 0;
             record.p2.prestige_name = slots[1].prestige_name;
             record.p2.masteries = slots[1].masteries;
             record.p2.commander_level = slots[1].commander_level;
-            if (record.brutal_plus == 0 && slots[1].brutal_plus >= 1 && slots[1].brutal_plus <= 6) {
-                record.brutal_plus = slots[1].brutal_plus;
+            if (slots[1].brutal_plus >= 1 && slots[1].brutal_plus <= 6) {
+                bp1 = slots[1].brutal_plus;
             }
         }
+        record.brutal_plus = std::max(bp0, bp1);
     }
 
     // Determine difficulty string

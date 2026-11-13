@@ -100,9 +100,6 @@ bool Database::Open(const std::string& db_path) {
     // Auto-migrate schema: add details_json if older DB exists
     sqlite3_exec(m_db, "ALTER TABLE replays ADD COLUMN details_json TEXT;", nullptr, nullptr, nullptr);
 
-    // Auto-clean any historically corrupted brutal_plus values (> 6 or < 0)
-    sqlite3_exec(m_db, "UPDATE replays SET brutal_plus = 0, difficulty = 'Brutal' WHERE brutal_plus > 6 OR brutal_plus < 0;", nullptr, nullptr, nullptr);
-
     return true;
 }
 
@@ -197,6 +194,45 @@ bool Database::HasReplay(const std::string& file_path) {
     bool exists = (sqlite3_step(stmt) == SQLITE_ROW);
     sqlite3_finalize(stmt);
     return exists;
+}
+
+bool Database::HasValidReplay(const std::string& file_path) {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    if (!m_db) return false;
+    const char* sql = "SELECT 1 FROM replays WHERE file_path = ? AND p1_prestige >= 0 AND p1_prestige <= 3 AND p2_prestige >= 0 AND p2_prestige <= 3 AND brutal_plus >= 0 AND brutal_plus <= 6 AND p1_commander != 'Unknown' LIMIT 1;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+
+    sqlite3_bind_text(stmt, 1, file_path.c_str(), -1, SQLITE_TRANSIENT);
+    bool valid = (sqlite3_step(stmt) == SQLITE_ROW);
+    sqlite3_finalize(stmt);
+    return valid;
+}
+
+std::vector<std::string> Database::GetCorruptedReplayPaths() {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    std::vector<std::string> paths;
+    if (!m_db) return paths;
+
+    const char* sql = "SELECT file_path FROM replays WHERE p1_prestige < 0 OR p1_prestige > 3 OR p2_prestige < 0 OR p2_prestige > 3 OR brutal_plus < 0 OR brutal_plus > 6;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            const unsigned char* p = sqlite3_column_text(stmt, 0);
+            if (p) paths.push_back(reinterpret_cast<const char*>(p));
+        }
+        sqlite3_finalize(stmt);
+    }
+    return paths;
+}
+
+void Database::SanitizeInvalidPrestiges() {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    if (!m_db) return;
+    const char* sql = "UPDATE replays SET p1_prestige = 0 WHERE p1_prestige < 0 OR p1_prestige > 3;"
+                      "UPDATE replays SET p2_prestige = 0 WHERE p2_prestige < 0 OR p2_prestige > 3;"
+                      "UPDATE replays SET brutal_plus = 0 WHERE brutal_plus < 0 OR brutal_plus > 6;";
+    sqlite3_exec(m_db, sql, nullptr, nullptr, nullptr);
 }
 
 int Database::GetTotalReplayCount() {

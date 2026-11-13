@@ -80,7 +80,11 @@ void TabSettings::Render(AppState& state) {
         }
     } else {
         if (ImGui::Button("Rescan Library Now", ImVec2(160, 26))) {
-            state.StartScanAsync();
+            state.StartScanAsync(false);
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Re-parse All Replays", ImVec2(170, 26))) {
+            state.StartScanAsync(true);
         }
         ImGui::SameLine();
         if (ImGui::Button("Export Database to JSON", ImVec2(180, 26))) {
