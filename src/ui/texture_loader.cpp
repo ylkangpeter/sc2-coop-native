@@ -1,9 +1,11 @@
 #include "texture_loader.h"
+#include "../utils/win32_utils.h"
+#include <windows.h>
 
+#define STBI_WINDOWS_UTF8
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb/stb_image.h>
 #include <iostream>
-#include <filesystem>
 
 namespace sc2 {
 
@@ -41,7 +43,8 @@ ImTextureID TextureLoader::GetTexture(const std::string& file_path, int* out_wid
         return (ImTextureID)(intptr_t)it->second.srv;
     }
 
-    if (!std::filesystem::exists(file_path)) {
+    std::wstring wpath = Win32Utils::Utf8ToWide(file_path);
+    if (GetFileAttributesW(wpath.c_str()) == INVALID_FILE_ATTRIBUTES) {
         return (ImTextureID)0;
     }
 

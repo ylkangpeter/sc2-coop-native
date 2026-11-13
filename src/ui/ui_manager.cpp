@@ -255,7 +255,7 @@ void UIManager::LoadFonts() {
 
     ImFont* font = nullptr;
     for (const char* p : font_paths) {
-        if (std::filesystem::exists(p)) {
+        if (GetFileAttributesA(p) != INVALID_FILE_ATTRIBUTES) {
             font = io.Fonts->AddFontFromFileTTF(p, font_size, nullptr, io.Fonts->GetGlyphRangesChineseSimplifiedCommon());
             if (font) break;
         }
