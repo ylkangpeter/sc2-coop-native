@@ -11,6 +11,9 @@
 namespace sc2 {
 
 int TabStats::s_sub_tab = 0;
+bool TabStats::s_cache_valid = false;
+StatsFilter TabStats::s_last_filter;
+StatsSummary TabStats::s_cached_summary;
 
 void TabStats::Render(AppState& state) {
     // 1. Top Filters Bar
@@ -36,12 +39,23 @@ void TabStats::Render(AppState& state) {
     ImGui::SameLine();
     ImGui::Checkbox("CN", &state.stats_filter.region_cn);
 
+    ImGui::SameLine(820);
+    if (ImGui::SmallButton("Refresh##Stats")) {
+        s_cache_valid = false;
+    }
+
     ImGui::Spacing();
     ImGui::Separator();
     ImGui::Spacing();
 
-    // 2. Fetch Aggregated Stats
-    auto summary = Database::Instance().CalculateStats(state.stats_filter);
+    // 2. Fetch Aggregated Stats (Cached - only recalculate when filters change or cache invalidated)
+    bool filter_changed = !s_cache_valid || (s_last_filter != state.stats_filter);
+    if (filter_changed) {
+        s_cached_summary = Database::Instance().CalculateStats(state.stats_filter);
+        s_last_filter = state.stats_filter;
+        s_cache_valid = true;
+    }
+    const auto& summary = s_cached_summary;
 
     // Games found count
     ImGui::TextColored(ImVec4(0.3f, 0.9f, 0.4f, 1.0f), "Games found: %d", summary.total_games);

@@ -12,13 +12,24 @@
 namespace sc2 {
 
 char TabWeeklies::s_search_buf[128] = {0};
+bool TabWeeklies::s_cache_valid = false;
+std::unordered_map<int, Database::WeeklyRecord> TabWeeklies::s_cached_records;
 
 void TabWeeklies::Render(AppState& state) {
+    if (!s_cache_valid) {
+        s_cached_records = Database::Instance().QueryAllWeeklyRecords();
+        s_cache_valid = true;
+    }
+
     ImGui::SetNextItemWidth(350);
     ImGui::InputTextWithHint("##SearchWeeklies", "Filter by title, map, or mutator...", s_search_buf, sizeof(s_search_buf));
     ImGui::SameLine();
     if (ImGui::Button("Clear", ImVec2(60, 0))) {
         s_search_buf[0] = '\0';
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Refresh##Weeklies", ImVec2(70, 0))) {
+        s_cache_valid = false;
     }
     ImGui::SameLine();
     ImGui::TextDisabled("(Catalog of %zu Weekly Mutations)", kWeeklyMutations.size());
@@ -118,16 +129,13 @@ void TabWeeklies::Render(AppState& state) {
 
             // Col 4: Personal Record
             ImGui::TableSetColumnIndex(4);
-            std::vector<std::string> muts_vec;
-            for (const char* m : wm.mutators) muts_vec.emplace_back(m);
-            auto record = Database::Instance().QueryWeeklyRecord(wm.map_name, muts_vec);
-
-            if (record.wins > 0 || record.losses > 0) {
-                ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.4f, 1.0f), "%dW", record.wins);
+            auto it = s_cached_records.find(wm.week_number);
+            if (it != s_cached_records.end() && (it->second.wins > 0 || it->second.losses > 0)) {
+                ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.4f, 1.0f), "%dW", it->second.wins);
                 ImGui::SameLine();
-                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%dL", record.losses);
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%dL", it->second.losses);
                 ImGui::SameLine();
-                ImGui::TextDisabled("(%.0f%%)", record.winrate);
+                ImGui::TextDisabled("(%.0f%%)", it->second.winrate);
             } else {
                 ImGui::TextDisabled("Unplayed");
             }

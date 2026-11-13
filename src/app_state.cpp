@@ -2,6 +2,8 @@
 #include "db/database.h"
 #include "replay/replay_parser.h"
 #include "utils/win32_utils.h"
+#include "ui/tabs/tab_stats.h"
+#include "ui/tabs/tab_weeklies.h"
 
 #include <windows.h>
 #include <filesystem>
@@ -162,6 +164,8 @@ void AppState::StartScanAsync(bool force_reparse) {
             std::lock_guard<std::mutex> lock(scan_status_mutex);
             scan_status_message = "Scan complete (" + std::to_string(scan_total.load()) + " total replays)";
         }
+        TabStats::InvalidateCache();
+        TabWeeklies::InvalidateCache();
         is_scanning = false;
     });
 }
@@ -192,6 +196,9 @@ void AppState::AutoRepairCorruptedReplaysAsync() {
 
         // Clamp any remaining invalid values in DB (e.g. deleted files)
         Database::Instance().SanitizeInvalidPrestiges();
+
+        TabStats::InvalidateCache();
+        TabWeeklies::InvalidateCache();
     }).detach();
 }
 

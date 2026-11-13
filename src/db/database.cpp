@@ -4,7 +4,9 @@
 #include <fstream>
 #include <sstream>
 #include <algorithm>
+#include <cstring>
 #include "../replay/replay_parser.h"
+#include "../data/weekly_mutations.h"
 
 namespace sc2 {
 
@@ -609,169 +611,196 @@ StatsSummary Database::CalculateStats(const StatsFilter& filter) {
         where_clause += " AND p2_name LIKE '%" + escape_sql(filter.ally_name_filter) + "%'";
     }
 
-    // Overall win / loss count
-    std::string sql_total = "SELECT COUNT(*), "
-                            "SUM(CASE WHEN result='Victory' THEN 1 ELSE 0 END), "
-                            "SUM(CASE WHEN result='Defeat' THEN 1 ELSE 0 END) "
-                            "FROM replays" + where_clause + ";";
-    sqlite3_stmt* s_tot = nullptr;
-    if (sqlite3_prepare_v2(m_db, sql_total.c_str(), -1, &s_tot, nullptr) == SQLITE_OK) {
-        if (sqlite3_step(s_tot) == SQLITE_ROW) {
-            sum.total_games = sqlite3_column_int(s_tot, 0);
-            sum.total_wins = sqlite3_column_int(s_tot, 1);
-            sum.total_losses = sqlite3_column_int(s_tot, 2);
-            if (sum.total_games > 0) {
-                sum.overall_winrate = (100.0 * sum.total_wins) / sum.total_games;
-            }
-        }
-        sqlite3_finalize(s_tot);
+    // Unified Single-Pass Query across the filtered dataset
+    std::string sql = "SELECT map_name, result, duration_seconds, p1_commander, p1_apm, p2_commander, p2_apm, difficulty, brutal_plus, region FROM replays" + where_clause + ";";
+
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(m_db, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+        return sum;
     }
 
-    // Maps breakdown
-    std::string sql_maps = "SELECT map_name, "
-                           "MIN(duration_seconds) as fastest, "
-                           "AVG(duration_seconds) as avg_dur, "
-                           "SUM(CASE WHEN result='Victory' THEN 1 ELSE 0 END) as wins, "
-                           "SUM(CASE WHEN result='Defeat' THEN 1 ELSE 0 END) as losses, "
-                           "COUNT(*) as total "
-                           "FROM replays" + where_clause + " "
-                           "GROUP BY map_name "
-                           "ORDER BY total DESC;";
-    sqlite3_stmt* s_maps = nullptr;
-    if (sqlite3_prepare_v2(m_db, sql_maps.c_str(), -1, &s_maps, nullptr) == SQLITE_OK) {
-        while (sqlite3_step(s_maps) == SQLITE_ROW) {
-            MapStat ms;
-            ms.map_name = reinterpret_cast<const char*>(sqlite3_column_text(s_maps, 0));
-            ms.fastest_seconds = sqlite3_column_int(s_maps, 1);
-            ms.fastest_str = ReplayParser::FormatDuration(ms.fastest_seconds);
-            ms.avg_seconds = sqlite3_column_int(s_maps, 2);
-            ms.avg_str = ReplayParser::FormatDuration(ms.avg_seconds);
-            ms.wins = sqlite3_column_int(s_maps, 3);
-            ms.losses = sqlite3_column_int(s_maps, 4);
-            int tot = sqlite3_column_int(s_maps, 5);
-            ms.winrate = tot > 0 ? (100.0 * ms.wins / tot) : 0.0;
-            ms.frequency = sum.total_games > 0 ? (100.0 * tot / sum.total_games) : 0.0;
-            sum.maps.push_back(ms);
+    struct MapAcc {
+        int fastest_seconds = 0;
+        int64_t total_seconds = 0;
+        int wins = 0;
+        int losses = 0;
+    };
+    std::unordered_map<std::string, MapAcc> map_map;
+
+    struct CmdrAcc {
+        int total_games = 0;
+        int wins = 0;
+        int losses = 0;
+        int64_t total_apm = 0;
+    };
+    std::unordered_map<std::string, CmdrAcc> p1_map;
+    std::unordered_map<std::string, CmdrAcc> p2_map;
+
+    struct DiffAcc {
+        int wins = 0;
+        int losses = 0;
+        int total = 0;
+    };
+    std::unordered_map<std::string, DiffAcc> diff_map;
+
+    struct RegAcc {
+        int wins = 0;
+        int losses = 0;
+        int total = 0;
+    };
+    std::unordered_map<std::string, RegAcc> reg_map;
+
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        const char* m_str = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+        const char* r_str = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+        int dur = sqlite3_column_int(stmt, 2);
+        const char* p1c_str = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));
+        int p1_apm = sqlite3_column_int(stmt, 4);
+        const char* p2c_str = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 5));
+        int p2_apm = sqlite3_column_int(stmt, 6);
+        const char* diff_str = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 7));
+        int bp = sqlite3_column_int(stmt, 8);
+        const char* reg_str = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 9));
+
+        std::string map_name = m_str ? m_str : "Unknown";
+        std::string result = r_str ? r_str : "Defeat";
+        bool is_victory = (result == "Victory");
+
+        sum.total_games++;
+        if (is_victory) sum.total_wins++;
+        else sum.total_losses++;
+
+        // Maps
+        auto& ma = map_map[map_name];
+        if (is_victory) ma.wins++; else ma.losses++;
+        ma.total_seconds += dur;
+        if (dur > 0 && (ma.fastest_seconds == 0 || dur < ma.fastest_seconds)) {
+            ma.fastest_seconds = dur;
         }
-        sqlite3_finalize(s_maps);
+
+        // P1 Commander
+        if (p1c_str && p1c_str[0] != '\0' && strcmp(p1c_str, "Unknown") != 0) {
+            auto& c = p1_map[p1c_str];
+            c.total_games++;
+            if (is_victory) c.wins++; else c.losses++;
+            c.total_apm += p1_apm;
+        }
+
+        // P2 Commander
+        if (p2c_str && p2c_str[0] != '\0' && strcmp(p2c_str, "Unknown") != 0) {
+            auto& c = p2_map[p2c_str];
+            c.total_games++;
+            if (is_victory) c.wins++; else c.losses++;
+            c.total_apm += p2_apm;
+        }
+
+        // Difficulty
+        std::string d_label;
+        if (bp >= 1 && bp <= 6) {
+            d_label = "Brutal+" + std::to_string(bp);
+        } else if (diff_str) {
+            d_label = diff_str;
+        }
+        if (!d_label.empty() && d_label.find('/') == std::string::npos) {
+            auto& da = diff_map[d_label];
+            da.total++;
+            if (is_victory) da.wins++; else da.losses++;
+        }
+
+        // Region
+        if (reg_str && (strcmp(reg_str, "NA") == 0 || strcmp(reg_str, "EU") == 0 || strcmp(reg_str, "KR") == 0 || strcmp(reg_str, "CN") == 0)) {
+            auto& ra = reg_map[reg_str];
+            ra.total++;
+            if (is_victory) ra.wins++; else ra.losses++;
+        }
+    }
+    sqlite3_finalize(stmt);
+
+    if (sum.total_games > 0) {
+        sum.overall_winrate = (100.0 * sum.total_wins) / sum.total_games;
     }
 
-    // My commanders breakdown (P1)
-    std::string sql_com = "SELECT p1_commander, "
-                          "COUNT(*) as total, "
-                          "SUM(CASE WHEN result='Victory' THEN 1 ELSE 0 END) as wins, "
-                          "SUM(CASE WHEN result='Defeat' THEN 1 ELSE 0 END) as losses, "
-                          "AVG(p1_apm) as avg_apm "
-                          "FROM replays" + where_clause + " AND p1_commander != '' AND p1_commander != 'Unknown' "
-                          "GROUP BY p1_commander "
-                          "ORDER BY total DESC;";
-    sqlite3_stmt* s_com = nullptr;
-    if (sqlite3_prepare_v2(m_db, sql_com.c_str(), -1, &s_com, nullptr) == SQLITE_OK) {
-        while (sqlite3_step(s_com) == SQLITE_ROW) {
-            CommanderStat cs;
-            cs.commander = reinterpret_cast<const char*>(sqlite3_column_text(s_com, 0));
-            cs.total_games = sqlite3_column_int(s_com, 1);
-            cs.wins = sqlite3_column_int(s_com, 2);
-            cs.losses = sqlite3_column_int(s_com, 3);
-            cs.winrate = cs.total_games > 0 ? (100.0 * cs.wins / cs.total_games) : 0.0;
-            cs.frequency = sum.total_games > 0 ? (100.0 * cs.total_games / sum.total_games) : 0.0;
-            cs.avg_apm = sqlite3_column_int(s_com, 4);
-            sum.my_commanders.push_back(cs);
-        }
-        sqlite3_finalize(s_com);
+    // Populate maps sorted by total games descending
+    for (auto& [name, acc] : map_map) {
+        MapStat ms;
+        ms.map_name = name;
+        ms.fastest_seconds = acc.fastest_seconds;
+        ms.fastest_str = ReplayParser::FormatDuration(acc.fastest_seconds);
+        int tot = acc.wins + acc.losses;
+        ms.avg_seconds = tot > 0 ? static_cast<int>(acc.total_seconds / tot) : 0;
+        ms.avg_str = ReplayParser::FormatDuration(ms.avg_seconds);
+        ms.wins = acc.wins;
+        ms.losses = acc.losses;
+        ms.winrate = tot > 0 ? (100.0 * ms.wins / tot) : 0.0;
+        ms.frequency = sum.total_games > 0 ? (100.0 * tot / sum.total_games) : 0.0;
+        sum.maps.push_back(std::move(ms));
     }
+    std::sort(sum.maps.begin(), sum.maps.end(), [](const MapStat& a, const MapStat& b) {
+        return (a.wins + a.losses) > (b.wins + b.losses);
+    });
 
-    // Allied commanders breakdown (P2)
-    std::string sql_ally_com = "SELECT p2_commander, "
-                               "COUNT(*) as total, "
-                               "SUM(CASE WHEN result='Victory' THEN 1 ELSE 0 END) as wins, "
-                               "SUM(CASE WHEN result='Defeat' THEN 1 ELSE 0 END) as losses, "
-                               "AVG(p2_apm) as avg_apm "
-                               "FROM replays" + where_clause + " AND p2_commander != '' AND p2_commander != 'Unknown' "
-                               "GROUP BY p2_commander "
-                               "ORDER BY total DESC;";
-    sqlite3_stmt* s_acom = nullptr;
-    if (sqlite3_prepare_v2(m_db, sql_ally_com.c_str(), -1, &s_acom, nullptr) == SQLITE_OK) {
-        while (sqlite3_step(s_acom) == SQLITE_ROW) {
-            CommanderStat cs;
-            cs.commander = reinterpret_cast<const char*>(sqlite3_column_text(s_acom, 0));
-            cs.total_games = sqlite3_column_int(s_acom, 1);
-            cs.wins = sqlite3_column_int(s_acom, 2);
-            cs.losses = sqlite3_column_int(s_acom, 3);
-            cs.winrate = cs.total_games > 0 ? (100.0 * cs.wins / cs.total_games) : 0.0;
-            cs.frequency = sum.total_games > 0 ? (100.0 * cs.total_games / sum.total_games) : 0.0;
-            cs.avg_apm = sqlite3_column_int(s_acom, 4);
-            sum.ally_commanders.push_back(cs);
-        }
-        sqlite3_finalize(s_acom);
+    // Populate P1 commanders sorted by total descending
+    for (auto& [cmdr, acc] : p1_map) {
+        CommanderStat cs;
+        cs.commander = cmdr;
+        cs.total_games = acc.total_games;
+        cs.wins = acc.wins;
+        cs.losses = acc.losses;
+        cs.winrate = acc.total_games > 0 ? (100.0 * acc.wins / acc.total_games) : 0.0;
+        cs.frequency = sum.total_games > 0 ? (100.0 * acc.total_games / sum.total_games) : 0.0;
+        cs.avg_apm = acc.total_games > 0 ? static_cast<int>(acc.total_apm / acc.total_games) : 0;
+        sum.my_commanders.push_back(std::move(cs));
     }
+    std::sort(sum.my_commanders.begin(), sum.my_commanders.end(), [](const CommanderStat& a, const CommanderStat& b) {
+        return a.total_games > b.total_games;
+    });
 
-    // Difficulty breakdown (matches Python SCO StatsTab)
+    // Populate P2 commanders sorted by total descending
+    for (auto& [cmdr, acc] : p2_map) {
+        CommanderStat cs;
+        cs.commander = cmdr;
+        cs.total_games = acc.total_games;
+        cs.wins = acc.wins;
+        cs.losses = acc.losses;
+        cs.winrate = acc.total_games > 0 ? (100.0 * acc.wins / acc.total_games) : 0.0;
+        cs.frequency = sum.total_games > 0 ? (100.0 * acc.total_games / sum.total_games) : 0.0;
+        cs.avg_apm = acc.total_games > 0 ? static_cast<int>(acc.total_apm / acc.total_games) : 0;
+        sum.ally_commanders.push_back(std::move(cs));
+    }
+    std::sort(sum.ally_commanders.begin(), sum.ally_commanders.end(), [](const CommanderStat& a, const CommanderStat& b) {
+        return a.total_games > b.total_games;
+    });
+
+    // Difficulty breakdown
     const std::vector<std::string> kDifficulties = {
         "Casual", "Normal", "Hard", "Brutal",
         "Brutal+1", "Brutal+2", "Brutal+3", "Brutal+4", "Brutal+5", "Brutal+6"
     };
-
-    std::string sql_diff = "SELECT "
-                           "CASE WHEN (brutal_plus >= 1 AND brutal_plus <= 6) THEN 'Brutal+' || brutal_plus ELSE difficulty END as d_label, "
-                           "SUM(CASE WHEN result='Victory' THEN 1 ELSE 0 END) as wins, "
-                           "SUM(CASE WHEN result='Defeat' THEN 1 ELSE 0 END) as losses, "
-                           "COUNT(*) as total "
-                           "FROM replays" + where_clause + " "
-                           "AND difficulty NOT LIKE '%/%' "
-                           "GROUP BY d_label;";
-    sqlite3_stmt* s_diff = nullptr;
-    std::unordered_map<std::string, DifficultyStat> diff_map;
-    if (sqlite3_prepare_v2(m_db, sql_diff.c_str(), -1, &s_diff, nullptr) == SQLITE_OK) {
-        while (sqlite3_step(s_diff) == SQLITE_ROW) {
-            std::string label = reinterpret_cast<const char*>(sqlite3_column_text(s_diff, 0));
-            DifficultyStat ds;
-            ds.difficulty = label;
-            ds.wins = sqlite3_column_int(s_diff, 1);
-            ds.losses = sqlite3_column_int(s_diff, 2);
-            ds.total = sqlite3_column_int(s_diff, 3);
-            ds.winrate = ds.total > 0 ? (100.0 * ds.wins / ds.total) : 0.0;
-            diff_map[label] = ds;
-        }
-        sqlite3_finalize(s_diff);
-    }
-
     for (const auto& d : kDifficulties) {
         auto it = diff_map.find(d);
         if (it != diff_map.end()) {
-            sum.difficulties.push_back(it->second);
+            DifficultyStat ds;
+            ds.difficulty = d;
+            ds.wins = it->second.wins;
+            ds.losses = it->second.losses;
+            ds.total = it->second.total;
+            ds.winrate = ds.total > 0 ? (100.0 * ds.wins / ds.total) : 0.0;
+            sum.difficulties.push_back(std::move(ds));
         }
     }
 
-    // Region breakdown (matches Python SCO StatsTab)
+    // Region breakdown
     const std::vector<std::string> kRegions = {"NA", "EU", "KR", "CN"};
-    std::string sql_reg = "SELECT region, "
-                          "SUM(CASE WHEN result='Victory' THEN 1 ELSE 0 END) as wins, "
-                          "SUM(CASE WHEN result='Defeat' THEN 1 ELSE 0 END) as losses, "
-                          "COUNT(*) as total "
-                          "FROM replays" + where_clause + " "
-                          "AND region IN ('NA', 'EU', 'KR', 'CN') "
-                          "GROUP BY region;";
-    sqlite3_stmt* s_reg = nullptr;
-    std::unordered_map<std::string, RegionStat> reg_map;
-    if (sqlite3_prepare_v2(m_db, sql_reg.c_str(), -1, &s_reg, nullptr) == SQLITE_OK) {
-        while (sqlite3_step(s_reg) == SQLITE_ROW) {
-            std::string reg = reinterpret_cast<const char*>(sqlite3_column_text(s_reg, 0));
-            RegionStat rs;
-            rs.region = reg;
-            rs.wins = sqlite3_column_int(s_reg, 1);
-            rs.losses = sqlite3_column_int(s_reg, 2);
-            rs.total = sqlite3_column_int(s_reg, 3);
-            rs.winrate = rs.total > 0 ? (100.0 * rs.wins / rs.total) : 0.0;
-            reg_map[reg] = rs;
-        }
-        sqlite3_finalize(s_reg);
-    }
-
     for (const auto& r : kRegions) {
         auto it = reg_map.find(r);
         if (it != reg_map.end()) {
-            sum.regions.push_back(it->second);
+            RegionStat rs;
+            rs.region = r;
+            rs.wins = it->second.wins;
+            rs.losses = it->second.losses;
+            rs.total = it->second.total;
+            rs.winrate = rs.total > 0 ? (100.0 * rs.wins / rs.total) : 0.0;
+            sum.regions.push_back(std::move(rs));
         }
     }
 
@@ -825,6 +854,74 @@ Database::WeeklyRecord Database::QueryWeeklyRecord(const std::string& map_name, 
         wr.winrate = (100.0 * wr.wins) / tot;
     }
     return wr;
+}
+
+std::unordered_map<int, Database::WeeklyRecord> Database::QueryAllWeeklyRecords() {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    std::unordered_map<int, WeeklyRecord> result;
+    if (!m_db) return result;
+
+    const char* sql = "SELECT result, difficulty, file_path, map_name, mutators_json FROM replays WHERE is_weekly = 1 OR (mutators_json IS NOT NULL AND mutators_json != '[]' AND mutators_json != '');";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+        return result;
+    }
+
+    struct ReplayWeeklyItem {
+        std::string result;
+        std::string difficulty;
+        std::string file_path;
+        std::string map_name;
+        std::string mutators_json;
+    };
+    std::vector<ReplayWeeklyItem> items;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        ReplayWeeklyItem it;
+        const char* r = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+        const char* d = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+        const char* f = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
+        const char* m = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));
+        const char* mj = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4));
+        if (r) it.result = r;
+        if (d) it.difficulty = d;
+        if (f) it.file_path = f;
+        if (m) it.map_name = m;
+        if (mj) it.mutators_json = mj;
+        items.push_back(std::move(it));
+    }
+    sqlite3_finalize(stmt);
+
+    if (items.empty()) return result;
+
+    for (const auto& wm : kWeeklyMutations) {
+        WeeklyRecord wr;
+        for (const auto& item : items) {
+            if (item.map_name != wm.map_name) continue;
+            bool all_matched = true;
+            for (const char* mut : wm.mutators) {
+                if (item.mutators_json.find(mut) == std::string::npos) {
+                    all_matched = false;
+                    break;
+                }
+            }
+            if (all_matched) {
+                if (item.result == "Victory") {
+                    wr.wins++;
+                    wr.highest_diff = item.difficulty;
+                } else {
+                    wr.losses++;
+                }
+                wr.replay_files.push_back(item.file_path);
+            }
+        }
+        if (wr.wins > 0 || wr.losses > 0) {
+            int tot = wr.wins + wr.losses;
+            wr.winrate = tot > 0 ? (100.0 * wr.wins / tot) : 0.0;
+            result[wm.week_number] = std::move(wr);
+        }
+    }
+
+    return result;
 }
 
 bool Database::DumpAllToJson(const std::string& output_path) {

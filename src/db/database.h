@@ -2,6 +2,7 @@
 
 #include <string>
 #include <vector>
+#include <unordered_map>
 #include <memory>
 #include <optional>
 #include <mutex>
@@ -70,6 +71,27 @@ struct StatsFilter {
     int min_length_minutes = 0;
     int max_length_minutes = 1000;
     std::string ally_name_filter;
+
+    bool operator==(const StatsFilter& o) const {
+        return casual == o.casual &&
+               normal == o.normal &&
+               hard == o.hard &&
+               brutal == o.brutal &&
+               brutal_plus == o.brutal_plus &&
+               region_na == o.region_na &&
+               region_eu == o.region_eu &&
+               region_kr == o.region_kr &&
+               region_cn == o.region_cn &&
+               normal_games == o.normal_games &&
+               mutations == o.mutations &&
+               wins_only == o.wins_only &&
+               date_from == o.date_from &&
+               date_to == o.date_to &&
+               min_length_minutes == o.min_length_minutes &&
+               max_length_minutes == o.max_length_minutes &&
+               ally_name_filter == o.ally_name_filter;
+    }
+    bool operator!=(const StatsFilter& o) const { return !(*this == o); }
 };
 
 struct DifficultyStat {
@@ -152,6 +174,7 @@ public:
         std::vector<std::string> replay_files;
     };
     WeeklyRecord QueryWeeklyRecord(const std::string& map_name, const std::vector<std::string>& mutators);
+    std::unordered_map<int, WeeklyRecord> QueryAllWeeklyRecords();
 
     // Export
     bool DumpAllToJson(const std::string& output_path);
