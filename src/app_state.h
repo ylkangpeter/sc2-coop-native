@@ -16,7 +16,8 @@ public:
 
     // Settings
     std::string account_folder;
-    int language = 0; // 0 = Chinese (Simplified, default), 1 = English
+    std::string language_code = "zh_CN"; // default Chinese (Simplified)
+    int language = 0; // backward compatibility index
     bool start_minimized = false;
     bool minimize_to_tray = true;
     bool start_with_windows = false;

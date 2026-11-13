@@ -1,36 +1,44 @@
 #pragma once
 
 #include <string>
-#include <string_view>
+#include <vector>
 #include <unordered_map>
 
 namespace sc2 {
 
-enum class Language : int {
-    Chinese = 0,
-    English = 1
+struct LanguageMeta {
+    std::string code;      // e.g. "zh_CN", "en_US"
+    std::string name;      // e.g. "简体中文", "English"
+    std::string file_path; // filesystem path to language resource file
 };
 
 class I18n {
 public:
-    static Language s_language;
+    static void Init(const std::string& default_lang = "zh_CN");
+    static void RefreshLanguages();
+    static const std::vector<LanguageMeta>& GetAvailableLanguages();
+    static bool SetLanguage(const std::string& code);
+    static bool SetLanguageByIndex(int index);
+    static int GetCurrentLanguageIndex();
+    static std::string GetCurrentLanguageCode();
+    static bool IsChinese();
 
-    static inline Language GetLanguage() { return s_language; }
-    static inline void SetLanguage(Language lang) { s_language = lang; }
-    static inline bool IsChinese() { return s_language == Language::Chinese; }
-
-    // Fast bilingual translation inline: returns zh if Chinese, en if English
-    static inline const char* Text(const char* zh, const char* en) {
-        return (s_language == Language::Chinese) ? zh : en;
-    }
-
-    // Key lookup translation (returns key if not found or if English)
+    // Primary translation lookup: retrieves localized text for key from loaded lang file
     static const char* Get(const char* key);
+    static const char* Get(const char* key, const char* fallback);
+
+    // Transition helper for dual-literal calls
+    static const char* Text(const char* zh, const char* en);
 };
 
-// Global shorthand for inline bilingual text
-inline const char* TR(const char* zh, const char* en) {
-    return I18n::Text(zh, en);
+// Global shorthand: TR("key")
+inline const char* TR(const char* key) {
+    return I18n::Get(key);
+}
+
+// Global shorthand: TR("key", "fallback")
+inline const char* TR(const char* key, const char* fallback) {
+    return I18n::Get(key, fallback);
 }
 
 } // namespace sc2

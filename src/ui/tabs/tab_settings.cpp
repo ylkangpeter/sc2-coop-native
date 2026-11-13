@@ -15,26 +15,32 @@ namespace sc2 {
 
 void TabSettings::Render(AppState& state) {
     // 0. Language Selector (at the very top)
-    ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "%s", TR("界面语言 / Language", "Interface Language / 界面语言"));
+    ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "%s", TR("Interface Language"));
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(180);
-    const char* lang_options[] = { "简体中文 (Chinese)", "English" };
-    int current_lang = state.language;
-    if (ImGui::Combo("##LanguageSwitcher", &current_lang, lang_options, IM_ARRAYSIZE(lang_options))) {
+    ImGui::SetNextItemWidth(220);
+
+    const auto& available_langs = I18n::GetAvailableLanguages();
+    std::vector<const char*> lang_options;
+    for (const auto& l : available_langs) {
+        lang_options.push_back(l.name.c_str());
+    }
+
+    int current_lang = I18n::GetCurrentLanguageIndex();
+    if (!lang_options.empty() && ImGui::Combo("##LanguageSwitcher", &current_lang, lang_options.data(), static_cast<int>(lang_options.size()))) {
+        I18n::SetLanguageByIndex(current_lang);
+        state.language_code = I18n::GetCurrentLanguageCode();
         state.language = current_lang;
-        I18n::SetLanguage(static_cast<Language>(state.language));
         state.SaveSettings();
     }
 
     ImGui::Spacing();
-    ImGui::TextDisabled("%s", TR("配置路径、后台扫描器、全局快捷键及系统偏好设置。",
-                                 "Configure paths, background scanner, global hotkeys, and system preferences."));
+    ImGui::TextDisabled("%s", TR("Settings_Subtitle"));
     ImGui::Spacing();
     ImGui::Separator();
     ImGui::Spacing();
 
     // 1. Account Folder Section
-    ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "%s", TR("星际争霸II战报与账号目录", "StarCraft II Replays & Account Directory"));
+    ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "%s", TR("StarCraft II Replays & Account Directory"));
     ImGui::Spacing();
 
     static char folder_buf[512] = {0};
@@ -48,8 +54,8 @@ void TabSettings::Render(AppState& state) {
         state.SaveSettings();
     }
     ImGui::SameLine();
-    if (ImGui::Button(TR("浏览...", "Browse..."), ImVec2(90, 0))) {
-        std::string chosen = Win32Utils::SelectFolderDialog(nullptr, TR("选择星际争霸II账号目录", "Select StarCraft II Accounts Folder"));
+    if (ImGui::Button(TR("Browse..."), ImVec2(90, 0))) {
+        std::string chosen = Win32Utils::SelectFolderDialog(nullptr, TR("StarCraft II Replays & Account Directory"));
         if (!chosen.empty()) {
             state.account_folder = chosen;
             strncpy_s(folder_buf, chosen.c_str(), sizeof(folder_buf) - 1);
@@ -57,7 +63,7 @@ void TabSettings::Render(AppState& state) {
         }
     }
     ImGui::SameLine();
-    if (ImGui::Button(TR("自动检测", "Auto Detect"), ImVec2(100, 0))) {
+    if (ImGui::Button(TR("Auto Detect"), ImVec2(100, 0))) {
         std::string detected = Win32Utils::FindDefaultAccountsFolder();
         if (!detected.empty()) {
             state.account_folder = detected;
@@ -71,11 +77,11 @@ void TabSettings::Render(AppState& state) {
     ImGui::Spacing();
 
     // 2. Replay Scanner Status & Controls
-    ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "%s", TR("战报库与数据库索引", "Replay Library & Database"));
+    ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "%s", TR("Replay Library & Database"));
     ImGui::Spacing();
 
     int total_db_replays = Database::Instance().GetTotalReplayCount();
-    ImGui::Text(TR("已收录战报总数: %d 场", "Total Replays Indexed in Database: %d"), total_db_replays);
+    ImGui::Text(TR("Total Replays Indexed in Database: %d"), total_db_replays);
 
     if (state.is_scanning) {
         int prog = state.scan_progress.load();
@@ -90,19 +96,19 @@ void TabSettings::Render(AppState& state) {
 
         ImGui::ProgressBar(fraction, ImVec2(350, 22), status.c_str());
         ImGui::SameLine();
-        if (ImGui::Button(TR("停止扫描", "Stop Scan"), ImVec2(90, 22))) {
+        if (ImGui::Button(TR("Stop Scan"), ImVec2(90, 22))) {
             state.StopScan();
         }
     } else {
-        if (ImGui::Button(TR("增量扫描新战报", "Rescan Library Now"), ImVec2(160, 26))) {
+        if (ImGui::Button(TR("Rescan Library Now"), ImVec2(160, 26))) {
             state.StartScanAsync(false);
         }
         ImGui::SameLine();
-        if (ImGui::Button(TR("重新解析全部战报", "Re-parse All Replays"), ImVec2(170, 26))) {
+        if (ImGui::Button(TR("Re-parse All Replays"), ImVec2(170, 26))) {
             state.StartScanAsync(true);
         }
         ImGui::SameLine();
-        if (ImGui::Button(TR("导出数据库至JSON", "Export Database to JSON"), ImVec2(180, 26))) {
+        if (ImGui::Button(TR("Export Database to JSON"), ImVec2(180, 26))) {
             Database::Instance().DumpAllToJson("replay_data_dump.json");
             ShellExecuteW(nullptr, L"open", L"explorer.exe", L"/select,replay_data_dump.json", nullptr, SW_SHOWNORMAL);
         }
@@ -113,27 +119,27 @@ void TabSettings::Render(AppState& state) {
     ImGui::Spacing();
 
     // 3. Post-Game Summary & In-Game Overlay
-    ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "%s", TR("赛后战报与游戏内浮窗", "Post-Game Summary & In-Game Overlay"));
+    ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "%s", TR("Post-Game Summary & In-Game Overlay"));
     ImGui::Spacing();
 
-    if (ImGui::Checkbox(TR("每场比赛结束后自动弹出战报浮窗", "Auto-show Match Summary Overlay after each game"), &state.auto_show_summary)) {
+    if (ImGui::Checkbox(TR("Auto-show Match Summary Overlay after each game"), &state.auto_show_summary)) {
         state.SaveSettings();
     }
     ImGui::SameLine(460);
-    if (ImGui::Button(TR("呼出/隐藏战报预览", "Toggle Summary Preview"), ImVec2(180, 24))) {
+    if (ImGui::Button(TR("Toggle Summary Preview"), ImVec2(180, 24))) {
         SummaryOverlay::Instance().Toggle();
     }
 
-    if (ImGui::Checkbox(TR("进游戏或开始时显示盟友胜率与备注信息", "Show in-game Ally Winrate & Notes Toast on match start"), &state.show_ally_hud)) {
+    if (ImGui::Checkbox(TR("Show in-game Ally Winrate & Notes Toast on match start"), &state.show_ally_hud)) {
         state.SaveSettings();
     }
     ImGui::SameLine(460);
-    if (ImGui::Button(TR("呼出/隐藏盟友浮窗", "Toggle Ally Toast Preview"), ImVec2(180, 24))) {
+    if (ImGui::Button(TR("Toggle Ally Toast Preview"), ImVec2(180, 24))) {
         AllyToastWindow::Instance().Toggle();
     }
 
     ImGui::SetNextItemWidth(200);
-    if (ImGui::SliderInt(TR("浮窗自动驻留时长 (秒)", "Overlay Display Duration (seconds)"), &state.hud_duration_seconds, 5, 60)) {
+    if (ImGui::SliderInt(TR("Overlay Display Duration (seconds)"), &state.hud_duration_seconds, 5, 60)) {
         state.SaveSettings();
     }
 
@@ -142,10 +148,9 @@ void TabSettings::Render(AppState& state) {
     ImGui::Spacing();
 
     // 4. Global Hotkeys Section (Customizable, NO F10/F11 defaults)
-    ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "%s", TR("全局系统快捷键 (游戏内与桌面均有效)", "Global System Hotkeys (In-Game & Desktop)"));
+    ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "%s", TR("Global System Hotkeys (In-Game & Desktop)"));
     ImGui::Spacing();
-    ImGui::TextDisabled("%s", TR("这些快捷键在星际争霸II运行中或桌面上全局生效。点击右侧按键可直接按下新键进行自定义修改：",
-                                 "These hotkeys work globally while in StarCraft II or on desktop. Click to customize:"));
+    ImGui::TextDisabled("%s", TR("Hotkey_Description"));
     ImGui::Spacing();
 
     static int s_recording_action = -1; // 1 = Summary, 2 = Ally, 3 = Prev, 4 = Next
@@ -202,8 +207,8 @@ void TabSettings::Render(AppState& state) {
         }
     }
 
-    auto RenderHotkeyRow = [&](const char* label_zh, const char* label_en, bool& enabled, UINT mod, UINT vk, int action_id) {
-        if (ImGui::Checkbox(TR(label_zh, label_en), &enabled)) {
+    auto RenderHotkeyRow = [&](const char* label_key, bool& enabled, UINT mod, UINT vk, int action_id) {
+        if (ImGui::Checkbox(TR(label_key), &enabled)) {
             state.SaveSettings();
             HotkeyManager::Instance().RegisterAll();
         }
@@ -211,7 +216,7 @@ void TabSettings::Render(AppState& state) {
 
         std::string btn_label;
         if (s_recording_action == action_id) {
-            btn_label = TR("[ 请按下新按键... (Esc取消) ]", "[ Press keys... (Esc to cancel) ]");
+            btn_label = std::string("[ ") + TR("Press key combo... (Esc to cancel)") + " ]";
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.85f, 0.25f, 0.25f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
         } else {
@@ -233,13 +238,13 @@ void TabSettings::Render(AppState& state) {
         }
     };
 
-    RenderHotkeyRow("呼出/隐藏战报浮窗", "Toggle Match Summary Overlay", state.hotkey_summary_enabled, state.hotkey_summary_mod, state.hotkey_summary_vk, 1);
-    RenderHotkeyRow("呼出/隐藏盟友胜率及备注", "Toggle Ally Winrate & Notes Toast", state.hotkey_ally_enabled, state.hotkey_ally_mod, state.hotkey_ally_vk, 2);
-    RenderHotkeyRow("翻看上一场比赛战报", "Browse Older Match Summary", state.hotkey_nav_enabled, state.hotkey_prev_mod, state.hotkey_prev_vk, 3);
-    RenderHotkeyRow("翻看下一场比赛战报", "Browse Newer Match Summary", state.hotkey_nav_enabled, state.hotkey_next_mod, state.hotkey_next_vk, 4);
+    RenderHotkeyRow("Toggle Match Summary Overlay", state.hotkey_summary_enabled, state.hotkey_summary_mod, state.hotkey_summary_vk, 1);
+    RenderHotkeyRow("Toggle Ally Winrate & Notes Toast", state.hotkey_ally_enabled, state.hotkey_ally_mod, state.hotkey_ally_vk, 2);
+    RenderHotkeyRow("Browse Older Match Summary", state.hotkey_nav_enabled, state.hotkey_prev_mod, state.hotkey_prev_vk, 3);
+    RenderHotkeyRow("Browse Newer Match Summary", state.hotkey_nav_enabled, state.hotkey_next_mod, state.hotkey_next_vk, 4);
 
     ImGui::Spacing();
-    if (ImGui::Button(TR("恢复默认快捷键", "Reset Default Hotkeys"), ImVec2(180, 25))) {
+    if (ImGui::Button(TR("Reset Default Hotkeys"), ImVec2(180, 25))) {
         state.hotkey_summary_mod = MOD_CONTROL | MOD_SHIFT;
         state.hotkey_summary_vk = 'H';
         state.hotkey_ally_mod = MOD_CONTROL | MOD_ALT;
@@ -258,22 +263,22 @@ void TabSettings::Render(AppState& state) {
     ImGui::Spacing();
 
     // 5. System Preferences
-    ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "%s", TR("首选项与系统集成", "Preferences & System Integration"));
+    ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "%s", TR("Preferences & System Integration"));
     ImGui::Spacing();
 
-    if (ImGui::Checkbox(TR("开机自动启动", "Start with Windows"), &state.start_with_windows)) {
+    if (ImGui::Checkbox(TR("Start with Windows"), &state.start_with_windows)) {
         state.SaveSettings();
     }
     ImGui::SameLine(250);
-    if (ImGui::Checkbox(TR("启动时最小化", "Start Minimized"), &state.start_minimized)) {
+    if (ImGui::Checkbox(TR("Start Minimized"), &state.start_minimized)) {
         state.SaveSettings();
     }
 
-    if (ImGui::Checkbox(TR("关闭主窗口时最小化到系统托盘", "Minimize to System Tray on Close"), &state.minimize_to_tray)) {
+    if (ImGui::Checkbox(TR("Minimize to System Tray on Close"), &state.minimize_to_tray)) {
         state.SaveSettings();
     }
     ImGui::SameLine(250);
-    if (ImGui::Checkbox(TR("启用应用运行日志", "Enable App Logging"), &state.enable_logging)) {
+    if (ImGui::Checkbox(TR("Enable App Logging"), &state.enable_logging)) {
         state.SaveSettings();
     }
 
@@ -283,8 +288,7 @@ void TabSettings::Render(AppState& state) {
 
     // 6. About & Version Info
     ImGui::TextDisabled("StarCraft II Co-op Native v1.0.0 (DirectX 11 + Dear ImGui + SQLite3)");
-    ImGui::TextDisabled("%s", TR("极速、完全离线、零隐私追踪的星际争霸II合作任务赛后分析与盟友记录工具。",
-                                 "Fast, offline, zero-telemetry co-op match analyzer and player tracker."));
+    ImGui::TextDisabled("%s", TR("About_Description"));
 }
 
 } // namespace sc2

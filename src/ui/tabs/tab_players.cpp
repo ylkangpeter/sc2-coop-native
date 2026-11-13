@@ -2,6 +2,7 @@
 #include "../../app_state.h"
 #include "../../db/database.h"
 #include "../../utils/win32_utils.h"
+#include "../../i18n/i18n.h"
 
 #include <imgui.h>
 #include <vector>
@@ -16,25 +17,25 @@ void TabPlayers::Render(AppState& state) {
     // 1. Search Bar & Controls
     ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 420);
     bool search_changed = ImGui::InputTextWithHint("##SearchPlayers",
-                             "Search by player name or note keywords...",
+                             TR("Search_Players_Hint"),
                              state.players_search_buf, sizeof(state.players_search_buf));
     if (search_changed) {
         s_current_page = 0;
     }
 
     ImGui::SameLine();
-    if (ImGui::Button("Clear", ImVec2(60, 0))) {
+    if (ImGui::Button(TR("Clear"), ImVec2(60, 0))) {
         state.players_search_buf[0] = '\0';
         s_current_page = 0;
     }
 
     ImGui::SameLine();
-    ImGui::Text("Sort:");
+    ImGui::Text("%s", TR("Sort:"));
     ImGui::SameLine();
-    const char* sort_items[] = {"Wins", "Losses", "Winrate", "APM", "Name"};
+    const char* sort_items[] = { TR("Wins"), TR("Losses"), TR("Winrate"), TR("APM"), TR("Name") };
     static int sort_idx = 0;
     ImGui::SetNextItemWidth(100);
-    if (ImGui::Combo("##SortCombo", &sort_idx, sort_items, IM_ARRAYSIZE(sort_items))) {
+    if (ImGui::Combo("##SortCombo", &sort_idx, sort_items, 5)) {
         if (sort_idx == 0) s_sort_column = "wins";
         else if (sort_idx == 1) s_sort_column = "losses";
         else if (sort_idx == 2) s_sort_column = "winrate";
@@ -44,7 +45,7 @@ void TabPlayers::Render(AppState& state) {
     }
 
     ImGui::SameLine();
-    if (ImGui::Checkbox(s_sort_ascending ? "Asc" : "Desc", &s_sort_ascending)) {
+    if (ImGui::Checkbox(s_sort_ascending ? TR("Asc") : TR("Desc"), &s_sort_ascending)) {
         s_current_page = 0;
     }
 
@@ -73,14 +74,14 @@ void TabPlayers::Render(AppState& state) {
     float table_height = ImGui::GetContentRegionAvail().y - 36.0f;
     if (ImGui::BeginTable("PlayersTable", 8, table_flags, ImVec2(0, table_height))) {
         ImGui::TableSetupScrollFreeze(0, 1);
-        ImGui::TableSetupColumn("Player Name", ImGuiTableColumnFlags_WidthStretch);
-        ImGui::TableSetupColumn("Games", ImGuiTableColumnFlags_WidthFixed, 60.0f);
-        ImGui::TableSetupColumn("Wins", ImGuiTableColumnFlags_WidthFixed, 55.0f);
-        ImGui::TableSetupColumn("Losses", ImGuiTableColumnFlags_WidthFixed, 55.0f);
-        ImGui::TableSetupColumn("Winrate", ImGuiTableColumnFlags_WidthFixed, 75.0f);
-        ImGui::TableSetupColumn("APM", ImGuiTableColumnFlags_WidthFixed, 55.0f);
-        ImGui::TableSetupColumn("Player Note", ImGuiTableColumnFlags_WidthStretch);
-        ImGui::TableSetupColumn("Actions", ImGuiTableColumnFlags_WidthFixed, 100.0f);
+        ImGui::TableSetupColumn(TR("Player Name"), ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn(TR("Games"), ImGuiTableColumnFlags_WidthFixed, 60.0f);
+        ImGui::TableSetupColumn(TR("Wins"), ImGuiTableColumnFlags_WidthFixed, 55.0f);
+        ImGui::TableSetupColumn(TR("Losses"), ImGuiTableColumnFlags_WidthFixed, 55.0f);
+        ImGui::TableSetupColumn(TR("Winrate"), ImGuiTableColumnFlags_WidthFixed, 75.0f);
+        ImGui::TableSetupColumn(TR("APM"), ImGuiTableColumnFlags_WidthFixed, 55.0f);
+        ImGui::TableSetupColumn(TR("Player Note"), ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn(TR("Actions"), ImGuiTableColumnFlags_WidthFixed, 100.0f);
         ImGui::TableHeadersRow();
 
         for (size_t i = 0; i < players.size(); ++i) {
@@ -137,7 +138,7 @@ void TabPlayers::Render(AppState& state) {
             // Col 7: Actions
             ImGui::TableSetColumnIndex(7);
             ImGui::PushID(static_cast<int>(i * 10 + 2));
-            if (ImGui::SmallButton("Find Games")) {
+            if (ImGui::SmallButton(TR("Find Games"))) {
                 strncpy_s(state.games_search_buf, p.name.c_str(), sizeof(state.games_search_buf) - 1);
                 state.request_tab_switch = 1; // switch to Games tab
             }
@@ -149,22 +150,22 @@ void TabPlayers::Render(AppState& state) {
 
     // 4. Pagination Footer
     ImGui::Separator();
-    ImGui::Text("Page %d of %d (Total: %d players)", s_current_page + 1, total_pages, total_records);
+    ImGui::Text(TR("page_players_format"), s_current_page + 1, total_pages, total_records);
     ImGui::SameLine(ImGui::GetContentRegionAvail().x - 240);
 
-    if (ImGui::Button("<< First") && s_current_page > 0) {
+    if (ImGui::Button(TR("<< First")) && s_current_page > 0) {
         s_current_page = 0;
     }
     ImGui::SameLine();
-    if (ImGui::Button("< Prev") && s_current_page > 0) {
+    if (ImGui::Button(TR("< Prev")) && s_current_page > 0) {
         s_current_page--;
     }
     ImGui::SameLine();
-    if (ImGui::Button("Next >") && s_current_page < total_pages - 1) {
+    if (ImGui::Button(TR("Next >")) && s_current_page < total_pages - 1) {
         s_current_page++;
     }
     ImGui::SameLine();
-    if (ImGui::Button("Last >>") && s_current_page < total_pages - 1) {
+    if (ImGui::Button(TR("Last >>")) && s_current_page < total_pages - 1) {
         s_current_page = total_pages - 1;
     }
 }

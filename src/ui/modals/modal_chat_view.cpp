@@ -1,5 +1,6 @@
 #include "modal_chat_view.h"
 #include "../../app_state.h"
+#include "../../i18n/i18n.h"
 
 #include <imgui.h>
 
@@ -7,7 +8,7 @@ namespace sc2 {
 
 void ModalChatView::Render(AppState& state) {
     if (state.show_chat_modal) {
-        ImGui::OpenPopup("In-Game Chat Log");
+        ImGui::OpenPopup(TR("Replay Chat Log"));
     }
 
     ImVec2 center = ImGui::GetMainViewport()->GetCenter();
@@ -19,7 +20,7 @@ void ModalChatView::Render(AppState& state) {
                                          ImGuiWindowFlags_NoScrollbar |
                                          ImGuiWindowFlags_NoSavedSettings;
 
-    if (ImGui::BeginPopupModal("In-Game Chat Log", &state.show_chat_modal, modal_flags)) {
+    if (ImGui::BeginPopupModal(TR("Replay Chat Log"), &state.show_chat_modal, modal_flags)) {
         const auto& r = state.chat_replay;
 
         // Title and Game Info Header
@@ -42,7 +43,7 @@ void ModalChatView::Render(AppState& state) {
         ImGui::BeginChild("FullChatPane", ImVec2(0, child_h), true);
         if (r.chat.empty()) {
             ImGui::Spacing();
-            ImGui::TextDisabled("  No in-game text messages recorded for this match.");
+            ImGui::TextDisabled("  %s", TR("No in-game text messages recorded for this match."));
         } else {
             for (const auto& msg : r.chat) {
                 int mm = static_cast<int>(msg.time_seconds) / 60;
@@ -62,7 +63,7 @@ void ModalChatView::Render(AppState& state) {
 
         // Right-align the Close button
         ImGui::SetCursorPosX(ImGui::GetWindowWidth() - btn_w - ImGui::GetStyle().WindowPadding.x);
-        if (ImGui::Button("Close", ImVec2(btn_w, btn_h))) {
+        if (ImGui::Button(TR("Close"), ImVec2(btn_w, btn_h))) {
             state.show_chat_modal = false;
             ImGui::CloseCurrentPopup();
         }

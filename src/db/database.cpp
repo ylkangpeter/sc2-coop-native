@@ -5,6 +5,7 @@
 #include <sstream>
 #include <algorithm>
 #include <cstring>
+#include <unordered_set>
 #include "../replay/replay_parser.h"
 #include "../replay/mpq_reader.h"
 #include "../replay/s2_decoder.h"
@@ -106,6 +107,16 @@ bool Database::Open(const std::string& db_path) {
     sqlite3_exec(m_db, "ALTER TABLE replays ADD COLUMN details_json TEXT;", nullptr, nullptr, nullptr);
 
     RepairWeeklyMutationsIfNeeded();
+
+    // Sanitize corrupted historical commander names
+    sqlite3_exec(m_db,
+        "UPDATE replays SET p1_commander = 'Unknown' WHERE p1_commander NOT IN ('Raynor', 'Kerrigan', 'Artanis', 'Swann', 'Zagara', 'Vorazun', 'Karax', 'Abathur', 'Alarak', 'Nova', 'Stukov', 'Fenix', 'Dehaka', 'HanHorner', 'Horner', 'Tychus', 'Zeratul', 'Stetmann', 'Mengsk', 'Unknown');",
+        nullptr, nullptr, nullptr);
+    sqlite3_exec(m_db,
+        "UPDATE replays SET p2_commander = 'Unknown' WHERE p2_commander NOT IN ('Raynor', 'Kerrigan', 'Artanis', 'Swann', 'Zagara', 'Vorazun', 'Karax', 'Abathur', 'Alarak', 'Nova', 'Stukov', 'Fenix', 'Dehaka', 'HanHorner', 'Horner', 'Tychus', 'Zeratul', 'Stetmann', 'Mengsk', 'Unknown');",
+        nullptr, nullptr, nullptr);
+    sqlite3_exec(m_db, "UPDATE replays SET p1_commander = 'HanHorner' WHERE p1_commander = 'Horner';", nullptr, nullptr, nullptr);
+    sqlite3_exec(m_db, "UPDATE replays SET p2_commander = 'HanHorner' WHERE p2_commander = 'Horner';", nullptr, nullptr, nullptr);
 
     return true;
 }
@@ -655,6 +666,12 @@ StatsSummary Database::CalculateStats(const StatsFilter& filter) {
     };
     std::unordered_map<std::string, RegAcc> reg_map;
 
+    static const std::unordered_set<std::string> kKnownCommanders = {
+        "Raynor", "Kerrigan", "Artanis", "Swann", "Zagara", "Vorazun",
+        "Karax", "Abathur", "Alarak", "Nova", "Stukov", "Fenix",
+        "Dehaka", "HanHorner", "Tychus", "Zeratul", "Stetmann", "Mengsk"
+    };
+
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         const char* m_str = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
         const char* r_str = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
@@ -685,18 +702,24 @@ StatsSummary Database::CalculateStats(const StatsFilter& filter) {
 
         // P1 Commander
         if (p1c_str && p1c_str[0] != '\0' && strcmp(p1c_str, "Unknown") != 0) {
-            auto& c = p1_map[p1c_str];
-            c.total_games++;
-            if (is_victory) c.wins++; else c.losses++;
-            c.total_apm += p1_apm;
+            std::string cmdr = (strcmp(p1c_str, "Horner") == 0) ? "HanHorner" : p1c_str;
+            if (kKnownCommanders.count(cmdr)) {
+                auto& c = p1_map[cmdr];
+                c.total_games++;
+                if (is_victory) c.wins++; else c.losses++;
+                c.total_apm += p1_apm;
+            }
         }
 
         // P2 Commander
         if (p2c_str && p2c_str[0] != '\0' && strcmp(p2c_str, "Unknown") != 0) {
-            auto& c = p2_map[p2c_str];
-            c.total_games++;
-            if (is_victory) c.wins++; else c.losses++;
-            c.total_apm += p2_apm;
+            std::string cmdr = (strcmp(p2c_str, "Horner") == 0) ? "HanHorner" : p2c_str;
+            if (kKnownCommanders.count(cmdr)) {
+                auto& c = p2_map[cmdr];
+                c.total_games++;
+                if (is_victory) c.wins++; else c.losses++;
+                c.total_apm += p2_apm;
+            }
         }
 
         // Difficulty

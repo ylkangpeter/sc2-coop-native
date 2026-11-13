@@ -515,7 +515,14 @@ private:
         if (buf.read_bits(1) != 0) DecodeInt(0, 4, buf);
         // 19: m_commander (type 46: blob 9 bits)
         size_t cmdr_len = static_cast<size_t>(DecodeInt(0, 9, buf));
-        slot.commander = buf.read_aligned_bytes(cmdr_len);
+        std::string raw_cmdr = buf.read_aligned_bytes(cmdr_len);
+        if (raw_cmdr == "Horner") {
+            slot.commander = "HanHorner";
+        } else if (kKnownCommanders.find(raw_cmdr) != kKnownCommanders.end()) {
+            slot.commander = raw_cmdr;
+        } else {
+            slot.commander = "Unknown";
+        }
         // 20: m_commanderLevel (type 6: int 32 bits)
         slot.commander_level = static_cast<int>(DecodeInt(0, 32, buf));
         // 21: m_hasSilencePenalty (type 13: bool)

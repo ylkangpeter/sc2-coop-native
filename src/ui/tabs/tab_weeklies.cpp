@@ -4,6 +4,7 @@
 #include "../../data/weekly_mutations.h"
 #include "../../data/cached_mutators.h"
 #include "../../data/sc2_constants.h"
+#include "../../i18n/i18n.h"
 #include "../texture_loader.h"
 
 #include <imgui.h>
@@ -45,20 +46,20 @@ void TabWeeklies::Render(AppState& state) {
     ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.12f, 0.15f, 0.20f, 0.95f));
     ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.25f, 0.50f, 0.85f, 0.7f));
     if (ImGui::BeginChild("CurrentWeeklyBanner", ImVec2(0, 78), true)) {
-        ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.5f, 1.0f), "● Active Weekly Mutation");
+        ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.5f, 1.0f), "%s", TR("Active Weekly Mutation"));
         ImGui::SameLine();
-        ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "Week #%d: %s", curr_wm.week_number, curr_wm.title);
+        ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), TR("Week_Format"), curr_wm.week_number, curr_wm.title);
         ImGui::SameLine();
-        ImGui::TextDisabled("|  Map: %s", curr_wm.map_name);
+        ImGui::TextDisabled(TR("Map_Format"), curr_wm.map_name);
 
         ImGui::SameLine(ImGui::GetWindowWidth() - 165);
-        if (ImGui::Button("Locate Active Week", ImVec2(150, 24))) {
+        if (ImGui::Button(TR("Locate Active Week"), ImVec2(150, 24))) {
             s_locate_target_week = curr_wm.week_number;
         }
 
         ImGui::Spacing();
         ImGui::AlignTextToFramePadding();
-        ImGui::TextDisabled("Mutators:");
+        ImGui::TextDisabled("%s", TR("Mutators:"));
         ImGui::SameLine();
 
         for (size_t m_idx = 0; m_idx < curr_wm.mutators.size(); ++m_idx) {
@@ -70,7 +71,7 @@ void TabWeeklies::Render(AppState& state) {
             }
             int pts = GetMutatorPoint(mut);
             if (pts >= 0) {
-                ImGui::Text("%s (%d pts)", mut, pts);
+                ImGui::Text("%s (%d %s)", mut, pts, TR("pts"));
             } else {
                 ImGui::Text("%s", mut);
             }
@@ -83,14 +84,14 @@ void TabWeeklies::Render(AppState& state) {
 
         ImGui::SameLine(ImGui::GetWindowWidth() - 320);
         if (curr_wm.score >= 0) {
-            ImGui::Text("Score: ");
+            ImGui::Text("%s", TR("Score: "));
             ImGui::SameLine();
             ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "%d", curr_wm.score);
         } else {
-            ImGui::TextDisabled("Score: -");
+            ImGui::TextDisabled("%s", TR("Score: -"));
         }
         ImGui::SameLine();
-        ImGui::Text("  Tier: ");
+        ImGui::Text("%s", TR("Tier: "));
         ImGui::SameLine();
         ImGui::TextColored(GetTierColor(curr_wm.tier), "%s", curr_wm.tier);
     }
@@ -102,17 +103,17 @@ void TabWeeklies::Render(AppState& state) {
 
     // 2. Search & Controls Bar
     ImGui::SetNextItemWidth(350);
-    ImGui::InputTextWithHint("##SearchWeeklies", "Filter by title, map, or mutator...", s_search_buf, sizeof(s_search_buf));
+    ImGui::InputTextWithHint("##SearchWeeklies", TR("Search_Weeklies_Hint"), s_search_buf, sizeof(s_search_buf));
     ImGui::SameLine();
-    if (ImGui::Button("Clear", ImVec2(60, 0))) {
+    if (ImGui::Button(TR("Clear"), ImVec2(60, 0))) {
         s_search_buf[0] = '\0';
     }
     ImGui::SameLine();
-    if (ImGui::Button("Refresh##Weeklies", ImVec2(70, 0))) {
+    if (ImGui::Button(TR("Refresh Records"), ImVec2(90, 0))) {
         s_cache_valid = false;
     }
     ImGui::SameLine();
-    ImGui::TextDisabled("(Catalog of %zu Weekly Mutations)", kWeeklyMutations.size());
+    ImGui::TextDisabled(TR("Catalog_Count_Format"), kWeeklyMutations.size());
 
     ImGui::Spacing();
     ImGui::Separator();
@@ -130,15 +131,15 @@ void TabWeeklies::Render(AppState& state) {
     // Table with 9 columns: Week, Rotation, Title, Map, Mutators, Score, Tier, Personal Record, Action
     if (ImGui::BeginTable("WeekliesTable", 9, table_flags)) {
         ImGui::TableSetupScrollFreeze(0, 1);
-        ImGui::TableSetupColumn("Week", ImGuiTableColumnFlags_WidthFixed, 45.0f);
-        ImGui::TableSetupColumn("Rotation", ImGuiTableColumnFlags_WidthFixed, 95.0f);
-        ImGui::TableSetupColumn("Title", ImGuiTableColumnFlags_WidthFixed, 170.0f);
-        ImGui::TableSetupColumn("Map", ImGuiTableColumnFlags_WidthFixed, 140.0f);
-        ImGui::TableSetupColumn("Mutators", ImGuiTableColumnFlags_WidthStretch);
-        ImGui::TableSetupColumn("Score", ImGuiTableColumnFlags_WidthFixed, 55.0f);
-        ImGui::TableSetupColumn("Tier", ImGuiTableColumnFlags_WidthFixed, 75.0f);
-        ImGui::TableSetupColumn("Personal Record", ImGuiTableColumnFlags_WidthFixed, 170.0f);
-        ImGui::TableSetupColumn("Action", ImGuiTableColumnFlags_WidthFixed, 80.0f);
+        ImGui::TableSetupColumn(TR("Week"), ImGuiTableColumnFlags_WidthFixed, 50.0f);
+        ImGui::TableSetupColumn(TR("Rotation"), ImGuiTableColumnFlags_WidthFixed, 95.0f);
+        ImGui::TableSetupColumn(TR("Title"), ImGuiTableColumnFlags_WidthFixed, 170.0f);
+        ImGui::TableSetupColumn(TR("Map"), ImGuiTableColumnFlags_WidthFixed, 140.0f);
+        ImGui::TableSetupColumn(TR("Mutators"), ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn(TR("Score"), ImGuiTableColumnFlags_WidthFixed, 55.0f);
+        ImGui::TableSetupColumn(TR("Tier"), ImGuiTableColumnFlags_WidthFixed, 75.0f);
+        ImGui::TableSetupColumn(TR("Personal Record"), ImGuiTableColumnFlags_WidthFixed, 170.0f);
+        ImGui::TableSetupColumn(TR("Action"), ImGuiTableColumnFlags_WidthFixed, 90.0f);
         ImGui::TableHeadersRow();
 
         for (size_t i = 0; i < kWeeklyMutations.size(); ++i) {
@@ -182,7 +183,7 @@ void TabWeeklies::Render(AppState& state) {
             // Col 1: Rotation / Upcoming Date
             ImGui::TableSetColumnIndex(1);
             if (static_cast<int>(i) == curr_idx) {
-                ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.5f, 1.0f), "● Active");
+                ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.5f, 1.0f), "%s", TR("Active"));
             } else {
                 std::string up_date = FormatUpcomingDate(static_cast<int>(i), now_ts);
                 ImGui::TextDisabled("%s", up_date.c_str());
@@ -272,13 +273,13 @@ void TabWeeklies::Render(AppState& state) {
                     ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Defeat (%dL)", rec.losses);
                 }
             } else {
-                ImGui::TextDisabled("Unplayed");
+                ImGui::TextDisabled("%s", TR("Unplayed"));
             }
 
             // Col 8: Action
             ImGui::TableSetColumnIndex(8);
             ImGui::PushID(static_cast<int>(i));
-            if (ImGui::SmallButton("View Games")) {
+            if (ImGui::SmallButton(TR("View Games"))) {
                 strncpy_s(state.games_search_buf, wm.map_name, sizeof(state.games_search_buf) - 1);
                 state.request_tab_switch = 1; // Switch to Games tab
             }

@@ -914,6 +914,16 @@ void SummaryOverlay::Render() {
     DrawSection(amon_y, "", "", 0, "",
                 {}, r.amon_units, 0, RGB(255, 51, 51), true, r.enemy_comp);
 
+    // Bottom Right: Match Timestamp (e.g. "2024-03-29 18:42")
+    if (!r.game_date.empty()) {
+        SelectObject(hdcMem, hFontUnit);
+        SetTextColor(hdcMem, RGB(140, 160, 185));
+        std::wstring time_text = ToWide(r.game_date);
+        int time_y = height - (int)(height * 0.030f);
+        RECT rcTime = { rx, time_y, rx + rw, height - (int)(height * 0.008f) };
+        DrawTextW(hdcMem, time_text.c_str(), -1, &rcTime, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
+    }
+
     // 4. Alpha Post-Processing Pass:
     // GDI DrawTextW/Polyline/MoveToEx/FillRect writes RGB with Alpha=0 into 32-bit DIBSection.
     // For UpdateLayeredWindow(ULW_ALPHA), restore proper pre-multiplied alpha channel

@@ -44,9 +44,14 @@ void AppState::LoadSettings() {
     auto& db = Database::Instance();
     account_folder = db.GetSetting("account_folder", "");
 
-    std::string lang_str = db.GetSetting("language", "0");
-    try { language = std::stoi(lang_str); } catch (...) { language = 0; }
-    I18n::SetLanguage(static_cast<Language>(language));
+    language_code = db.GetSetting("language_code", "");
+    if (language_code.empty()) {
+        std::string lang_str = db.GetSetting("language", "0");
+        try { language = std::stoi(lang_str); } catch (...) { language = 0; }
+        language_code = (language == 1) ? "en_US" : "zh_CN";
+    }
+    I18n::Init(language_code);
+    language = I18n::GetCurrentLanguageIndex();
 
     start_minimized = (db.GetSetting("start_minimized", "0") == "1");
     minimize_to_tray = (db.GetSetting("minimize_to_tray", "1") == "1");
@@ -96,8 +101,9 @@ void AppState::LoadSettings() {
 void AppState::SaveSettings() {
     auto& db = Database::Instance();
     db.SetSetting("account_folder", account_folder);
+    db.SetSetting("language_code", language_code);
     db.SetSetting("language", std::to_string(language));
-    I18n::SetLanguage(static_cast<Language>(language));
+    I18n::SetLanguage(language_code);
 
     db.SetSetting("start_minimized", start_minimized ? "1" : "0");
     db.SetSetting("minimize_to_tray", minimize_to_tray ? "1" : "0");

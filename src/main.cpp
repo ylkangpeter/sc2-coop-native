@@ -10,12 +10,48 @@
 static LONG WINAPI CrashHandler(EXCEPTION_POINTERS* pException) {
     std::ofstream f("crash_log.txt", std::ios::app);
     if (f.is_open()) {
-        f << "Unhandled Exception: 0x" << std::hex << pException->ExceptionRecord->ExceptionCode << std::endl;
-        f << "Address: 0x" << pException->ExceptionRecord->ExceptionAddress << std::endl;
+        SYSTEMTIME st;
+        GetLocalTime(&st);
+        f << "\n================ CRASH REPORT ================\n";
+        f << "Timestamp: " << st.wYear << "-" << st.wMonth << "-" << st.wDay << " "
+          << st.wHour << ":" << st.wMinute << ":" << st.wSecond << "." << st.wMilliseconds << "\n";
+        f << "Unhandled Exception: 0x" << std::hex << pException->ExceptionRecord->ExceptionCode << std::dec << "\n";
+        f << "Fault Address: " << pException->ExceptionRecord->ExceptionAddress << "\n";
+
+        HMODULE hMod = nullptr;
+        char modName[MAX_PATH] = "UnknownModule";
+        if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                               (LPCSTR)pException->ExceptionRecord->ExceptionAddress, &hMod) && hMod) {
+            GetModuleFileNameA(hMod, modName, MAX_PATH);
+        }
+        uintptr_t offset = (uintptr_t)pException->ExceptionRecord->ExceptionAddress - (uintptr_t)hMod;
+        f << "Fault Module: " << modName << " (+0x" << std::hex << offset << std::dec << ")\n";
+
+        if (pException->ExceptionRecord->ExceptionCode == 0xC0000005 && pException->ExceptionRecord->NumberParameters >= 2) {
+            ULONG_PTR op = pException->ExceptionRecord->ExceptionInformation[0];
+            ULONG_PTR targetAddr = pException->ExceptionRecord->ExceptionInformation[1];
+            const char* opStr = (op == 0) ? "READ" : ((op == 1) ? "WRITE" : "EXECUTE");
+            f << "Access Violation: " << opStr << " at address 0x" << std::hex << targetAddr << std::dec << "\n";
+        }
+
+        f << "Stack Backtrace:\n";
+        void* stack[32];
+        USHORT frames = CaptureStackBackTrace(0, 32, stack, nullptr);
+        for (USHORT i = 0; i < frames; ++i) {
+            HMODULE frameMod = nullptr;
+            char frameModName[MAX_PATH] = "Unknown";
+            if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                                   (LPCSTR)stack[i], &frameMod) && frameMod) {
+                GetModuleFileNameA(frameMod, frameModName, MAX_PATH);
+            }
+            uintptr_t frameOffset = (uintptr_t)stack[i] - (uintptr_t)frameMod;
+            f << "  #" << i << " " << stack[i] << " (" << frameModName << " + 0x" << std::hex << frameOffset << std::dec << ")\n";
+        }
+        f << "==============================================\n" << std::endl;
         f.close();
     }
     wchar_t buf[256];
-    wsprintfW(buf, L"Fatal Crash: Exception code 0x%08X at 0x%p.\nDetails written to crash_log.txt.",
+    wsprintfW(buf, L"Fatal Crash: Exception code 0x%08X at 0x%p.\nDetailed diagnostic backtrace written to crash_log.txt.",
               pException->ExceptionRecord->ExceptionCode, pException->ExceptionRecord->ExceptionAddress);
     MessageBoxW(nullptr, buf, L"SC2 Co-op Native Error", MB_ICONERROR | MB_OK);
     return EXCEPTION_EXECUTE_HANDLER;

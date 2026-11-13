@@ -18,8 +18,7 @@ int TabGames::s_current_page = 0;
 void TabGames::Render(AppState& state) {
     // 1. Search Bar & Controls Header
     ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 280);
-    const char* search_hint = TR("搜索地图、玩家、指挥官、难度、因子 (空格分隔多个关键词)...",
-                                 "Search by map, player, commander, difficulty, enemy, mutator (separate terms by space)...");
+    const char* search_hint = TR("Search_Games_Hint");
     bool search_changed = ImGui::InputTextWithHint("##SearchGames",
                              search_hint,
                              state.games_search_buf, sizeof(state.games_search_buf));
@@ -28,13 +27,13 @@ void TabGames::Render(AppState& state) {
     }
 
     ImGui::SameLine();
-    if (ImGui::Button(TR("清除", "Clear"), ImVec2(60, 0))) {
+    if (ImGui::Button(TR("Clear"), ImVec2(60, 0))) {
         state.games_search_buf[0] = '\0';
         s_current_page = 0;
     }
 
     ImGui::SameLine();
-    if (ImGui::Button(TR("刷新", "Refresh"), ImVec2(70, 0))) {
+    if (ImGui::Button(TR("Refresh"), ImVec2(70, 0))) {
         // Trigger re-query
     }
 
@@ -61,16 +60,16 @@ void TabGames::Render(AppState& state) {
     float table_height = ImGui::GetContentRegionAvail().y - 36.0f; // Leave space for pagination footer
     if (ImGui::BeginTable("GamesTable", 10, table_flags, ImVec2(0, table_height))) {
         ImGui::TableSetupScrollFreeze(0, 1);
-        ImGui::TableSetupColumn(TR("地图", "Map"), ImGuiTableColumnFlags_WidthFixed, 135.0f);
-        ImGui::TableSetupColumn(TR("模式", "Mode"), ImGuiTableColumnFlags_WidthFixed, 85.0f);
-        ImGui::TableSetupColumn(TR("结果", "Result"), ImGuiTableColumnFlags_WidthFixed, 65.0f);
-        ImGui::TableSetupColumn(TR("玩家 1", "Player 1"), ImGuiTableColumnFlags_WidthStretch);
-        ImGui::TableSetupColumn(TR("玩家 2 (盟友)", "Player 2 (Ally)"), ImGuiTableColumnFlags_WidthStretch);
-        ImGui::TableSetupColumn(TR("敌人", "Enemy"), ImGuiTableColumnFlags_WidthFixed, 65.0f);
-        ImGui::TableSetupColumn(TR("时长", "Length"), ImGuiTableColumnFlags_WidthFixed, 60.0f);
-        ImGui::TableSetupColumn(TR("难度", "Difficulty"), ImGuiTableColumnFlags_WidthFixed, 75.0f);
-        ImGui::TableSetupColumn(TR("日期", "Date"), ImGuiTableColumnFlags_WidthFixed, 120.0f);
-        ImGui::TableSetupColumn(TR("操作", "Actions"), ImGuiTableColumnFlags_WidthFixed, 160.0f);
+        ImGui::TableSetupColumn(TR("Map"), ImGuiTableColumnFlags_WidthFixed, 135.0f);
+        ImGui::TableSetupColumn(TR("Mode"), ImGuiTableColumnFlags_WidthFixed, 85.0f);
+        ImGui::TableSetupColumn(TR("Result"), ImGuiTableColumnFlags_WidthFixed, 65.0f);
+        ImGui::TableSetupColumn(TR("Player 1"), ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn(TR("Player 2 (Ally)"), ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn(TR("Enemy"), ImGuiTableColumnFlags_WidthFixed, 65.0f);
+        ImGui::TableSetupColumn(TR("Length"), ImGuiTableColumnFlags_WidthFixed, 60.0f);
+        ImGui::TableSetupColumn(TR("Difficulty"), ImGuiTableColumnFlags_WidthFixed, 75.0f);
+        ImGui::TableSetupColumn(TR("Date"), ImGuiTableColumnFlags_WidthFixed, 120.0f);
+        ImGui::TableSetupColumn(TR("Actions"), ImGuiTableColumnFlags_WidthFixed, 160.0f);
         ImGui::TableHeadersRow();
 
         for (size_t i = 0; i < replays.size(); ++i) {
@@ -79,32 +78,28 @@ void TabGames::Render(AppState& state) {
 
             // Col 0: Map
             ImGui::TableSetColumnIndex(0);
-            if (I18n::IsChinese() && !r.raw_map_name.empty()) {
-                ImGui::TextUnformatted(r.raw_map_name.c_str());
-            } else {
-                ImGui::TextUnformatted(r.map_name.c_str());
-            }
+            ImGui::TextUnformatted(TR(r.map_name.c_str()));
 
             // Col 1: Mode (Weekly, Custom Mut, Regular)
             ImGui::TableSetColumnIndex(1);
             if (r.is_weekly) {
-                ImGui::TextColored(ImVec4(0.85f, 0.45f, 1.0f, 1.0f), "%s", TR("周突变", "Weekly"));
+                ImGui::TextColored(ImVec4(0.85f, 0.45f, 1.0f, 1.0f), "%s", TR("Weekly"));
             } else if (!r.mutators.empty()) {
-                ImGui::TextColored(ImVec4(1.0f, 0.72f, 0.2f, 1.0f), "%s", TR("自定义突变", "Custom Mut"));
+                ImGui::TextColored(ImVec4(1.0f, 0.72f, 0.2f, 1.0f), "%s", TR("Custom Mut"));
             } else {
-                ImGui::TextColored(ImVec4(0.65f, 0.65f, 0.65f, 1.0f), "%s", TR("普通对局", "Regular"));
+                ImGui::TextColored(ImVec4(0.65f, 0.65f, 0.65f, 1.0f), "%s", TR("Regular"));
             }
 
             // Col 2: Result (Victory, Defeat, Tie, Unknown)
             ImGui::TableSetColumnIndex(2);
             if (r.result == "Victory") {
-                ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.4f, 1.0f), "%s", TR("胜利", "Victory"));
+                ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.4f, 1.0f), "%s", TR("Victory"));
             } else if (r.result == "Defeat") {
-                ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.35f, 1.0f), "%s", TR("失败", "Defeat"));
+                ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.35f, 1.0f), "%s", TR("Defeat"));
             } else if (r.result == "Tie") {
-                ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "%s", TR("平局", "Tie"));
+                ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "%s", TR("Tie"));
             } else {
-                ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "%s", TR("未知", "Unknown"));
+                ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "%s", TR("Unknown"));
             }
 
             // Col 3: Player 1
@@ -135,14 +130,7 @@ void TabGames::Render(AppState& state) {
 
             // Col 5: Enemy Race
             ImGui::TableSetColumnIndex(5);
-            if (I18n::IsChinese()) {
-                if (r.enemy_race == "Terran") ImGui::TextUnformatted("人类");
-                else if (r.enemy_race == "Zerg") ImGui::TextUnformatted("异虫");
-                else if (r.enemy_race == "Protoss") ImGui::TextUnformatted("星灵");
-                else ImGui::TextUnformatted(r.enemy_race.c_str());
-            } else {
-                ImGui::TextUnformatted(r.enemy_race.c_str());
-            }
+            ImGui::TextUnformatted(TR(r.enemy_race.c_str()));
 
             // Col 6: Length
             ImGui::TableSetColumnIndex(6);
@@ -166,7 +154,7 @@ void TabGames::Render(AppState& state) {
             ImGui::TableSetColumnIndex(9);
             ImGui::PushID(static_cast<int>(i));
 
-            if (ImGui::SmallButton(TR("详情", "Detail"))) {
+            if (ImGui::SmallButton(TR("Detail"))) {
                 state.detail_replay = r;
                 if (state.detail_replay.chat.empty()) {
                     std::wstring wpath = Win32Utils::Utf8ToWide(state.detail_replay.file_path);
@@ -207,7 +195,7 @@ void TabGames::Render(AppState& state) {
             if (has_chat) {
                 ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.2f, 1.0f, 0.4f, 1.0f));
             }
-            bool chat_clicked = ImGui::SmallButton(TR("聊天", "Chat"));
+            bool chat_clicked = ImGui::SmallButton(TR("Chat"));
             if (has_chat) {
                 ImGui::PopStyleColor();
             }
@@ -249,7 +237,7 @@ void TabGames::Render(AppState& state) {
                 state.show_chat_modal = true;
             }
             ImGui::SameLine();
-            if (ImGui::SmallButton(TR("文件", "File"))) {
+            if (ImGui::SmallButton(TR("File"))) {
                 Win32Utils::RevealFileInExplorer(r.file_path);
             }
 
@@ -261,26 +249,22 @@ void TabGames::Render(AppState& state) {
 
     // 4. Pagination Footer
     ImGui::Separator();
-    if (I18n::IsChinese()) {
-        ImGui::Text("第 %d / %d 页 (共 %d 场比赛)", s_current_page + 1, total_pages, total_records);
-    } else {
-        ImGui::Text("Page %d of %d (Total: %d games)", s_current_page + 1, total_pages, total_records);
-    }
+    ImGui::Text(TR("page_info_format"), s_current_page + 1, total_pages, total_records);
     ImGui::SameLine(ImGui::GetContentRegionAvail().x - 240);
 
-    if (ImGui::Button(TR("<< 首页", "<< First")) && s_current_page > 0) {
+    if (ImGui::Button(TR("<< First")) && s_current_page > 0) {
         s_current_page = 0;
     }
     ImGui::SameLine();
-    if (ImGui::Button(TR("< 上页", "< Prev")) && s_current_page > 0) {
+    if (ImGui::Button(TR("< Prev")) && s_current_page > 0) {
         s_current_page--;
     }
     ImGui::SameLine();
-    if (ImGui::Button(TR("下页 >", "Next >")) && s_current_page < total_pages - 1) {
+    if (ImGui::Button(TR("Next >")) && s_current_page < total_pages - 1) {
         s_current_page++;
     }
     ImGui::SameLine();
-    if (ImGui::Button(TR("尾页 >>", "Last >>")) && s_current_page < total_pages - 1) {
+    if (ImGui::Button(TR("Last >>")) && s_current_page < total_pages - 1) {
         s_current_page = total_pages - 1;
     }
 }

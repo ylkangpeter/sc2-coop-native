@@ -79,15 +79,8 @@ ImTextureID TextureLoader::GetTexture(const std::string& file_path, int* out_wid
         return (ImTextureID)0;
     }
 
-    D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc;
-    ZeroMemory(&srvDesc, sizeof(srvDesc));
-    srvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
-    srvDesc.Texture2D.MipLevels = desc.MipLevels;
-    srvDesc.Texture2D.MostDetailedMip = 0;
-
     ID3D11ShaderResourceView* pSRV = nullptr;
-    hr = m_device->CreateShaderResourceView(pTexture, &srvDesc, &pSRV);
+    hr = m_device->CreateShaderResourceView(pTexture, nullptr, &pSRV);
     pTexture->Release();
 
     if (FAILED(hr) || !pSRV) {

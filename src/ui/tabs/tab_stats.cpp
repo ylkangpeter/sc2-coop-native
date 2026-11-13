@@ -1,6 +1,7 @@
 #include "tab_stats.h"
 #include "../../app_state.h"
 #include "../../db/database.h"
+#include "../../i18n/i18n.h"
 #include "../texture_loader.h"
 
 #include <imgui.h>
@@ -17,18 +18,18 @@ StatsSummary TabStats::s_cached_summary;
 
 void TabStats::Render(AppState& state) {
     // 1. Top Filters Bar
-    ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Filters");
+    ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "%s", TR("Filters"));
     ImGui::SameLine(100);
 
-    ImGui::Checkbox("Casual", &state.stats_filter.casual);
+    ImGui::Checkbox(TR("Casual"), &state.stats_filter.casual);
     ImGui::SameLine();
-    ImGui::Checkbox("Normal", &state.stats_filter.normal);
+    ImGui::Checkbox(TR("Normal"), &state.stats_filter.normal);
     ImGui::SameLine();
-    ImGui::Checkbox("Hard", &state.stats_filter.hard);
+    ImGui::Checkbox(TR("Hard"), &state.stats_filter.hard);
     ImGui::SameLine();
-    ImGui::Checkbox("Brutal", &state.stats_filter.brutal);
+    ImGui::Checkbox(TR("Brutal"), &state.stats_filter.brutal);
     ImGui::SameLine();
-    ImGui::Checkbox("Brutal+", &state.stats_filter.brutal_plus);
+    ImGui::Checkbox(TR("Brutal+"), &state.stats_filter.brutal_plus);
 
     ImGui::SameLine(520);
     ImGui::Checkbox("NA", &state.stats_filter.region_na);
@@ -40,7 +41,7 @@ void TabStats::Render(AppState& state) {
     ImGui::Checkbox("CN", &state.stats_filter.region_cn);
 
     ImGui::SameLine(820);
-    if (ImGui::SmallButton("Refresh##Stats")) {
+    if (ImGui::SmallButton(TR("Refresh##Stats"))) {
         s_cache_valid = false;
     }
 
@@ -58,41 +59,47 @@ void TabStats::Render(AppState& state) {
     const auto& summary = s_cached_summary;
 
     // Games found count
-    ImGui::TextColored(ImVec4(0.3f, 0.9f, 0.4f, 1.0f), "Games found: %d", summary.total_games);
-    ImGui::SameLine(180);
+    ImGui::TextColored(ImVec4(0.3f, 0.9f, 0.4f, 1.0f), TR("Games found: %d"), summary.total_games);
+    ImGui::SameLine(200);
 
     // 3. Stats Sub-Navigation
-    if (ImGui::Button("Maps Overview", ImVec2(120, 24))) s_sub_tab = 0;
+    if (ImGui::Button(TR("Maps Overview"), ImVec2(120, 24))) s_sub_tab = 0;
     ImGui::SameLine();
-    if (ImGui::Button("Difficulty & Regions", ImVec2(150, 24))) s_sub_tab = 1;
+    if (ImGui::Button(TR("Difficulty & Regions"), ImVec2(140, 24))) s_sub_tab = 1;
     ImGui::SameLine();
-    if (ImGui::Button("My Commanders", ImVec2(120, 24))) s_sub_tab = 2;
+    if (ImGui::Button(TR("My Commanders"), ImVec2(130, 24))) s_sub_tab = 2;
     ImGui::SameLine();
-    if (ImGui::Button("Allied Commanders", ImVec2(130, 24))) s_sub_tab = 3;
+    if (ImGui::Button(TR("Allied Commanders"), ImVec2(130, 24))) s_sub_tab = 3;
     ImGui::SameLine();
-    if (ImGui::Button("Career Summary", ImVec2(130, 24))) s_sub_tab = 4;
+    if (ImGui::Button(TR("Career Summary"), ImVec2(130, 24))) s_sub_tab = 4;
 
     ImGui::Spacing();
 
     if (s_sub_tab == 0) {
         // --- Maps Tab ---
-        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "Map Clear Times & Winrates");
+        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "%s", TR("Map Clear Times & Winrates"));
         ImGui::Spacing();
 
+        float avail_w = ImGui::GetContentRegionAvail().x;
+        float preview_w = 300.0f;
+        float table_w = (avail_w > 650.0f) ? (avail_w - preview_w - 20.0f) : (avail_w * 0.65f);
+
+        // Left Pane: Maps Table
+        ImGui::BeginChild("MapsTablePane", ImVec2(table_w, 0), false);
         const ImGuiTableFlags table_flags = ImGuiTableFlags_RowBg |
                                             ImGuiTableFlags_BordersOuter |
                                             ImGuiTableFlags_BordersInnerH |
+                                            ImGuiTableFlags_ScrollY |
                                             ImGuiTableFlags_Resizable;
 
-        float table_width = ImGui::GetContentRegionAvail().x - 300.0f;
-        if (ImGui::BeginTable("MapsTable", 7, table_flags, ImVec2(table_width, 0))) {
-            ImGui::TableSetupColumn("Map Name", ImGuiTableColumnFlags_WidthStretch);
-            ImGui::TableSetupColumn("Fastest", ImGuiTableColumnFlags_WidthFixed, 65.0f);
-            ImGui::TableSetupColumn("Avg", ImGuiTableColumnFlags_WidthFixed, 65.0f);
-            ImGui::TableSetupColumn("Wins", ImGuiTableColumnFlags_WidthFixed, 50.0f);
-            ImGui::TableSetupColumn("Losses", ImGuiTableColumnFlags_WidthFixed, 50.0f);
-            ImGui::TableSetupColumn("Winrate", ImGuiTableColumnFlags_WidthFixed, 65.0f);
-            ImGui::TableSetupColumn("Freq", ImGuiTableColumnFlags_WidthFixed, 60.0f);
+        if (ImGui::BeginTable("MapsTable", 7, table_flags)) {
+            ImGui::TableSetupColumn(TR("Map Name"), ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn(TR("Fastest"), ImGuiTableColumnFlags_WidthFixed, 75.0f);
+            ImGui::TableSetupColumn(TR("Avg"), ImGuiTableColumnFlags_WidthFixed, 75.0f);
+            ImGui::TableSetupColumn(TR("Wins"), ImGuiTableColumnFlags_WidthFixed, 55.0f);
+            ImGui::TableSetupColumn(TR("Losses"), ImGuiTableColumnFlags_WidthFixed, 55.0f);
+            ImGui::TableSetupColumn(TR("Winrate"), ImGuiTableColumnFlags_WidthFixed, 70.0f);
+            ImGui::TableSetupColumn(TR("Freq"), ImGuiTableColumnFlags_WidthFixed, 65.0f);
             ImGui::TableHeadersRow();
 
             for (const auto& m : summary.maps) {
@@ -120,40 +127,47 @@ void TabStats::Render(AppState& state) {
             }
             ImGui::EndTable();
         }
+        ImGui::EndChild();
 
         // Right side: Fastest map thumbnail preview
         ImGui::SameLine();
-        ImGui::BeginChild("MapPreviewPane", ImVec2(0, 320), true);
+        ImGui::BeginChild("MapPreviewPane", ImVec2(0, 0), true);
         if (!summary.maps.empty()) {
-            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "Most Played Map:");
-            ImGui::Text("%s (%d games)", summary.maps[0].map_name.c_str(), summary.maps[0].wins + summary.maps[0].losses);
+            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "%s", TR("Most Played Map:"));
+            ImGui::Text("%s (%d %s)", summary.maps[0].map_name.c_str(),
+                        summary.maps[0].wins + summary.maps[0].losses,
+                        TR("games"));
             ImGui::Spacing();
             ImTextureID img = TextureLoader::Instance().GetMapImage(summary.maps[0].map_name);
             if (img) {
                 ImGui::Image(img, ImVec2(260, 160));
+            } else {
+                ImGui::Dummy(ImVec2(260, 160));
             }
             ImGui::Spacing();
-            ImGui::Text("Fastest Clear: %s", summary.maps[0].fastest_str.c_str());
-            ImGui::Text("Average Time: %s", summary.maps[0].avg_str.c_str());
-            ImGui::Text("Winrate: %.1f%%", summary.maps[0].winrate);
+            ImGui::Text(TR("Fastest Clear: %s"), summary.maps[0].fastest_str.c_str());
+            ImGui::Text(TR("Average Time: %s"), summary.maps[0].avg_str.c_str());
+            ImGui::Text(TR("Winrate: %.1f%%"), summary.maps[0].winrate);
+        } else {
+            ImGui::TextDisabled("%s", TR("No map data available."));
         }
         ImGui::EndChild();
 
     } else if (s_sub_tab == 1) {
         // --- Difficulty & Regions Tab ---
-        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "Difficulty Breakdown & Regional Statistics");
+        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "%s", TR("Difficulty Breakdown & Regional Statistics"));
         ImGui::Spacing();
 
         // Left Table: Difficulty
-        ImGui::BeginChild("DiffChild", ImVec2(450, 400), false);
-        ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Difficulty Breakdown");
+        ImGui::BeginChild("DiffChild", ImVec2(480, 0), false);
+        ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "%s", TR("Difficulty Breakdown"));
         ImGui::Spacing();
 
         if (ImGui::BeginTable("DiffTable", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersOuter | ImGuiTableFlags_Resizable)) {
-            ImGui::TableSetupColumn("Difficulty", ImGuiTableColumnFlags_WidthStretch);
-            ImGui::TableSetupColumn("Wins", ImGuiTableColumnFlags_WidthFixed, 65.0f);
-            ImGui::TableSetupColumn("Losses", ImGuiTableColumnFlags_WidthFixed, 65.0f);
-            ImGui::TableSetupColumn("Winrate", ImGuiTableColumnFlags_WidthFixed, 75.0f);
+            ImGui::TableSetupColumn(TR("Difficulty"), ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn(TR("Wins"), ImGuiTableColumnFlags_WidthFixed, 70.0f);
+            ImGui::TableSetupColumn(TR("Losses"), ImGuiTableColumnFlags_WidthFixed, 70.0f);
+            ImGui::TableSetupColumn(TR("Winrate"), ImGuiTableColumnFlags_WidthFixed, 80.0f);
             ImGui::TableHeadersRow();
 
             int sum_wins = 0;
@@ -184,7 +198,7 @@ void TabStats::Render(AppState& state) {
             // Total Sigma row
             ImGui::TableNextRow();
             ImGui::TableSetColumnIndex(0);
-            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "%s (Total)", reinterpret_cast<const char*>(u8"Σ"));
+            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "%s (%s)", reinterpret_cast<const char*>(u8"Σ"), TR("Total"));
 
             ImGui::TableSetColumnIndex(1);
             ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.4f, 1.0f), "%d", sum_wins);
@@ -202,16 +216,16 @@ void TabStats::Render(AppState& state) {
         ImGui::EndChild();
 
         // Right Table: Regions
-        ImGui::SameLine(480);
-        ImGui::BeginChild("RegionChild", ImVec2(400, 400), false);
-        ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Region Breakdown");
+        ImGui::SameLine();
+        ImGui::BeginChild("RegionChild", ImVec2(0, 0), false);
+        ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "%s", TR("Region Breakdown"));
         ImGui::Spacing();
 
         if (ImGui::BeginTable("RegionTable", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersOuter | ImGuiTableFlags_Resizable)) {
-            ImGui::TableSetupColumn("Region", ImGuiTableColumnFlags_WidthStretch);
-            ImGui::TableSetupColumn("Wins", ImGuiTableColumnFlags_WidthFixed, 65.0f);
-            ImGui::TableSetupColumn("Losses", ImGuiTableColumnFlags_WidthFixed, 65.0f);
-            ImGui::TableSetupColumn("Winrate", ImGuiTableColumnFlags_WidthFixed, 75.0f);
+            ImGui::TableSetupColumn(TR("Region"), ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn(TR("Wins"), ImGuiTableColumnFlags_WidthFixed, 70.0f);
+            ImGui::TableSetupColumn(TR("Losses"), ImGuiTableColumnFlags_WidthFixed, 70.0f);
+            ImGui::TableSetupColumn(TR("Winrate"), ImGuiTableColumnFlags_WidthFixed, 80.0f);
             ImGui::TableHeadersRow();
 
             for (const auto& r : summary.regions) {
@@ -234,16 +248,20 @@ void TabStats::Render(AppState& state) {
 
     } else if (s_sub_tab == 2) {
         // --- My Commanders Tab ---
-        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "My Commander Statistics & Winrate Distribution");
+        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "%s", TR("My Commander Statistics & Winrate Distribution"));
         ImGui::Spacing();
 
-        if (ImGui::BeginTable("MyComTable", 6, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersOuter | ImGuiTableFlags_Resizable, ImVec2(480, 0))) {
-            ImGui::TableSetupColumn("Commander", ImGuiTableColumnFlags_WidthStretch);
-            ImGui::TableSetupColumn("Games", ImGuiTableColumnFlags_WidthFixed, 60.0f);
-            ImGui::TableSetupColumn("Wins", ImGuiTableColumnFlags_WidthFixed, 55.0f);
-            ImGui::TableSetupColumn("Losses", ImGuiTableColumnFlags_WidthFixed, 55.0f);
-            ImGui::TableSetupColumn("Winrate", ImGuiTableColumnFlags_WidthFixed, 65.0f);
-            ImGui::TableSetupColumn("APM", ImGuiTableColumnFlags_WidthFixed, 55.0f);
+        float avail_w = ImGui::GetContentRegionAvail().x;
+        float left_w = (avail_w > 800.0f) ? 500.0f : (avail_w * 0.55f);
+
+        ImGui::BeginChild("MyComTablePane", ImVec2(left_w, 0), false);
+        if (ImGui::BeginTable("MyComTable", 6, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersOuter | ImGuiTableFlags_ScrollY | ImGuiTableFlags_Resizable)) {
+            ImGui::TableSetupColumn(TR("Commander"), ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn(TR("Games"), ImGuiTableColumnFlags_WidthFixed, 65.0f);
+            ImGui::TableSetupColumn(TR("Wins"), ImGuiTableColumnFlags_WidthFixed, 60.0f);
+            ImGui::TableSetupColumn(TR("Losses"), ImGuiTableColumnFlags_WidthFixed, 60.0f);
+            ImGui::TableSetupColumn(TR("Winrate"), ImGuiTableColumnFlags_WidthFixed, 70.0f);
+            ImGui::TableSetupColumn(TR("APM"), ImGuiTableColumnFlags_WidthFixed, 60.0f);
             ImGui::TableHeadersRow();
 
             for (const auto& c : summary.my_commanders) {
@@ -274,10 +292,12 @@ void TabStats::Render(AppState& state) {
             }
             ImGui::EndTable();
         }
+        ImGui::EndChild();
 
         // Chart on right
         ImGui::SameLine();
-        if (ImPlot::BeginPlot("Games per Commander", ImVec2(-1, 380))) {
+        ImGui::BeginChild("MyComChartPane", ImVec2(0, 0), false);
+        if (ImPlot::BeginPlot(TR("Games per Commander"), ImVec2(-1, -1))) {
             std::vector<double> x, y;
             std::vector<const char*> labels;
             for (size_t i = 0; i < summary.my_commanders.size(); ++i) {
@@ -286,28 +306,30 @@ void TabStats::Render(AppState& state) {
                 labels.push_back(summary.my_commanders[i].commander.c_str());
             }
 
-            ImPlot::SetupAxes("Commander", "Total Games", ImPlotAxisFlags_None, ImPlotAxisFlags_AutoFit);
+            ImPlot::SetupAxes(TR("Commander"), TR("Total Games"), ImPlotAxisFlags_None, ImPlotAxisFlags_AutoFit);
             if (!labels.empty()) {
                 ImPlot::SetupAxisTicks(ImAxis_X1, x.data(), static_cast<int>(x.size()), labels.data());
             }
             if (!x.empty()) {
-                ImPlot::PlotBars("Games Played", x.data(), y.data(), static_cast<int>(x.size()), 0.6);
+                ImPlot::PlotBars(TR("Games Played"), x.data(), y.data(), static_cast<int>(x.size()), 0.6);
             }
             ImPlot::EndPlot();
         }
+        ImGui::EndChild();
 
     } else if (s_sub_tab == 3) {
         // --- Allied Commanders Tab ---
-        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "Allied Commander Statistics & Synergy");
+        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "%s", TR("Allied Commander Statistics & Synergy"));
         ImGui::Spacing();
 
-        if (ImGui::BeginTable("AllyComTable", 6, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersOuter | ImGuiTableFlags_Resizable)) {
-            ImGui::TableSetupColumn("Allied Commander", ImGuiTableColumnFlags_WidthStretch);
-            ImGui::TableSetupColumn("Games", ImGuiTableColumnFlags_WidthFixed, 60.0f);
-            ImGui::TableSetupColumn("Wins", ImGuiTableColumnFlags_WidthFixed, 55.0f);
-            ImGui::TableSetupColumn("Losses", ImGuiTableColumnFlags_WidthFixed, 55.0f);
-            ImGui::TableSetupColumn("Winrate", ImGuiTableColumnFlags_WidthFixed, 65.0f);
-            ImGui::TableSetupColumn("APM", ImGuiTableColumnFlags_WidthFixed, 55.0f);
+        ImGui::BeginChild("AllyComPane", ImVec2(0, 0), false);
+        if (ImGui::BeginTable("AllyComTable", 6, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersOuter | ImGuiTableFlags_ScrollY | ImGuiTableFlags_Resizable)) {
+            ImGui::TableSetupColumn(TR("Allied Commander"), ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn(TR("Games"), ImGuiTableColumnFlags_WidthFixed, 65.0f);
+            ImGui::TableSetupColumn(TR("Wins"), ImGuiTableColumnFlags_WidthFixed, 60.0f);
+            ImGui::TableSetupColumn(TR("Losses"), ImGuiTableColumnFlags_WidthFixed, 60.0f);
+            ImGui::TableSetupColumn(TR("Winrate"), ImGuiTableColumnFlags_WidthFixed, 70.0f);
+            ImGui::TableSetupColumn(TR("APM"), ImGuiTableColumnFlags_WidthFixed, 60.0f);
             ImGui::TableHeadersRow();
 
             for (const auto& c : summary.ally_commanders) {
@@ -338,32 +360,33 @@ void TabStats::Render(AppState& state) {
             }
             ImGui::EndTable();
         }
+        ImGui::EndChild();
 
     } else if (s_sub_tab == 4) {
         // --- Career Summary Tab ---
-        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "Career Overview & Match Progression");
+        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "%s", TR("Career Overview & Match Progression"));
         ImGui::Spacing();
 
         ImGui::BeginChild("CardGames", ImVec2(180, 90), true);
-        ImGui::TextDisabled("TOTAL GAMES");
+        ImGui::TextDisabled("%s", TR("TOTAL GAMES"));
         ImGui::TextColored(ImVec4(1.0f, 1.0f, 1.0f, 1.0f), "%d", summary.total_games);
         ImGui::EndChild();
 
         ImGui::SameLine();
         ImGui::BeginChild("CardWins", ImVec2(180, 90), true);
-        ImGui::TextDisabled("VICTORIES");
+        ImGui::TextDisabled("%s", TR("VICTORIES"));
         ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.4f, 1.0f), "%d", summary.total_wins);
         ImGui::EndChild();
 
         ImGui::SameLine();
         ImGui::BeginChild("CardLosses", ImVec2(180, 90), true);
-        ImGui::TextDisabled("DEFEATS");
+        ImGui::TextDisabled("%s", TR("DEFEATS"));
         ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%d", summary.total_losses);
         ImGui::EndChild();
 
         ImGui::SameLine();
         ImGui::BeginChild("CardWinrate", ImVec2(180, 90), true);
-        ImGui::TextDisabled("OVERALL WINRATE");
+        ImGui::TextDisabled("%s", TR("OVERALL WINRATE"));
         ImGui::TextColored(ImVec4(0.3f, 0.8f, 1.0f, 1.0f), "%.1f%%", summary.overall_winrate);
         ImGui::EndChild();
     }

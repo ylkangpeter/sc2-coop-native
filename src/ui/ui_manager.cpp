@@ -515,17 +515,17 @@ void UIManager::Run() {
             }
         };
 
-        TabBtn(TR("对局历史", "Games"), 1, 95);
+        TabBtn(TR("Games"), 1, 95);
         ImGui::SameLine();
-        TabBtn(TR("玩家统计", "Players"), 2, 95);
+        TabBtn(TR("Players"), 2, 95);
         ImGui::SameLine();
-        TabBtn(TR("每周突变", "Weeklies"), 3, 95);
+        TabBtn(TR("Weeklies"), 3, 95);
         ImGui::SameLine();
-        TabBtn(TR("数据大盘", "Statistics"), 4, 100);
+        TabBtn(TR("Statistics"), 4, 100);
         ImGui::SameLine();
-        TabBtn(TR("系统设置", "Settings"), 0, 95);
+        TabBtn(TR("Settings"), 0, 95);
         ImGui::SameLine();
-        std::string sum_btn_label = std::string(TR("赛后战报浮窗", "Summary Overlay")) + " [" + HotkeyManager::FormatHotkey(state.hotkey_summary_mod, state.hotkey_summary_vk) + "]";
+        std::string sum_btn_label = std::string(TR("Summary Overlay")) + " [" + HotkeyManager::FormatHotkey(state.hotkey_summary_mod, state.hotkey_summary_vk) + "]";
         if (ImGui::Button(sum_btn_label.c_str(), ImVec2(200, 28))) {
             SummaryOverlay::Instance().Toggle();
         }
@@ -534,8 +534,11 @@ void UIManager::Run() {
         if (state.is_scanning) {
             ImGui::SameLine(ImGui::GetContentRegionAvail().x - 180);
             ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "%s (%d/%d)...",
-                               TR("扫描中", "Scanning"),
+                               TR("Scanning"),
                                state.scan_progress.load(), state.scan_total.load());
+        } else {
+            ImGui::SameLine(ImGui::GetContentRegionAvail().x - 100);
+            ImGui::TextDisabled("%s", TR("Idle"));
         }
 
         ImGui::Spacing();
