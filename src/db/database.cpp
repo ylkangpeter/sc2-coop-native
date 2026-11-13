@@ -6,7 +6,10 @@
 #include <algorithm>
 #include <cstring>
 #include "../replay/replay_parser.h"
+#include "../replay/mpq_reader.h"
+#include "../replay/s2_decoder.h"
 #include "../data/weekly_mutations.h"
+#include <nlohmann/json.hpp>
 
 namespace sc2 {
 
@@ -101,6 +104,8 @@ bool Database::Open(const std::string& db_path) {
 
     // Auto-migrate schema: add details_json if older DB exists
     sqlite3_exec(m_db, "ALTER TABLE replays ADD COLUMN details_json TEXT;", nullptr, nullptr, nullptr);
+
+    RepairWeeklyMutationsIfNeeded();
 
     return true;
 }
@@ -861,7 +866,7 @@ std::unordered_map<int, Database::WeeklyRecord> Database::QueryAllWeeklyRecords(
     std::unordered_map<int, WeeklyRecord> result;
     if (!m_db) return result;
 
-    const char* sql = "SELECT result, difficulty, file_path, map_name, mutators_json FROM replays WHERE is_weekly = 1 OR (mutators_json IS NOT NULL AND mutators_json != '[]' AND mutators_json != '');";
+    const char* sql = "SELECT result, difficulty, file_path, map_name, mutators_json, duration_seconds FROM replays WHERE is_weekly = 1 OR (mutators_json IS NOT NULL AND mutators_json != '[]' AND mutators_json != '');";
     sqlite3_stmt* stmt = nullptr;
     if (sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
         return result;
@@ -873,6 +878,7 @@ std::unordered_map<int, Database::WeeklyRecord> Database::QueryAllWeeklyRecords(
         std::string file_path;
         std::string map_name;
         std::string mutators_json;
+        int duration_seconds = 0;
     };
     std::vector<ReplayWeeklyItem> items;
     while (sqlite3_step(stmt) == SQLITE_ROW) {
@@ -887,11 +893,26 @@ std::unordered_map<int, Database::WeeklyRecord> Database::QueryAllWeeklyRecords(
         if (f) it.file_path = f;
         if (m) it.map_name = m;
         if (mj) it.mutators_json = mj;
+        it.duration_seconds = sqlite3_column_int(stmt, 5);
         items.push_back(std::move(it));
     }
     sqlite3_finalize(stmt);
 
     if (items.empty()) return result;
+
+    auto DiffRank = [](const std::string& d) -> int {
+        if (d == "Brutal+6") return 10;
+        if (d == "Brutal+5") return 9;
+        if (d == "Brutal+4") return 8;
+        if (d == "Brutal+3") return 7;
+        if (d == "Brutal+2") return 6;
+        if (d == "Brutal+1") return 5;
+        if (d == "Brutal") return 4;
+        if (d.find("Hard") != std::string::npos) return 3;
+        if (d.find("Normal") != std::string::npos) return 2;
+        if (d.find("Casual") != std::string::npos) return 1;
+        return 0;
+    };
 
     for (const auto& wm : kWeeklyMutations) {
         WeeklyRecord wr;
@@ -907,7 +928,12 @@ std::unordered_map<int, Database::WeeklyRecord> Database::QueryAllWeeklyRecords(
             if (all_matched) {
                 if (item.result == "Victory") {
                     wr.wins++;
-                    wr.highest_diff = item.difficulty;
+                    if (DiffRank(item.difficulty) >= DiffRank(wr.highest_diff)) {
+                        wr.highest_diff = item.difficulty;
+                    }
+                    if (wr.fastest_win_seconds == 0 || (item.duration_seconds > 0 && item.duration_seconds < wr.fastest_win_seconds)) {
+                        wr.fastest_win_seconds = item.duration_seconds;
+                    }
                 } else {
                     wr.losses++;
                 }
@@ -917,11 +943,65 @@ std::unordered_map<int, Database::WeeklyRecord> Database::QueryAllWeeklyRecords(
         if (wr.wins > 0 || wr.losses > 0) {
             int tot = wr.wins + wr.losses;
             wr.winrate = tot > 0 ? (100.0 * wr.wins / tot) : 0.0;
+            if (wr.highest_diff.empty()) wr.highest_diff = "Brutal";
             result[wm.week_number] = std::move(wr);
         }
     }
 
     return result;
+}
+
+void Database::RepairWeeklyMutationsIfNeeded() {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    if (!m_db) return;
+    int weekly_count = 0;
+    sqlite3_stmt* check_stmt = nullptr;
+    if (sqlite3_prepare_v2(m_db, "SELECT COUNT(*) FROM replays WHERE is_weekly = 1;", -1, &check_stmt, nullptr) == SQLITE_OK) {
+        if (sqlite3_step(check_stmt) == SQLITE_ROW) {
+            weekly_count = sqlite3_column_int(check_stmt, 0);
+        }
+        sqlite3_finalize(check_stmt);
+    }
+    if (weekly_count > 0) return; // Already populated
+
+    sqlite3_stmt* fetch_stmt = nullptr;
+    if (sqlite3_prepare_v2(m_db, "SELECT file_path FROM replays;", -1, &fetch_stmt, nullptr) != SQLITE_OK) {
+        return;
+    }
+    std::vector<std::string> paths;
+    while (sqlite3_step(fetch_stmt) == SQLITE_ROW) {
+        const char* p = reinterpret_cast<const char*>(sqlite3_column_text(fetch_stmt, 0));
+        if (p) paths.emplace_back(p);
+    }
+    sqlite3_finalize(fetch_stmt);
+
+    if (paths.empty()) return;
+
+    sqlite3_stmt* update_stmt = nullptr;
+    if (sqlite3_prepare_v2(m_db, "UPDATE replays SET is_weekly = 1, mutators_json = ? WHERE file_path = ?;", -1, &update_stmt, nullptr) != SQLITE_OK) {
+        return;
+    }
+
+    sqlite3_exec(m_db, "BEGIN TRANSACTION;", nullptr, nullptr, nullptr);
+    for (const auto& path : paths) {
+        std::vector<uint8_t> initdata;
+        if (MpqReader::ReadFile(path, "replay.initData", initdata)) {
+            std::vector<std::string> handles;
+            std::vector<std::string> mutators;
+            bool is_weekly = false;
+            S2Decoder::DecodeInitDataSlots(initdata, handles, mutators, is_weekly);
+            if (is_weekly && !mutators.empty()) {
+                nlohmann::json j = mutators;
+                std::string mj = j.dump();
+                sqlite3_bind_text(update_stmt, 1, mj.c_str(), -1, SQLITE_TRANSIENT);
+                sqlite3_bind_text(update_stmt, 2, path.c_str(), -1, SQLITE_TRANSIENT);
+                sqlite3_step(update_stmt);
+                sqlite3_reset(update_stmt);
+            }
+        }
+    }
+    sqlite3_exec(m_db, "COMMIT;", nullptr, nullptr, nullptr);
+    sqlite3_finalize(update_stmt);
 }
 
 bool Database::DumpAllToJson(const std::string& output_path) {

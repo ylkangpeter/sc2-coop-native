@@ -14,6 +14,10 @@ public:
                          const std::string& filename_in_archive,
                          std::vector<uint8_t>& out_bytes);
 
+    static bool ReadFile(const std::string& archive_path_utf8,
+                         const std::string& filename_in_archive,
+                         std::vector<uint8_t>& out_bytes);
+
     // Read and parse JSON file from MPQ (e.g. "replay.gamemetadata.json")
     static bool ReadJson(const std::wstring& archive_path,
                          const std::string& filename_in_archive,

@@ -171,10 +171,12 @@ public:
         int losses = 0;
         double winrate = 0.0;
         std::string highest_diff;
+        int fastest_win_seconds = 0;
         std::vector<std::string> replay_files;
     };
     WeeklyRecord QueryWeeklyRecord(const std::string& map_name, const std::vector<std::string>& mutators);
     std::unordered_map<int, WeeklyRecord> QueryAllWeeklyRecords();
+    void RepairWeeklyMutationsIfNeeded();
 
     // Export
     bool DumpAllToJson(const std::string& output_path);

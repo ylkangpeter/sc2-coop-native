@@ -175,13 +175,15 @@ std::vector<DecodedPlayer> S2Decoder::DecodeDetails(const std::vector<uint8_t>& 
 }
 
 std::vector<DecodedSlot> S2Decoder::DecodeInitDataSlots(const std::vector<uint8_t>& initdata_bytes,
-                                                        std::vector<std::string>& out_cache_handles) {
+                                                        std::vector<std::string>& out_cache_handles,
+                                                        std::vector<std::string>& out_mutators,
+                                                        bool& out_is_weekly) {
     std::vector<DecodedSlot> slots;
     if (initdata_bytes.empty()) return slots;
 
     // 1. Try bit-packed initData decoder
     std::vector<DecodedInitSlot> raw_slots;
-    if (S2InitDataDecoder::Decode(initdata_bytes, raw_slots) && !raw_slots.empty()) {
+    if (S2InitDataDecoder::Decode(initdata_bytes, raw_slots, out_mutators, out_is_weekly) && !raw_slots.empty()) {
         for (const auto& rs : raw_slots) {
             DecodedSlot s;
             s.commander = rs.commander;

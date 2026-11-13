@@ -55,7 +55,16 @@ public:
 
     // Decode commander, prestige and brutal plus slots from replay.initData
     static std::vector<DecodedSlot> DecodeInitDataSlots(const std::vector<uint8_t>& initdata_bytes,
-                                                        std::vector<std::string>& out_cache_handles);
+                                                        std::vector<std::string>& out_cache_handles,
+                                                        std::vector<std::string>& out_mutators,
+                                                        bool& out_is_weekly);
+
+    static std::vector<DecodedSlot> DecodeInitDataSlots(const std::vector<uint8_t>& initdata_bytes,
+                                                        std::vector<std::string>& out_cache_handles) {
+        std::vector<std::string> dummy_m;
+        bool dummy_w = false;
+        return DecodeInitDataSlots(initdata_bytes, out_cache_handles, dummy_m, dummy_w);
+    }
 
     // Extract 6 mastery talent allocation integers for a given commander from initdata
     static std::vector<int> ExtractMasteries(const std::vector<uint8_t>& initdata_bytes,

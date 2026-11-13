@@ -1,4 +1,5 @@
 #include "mpq_reader.h"
+#include "../utils/win32_utils.h"
 #include <windows.h>
 #include <StormLib.h>
 #include <iostream>
@@ -41,6 +42,12 @@ bool MpqReader::ReadFile(const std::wstring& archive_path,
 
     out_bytes.resize(bytesRead);
     return true;
+}
+
+bool MpqReader::ReadFile(const std::string& archive_path_utf8,
+                         const std::string& filename_in_archive,
+                         std::vector<uint8_t>& out_bytes) {
+    return ReadFile(Win32Utils::Utf8ToWide(archive_path_utf8), filename_in_archive, out_bytes);
 }
 
 bool MpqReader::ReadJson(const std::wstring& archive_path,

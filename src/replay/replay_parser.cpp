@@ -122,9 +122,15 @@ std::optional<ReplayRecord> ReplayParser::ParseFile(const std::wstring& replay_p
     // 3. Read replay.initData
     std::vector<uint8_t> initdata_bytes;
     std::vector<std::string> cache_handles;
+    std::vector<std::string> init_mutators;
+    bool is_weekly = false;
     std::vector<DecodedSlot> slots;
     if (MpqReader::ReadFile(replay_path, "replay.initData", initdata_bytes)) {
-        slots = S2Decoder::DecodeInitDataSlots(initdata_bytes, cache_handles);
+        slots = S2Decoder::DecodeInitDataSlots(initdata_bytes, cache_handles, init_mutators, is_weekly);
+        if (is_weekly) {
+            record.is_weekly = true;
+            record.mutators = init_mutators;
+        }
         int bp0 = 0, bp1 = 0;
         if (slots.size() >= 1) {
             record.p1.commander = slots[0].commander.empty() ? "Unknown" : slots[0].commander;
@@ -250,20 +256,24 @@ std::optional<ReplayRecord> ReplayParser::ParseFile(const std::wstring& replay_p
         }
     }
 
-    // 5. Match Weekly Mutation catalog
-    for (const auto& wm : kWeeklyMutations) {
-        if (wm.map_name == record.map_name) {
-            // Check if replay path or raw name mentions mutation or if weekly
-            if (record.file_path.find("[CM]") != std::string::npos ||
-                record.file_path.find("突变") != std::string::npos ||
-                record.file_path.find("Mutation") != std::string::npos) {
-                record.is_weekly = true;
-                if (record.mutators.empty()) {
-                    for (const char* mut : wm.mutators) {
-                        record.mutators.emplace_back(mut);
+    // 5. Match Weekly Mutation catalog or keep mutators if already detected
+    if (record.is_weekly && !record.mutators.empty()) {
+        // Mutators and is_weekly successfully identified via cache handles!
+    } else {
+        for (const auto& wm : kWeeklyMutations) {
+            if (wm.map_name == record.map_name) {
+                // Check if replay path or raw name mentions mutation or if weekly
+                if (record.file_path.find("[CM]") != std::string::npos ||
+                    record.file_path.find("突变") != std::string::npos ||
+                    record.file_path.find("Mutation") != std::string::npos) {
+                    record.is_weekly = true;
+                    if (record.mutators.empty()) {
+                        for (const char* mut : wm.mutators) {
+                            record.mutators.emplace_back(mut);
+                        }
                     }
+                    break;
                 }
-                break;
             }
         }
     }

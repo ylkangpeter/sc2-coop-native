@@ -4,6 +4,7 @@
 #include <vector>
 #include <algorithm>
 #include <iostream>
+#include "../data/cached_mutators.h"
 
 namespace sc2 {
 
@@ -62,18 +63,38 @@ public:
     }
 };
 
+thread_local inline std::vector<std::string>* s_current_mutators = nullptr;
+thread_local inline bool* s_current_is_weekly = nullptr;
+
 class S2InitDataDecoder {
 public:
-    static bool Decode(const std::vector<uint8_t>& bytes, std::vector<DecodedInitSlot>& out_slots) {
+    static bool Decode(const std::vector<uint8_t>& bytes,
+                       std::vector<DecodedInitSlot>& out_slots,
+                       std::vector<std::string>& out_mutators,
+                       bool& out_is_weekly) {
         out_slots.clear();
+        out_mutators.clear();
+        out_is_weekly = false;
         if (bytes.empty()) return false;
+        s_current_mutators = &out_mutators;
+        s_current_is_weekly = &out_is_weekly;
         S2BitPackedBuffer buf(bytes.data(), bytes.size());
+        bool ok = false;
         try {
             DecodeType(73, buf, out_slots);
-            return !out_slots.empty();
+            ok = !out_slots.empty();
         } catch (...) {
-            return false;
+            ok = false;
         }
+        s_current_mutators = nullptr;
+        s_current_is_weekly = nullptr;
+        return ok;
+    }
+
+    static bool Decode(const std::vector<uint8_t>& bytes, std::vector<DecodedInitSlot>& out_slots) {
+        std::vector<std::string> dummy_m;
+        bool dummy_w = false;
+        return Decode(bytes, out_slots, dummy_m, dummy_w);
     }
 
 private:
@@ -144,7 +165,24 @@ private:
                 break;
             }
             case 35: { // _blob
-                buf.read_aligned_bytes(40);
+                std::string h = buf.read_aligned_bytes(40);
+                if (h.size() >= 40 && s_current_mutators && s_current_is_weekly) {
+                    static const char hex_chars[] = "0123456789abcdef";
+                    std::string hex_str;
+                    hex_str.reserve(64);
+                    for (size_t b = 8; b < 40; ++b) {
+                        uint8_t byte_val = static_cast<uint8_t>(h[b]);
+                        hex_str.push_back(hex_chars[(byte_val >> 4) & 0x0F]);
+                        hex_str.push_back(hex_chars[byte_val & 0x0F]);
+                    }
+                    auto it = kCachedMutators.find(hex_str);
+                    if (it != kCachedMutators.end()) {
+                        if (std::find(s_current_mutators->begin(), s_current_mutators->end(), it->second) == s_current_mutators->end()) {
+                            s_current_mutators->push_back(it->second);
+                        }
+                        *s_current_is_weekly = true;
+                    }
+                }
                 break;
             }
             case 36: { // _array
