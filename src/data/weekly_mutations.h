@@ -234,7 +234,7 @@ inline int64_t GetUpcomingWeeklyMutationTimestamp(int week_idx, int64_t now_ts) 
 inline std::string FormatUpcomingDate(int week_idx, int64_t now_ts) {
     int curr_idx = GetCurrentWeeklyMutationIndex(now_ts);
     if (week_idx == curr_idx) {
-        return "本周";
+        return "Active";
     }
     int64_t ts = GetUpcomingWeeklyMutationTimestamp(week_idx, now_ts);
     std::time_t t = static_cast<std::time_t>(ts);

@@ -45,20 +45,20 @@ void TabWeeklies::Render(AppState& state) {
     ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.12f, 0.15f, 0.20f, 0.95f));
     ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.25f, 0.50f, 0.85f, 0.7f));
     if (ImGui::BeginChild("CurrentWeeklyBanner", ImVec2(0, 78), true)) {
-        ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.5f, 1.0f), "● 本周突变 (Active Weekly Mutation)");
+        ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.5f, 1.0f), "● Active Weekly Mutation");
         ImGui::SameLine();
         ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "Week #%d: %s", curr_wm.week_number, curr_wm.title);
         ImGui::SameLine();
-        ImGui::TextDisabled("|  地图: %s", curr_wm.map_name);
+        ImGui::TextDisabled("|  Map: %s", curr_wm.map_name);
 
-        ImGui::SameLine(ImGui::GetWindowWidth() - 175);
-        if (ImGui::Button("定位至本周突变", ImVec2(160, 24))) {
+        ImGui::SameLine(ImGui::GetWindowWidth() - 165);
+        if (ImGui::Button("Locate Active Week", ImVec2(150, 24))) {
             s_locate_target_week = curr_wm.week_number;
         }
 
         ImGui::Spacing();
         ImGui::AlignTextToFramePadding();
-        ImGui::TextDisabled("因子组合:");
+        ImGui::TextDisabled("Mutators:");
         ImGui::SameLine();
 
         for (size_t m_idx = 0; m_idx < curr_wm.mutators.size(); ++m_idx) {
@@ -70,7 +70,7 @@ void TabWeeklies::Render(AppState& state) {
             }
             int pts = GetMutatorPoint(mut);
             if (pts >= 0) {
-                ImGui::Text("%s (%d点)", mut, pts);
+                ImGui::Text("%s (%d pts)", mut, pts);
             } else {
                 ImGui::Text("%s", mut);
             }
@@ -81,16 +81,16 @@ void TabWeeklies::Render(AppState& state) {
             }
         }
 
-        ImGui::SameLine(ImGui::GetWindowWidth() - 340);
+        ImGui::SameLine(ImGui::GetWindowWidth() - 320);
         if (curr_wm.score >= 0) {
-            ImGui::Text("难度得分: ");
+            ImGui::Text("Score: ");
             ImGui::SameLine();
-            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "%d 点", curr_wm.score);
+            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "%d", curr_wm.score);
         } else {
-            ImGui::TextDisabled("难度得分: -");
+            ImGui::TextDisabled("Score: -");
         }
         ImGui::SameLine();
-        ImGui::Text("  评级: ");
+        ImGui::Text("  Tier: ");
         ImGui::SameLine();
         ImGui::TextColored(GetTierColor(curr_wm.tier), "%s", curr_wm.tier);
     }
@@ -127,16 +127,16 @@ void TabWeeklies::Render(AppState& state) {
                                         ImGuiTableFlags_BordersInnerH |
                                         ImGuiTableFlags_Resizable;
 
-    // Table with 9 columns: Week, Upcoming, Title, Map, Mutators, Score, Tier, Personal Record, Action
+    // Table with 9 columns: Week, Rotation, Title, Map, Mutators, Score, Tier, Personal Record, Action
     if (ImGui::BeginTable("WeekliesTable", 9, table_flags)) {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("Week", ImGuiTableColumnFlags_WidthFixed, 45.0f);
-        ImGui::TableSetupColumn("轮换时间", ImGuiTableColumnFlags_WidthFixed, 95.0f);
+        ImGui::TableSetupColumn("Rotation", ImGuiTableColumnFlags_WidthFixed, 95.0f);
         ImGui::TableSetupColumn("Title", ImGuiTableColumnFlags_WidthFixed, 170.0f);
         ImGui::TableSetupColumn("Map", ImGuiTableColumnFlags_WidthFixed, 140.0f);
         ImGui::TableSetupColumn("Mutators", ImGuiTableColumnFlags_WidthStretch);
-        ImGui::TableSetupColumn("得分", ImGuiTableColumnFlags_WidthFixed, 55.0f);
-        ImGui::TableSetupColumn("难度等级", ImGuiTableColumnFlags_WidthFixed, 75.0f);
+        ImGui::TableSetupColumn("Score", ImGuiTableColumnFlags_WidthFixed, 55.0f);
+        ImGui::TableSetupColumn("Tier", ImGuiTableColumnFlags_WidthFixed, 75.0f);
         ImGui::TableSetupColumn("Personal Record", ImGuiTableColumnFlags_WidthFixed, 170.0f);
         ImGui::TableSetupColumn("Action", ImGuiTableColumnFlags_WidthFixed, 80.0f);
         ImGui::TableHeadersRow();
@@ -179,10 +179,10 @@ void TabWeeklies::Render(AppState& state) {
             ImGui::TableSetColumnIndex(0);
             ImGui::Text("#%d", wm.week_number);
 
-            // Col 1: Upcoming Date
+            // Col 1: Rotation / Upcoming Date
             ImGui::TableSetColumnIndex(1);
             if (static_cast<int>(i) == curr_idx) {
-                ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.5f, 1.0f), "● 本周");
+                ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.5f, 1.0f), "● Active");
             } else {
                 std::string up_date = FormatUpcomingDate(static_cast<int>(i), now_ts);
                 ImGui::TextDisabled("%s", up_date.c_str());
@@ -217,7 +217,7 @@ void TabWeeklies::Render(AppState& state) {
                     ImGui::BeginTooltip();
                     int pts = GetMutatorPoint(mut);
                     if (pts >= 0) {
-                        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "%s  [难度点数: %d 点]", mut, pts);
+                        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "%s  [%d pts]", mut, pts);
                     } else {
                         ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "%s", mut);
                     }
@@ -240,7 +240,7 @@ void TabWeeklies::Render(AppState& state) {
             // Col 5: Score
             ImGui::TableSetColumnIndex(5);
             if (wm.score >= 0) {
-                ImGui::Text("%d 点", wm.score);
+                ImGui::Text("%d", wm.score);
             } else {
                 ImGui::TextDisabled("-");
             }
