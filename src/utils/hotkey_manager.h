@@ -28,6 +28,9 @@ public:
     void OnHotkey(int id);
     void SetCallback(HotkeyAction action, std::function<void()> callback);
 
+    // Human readable hotkey string (e.g. "Ctrl + Shift + H")
+    static std::string FormatHotkey(UINT mod, UINT vk);
+
 private:
     HotkeyManager() = default;
     ~HotkeyManager() = default;

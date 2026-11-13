@@ -122,6 +122,24 @@ void AllyToastWindow::Hide() {
     }
 }
 
+void AllyToastWindow::Toggle(const std::string& ally_name) {
+    if (m_active) {
+        Hide();
+    } else {
+        if (!ally_name.empty()) {
+            ShowAllyInfo(ally_name);
+        } else {
+            int total = 0;
+            auto replays = Database::Instance().QueryReplays("", 1, 0, total);
+            if (!replays.empty() && !replays[0].p2.name.empty()) {
+                ShowAllyInfo(replays[0].p2.name);
+            } else {
+                ShowTestToast();
+            }
+        }
+    }
+}
+
 void AllyToastWindow::Update(float delta_time) {
     if (!m_active) return;
     m_remaining_time -= delta_time;
@@ -193,10 +211,10 @@ void AllyToastWindow::Render() {
 
     HFONT hFontBold = CreateFontW((int)(18 * dpi_scale), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
                                   DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                                  CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
+                                  CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Microsoft YaHei");
     HFONT hFontSmall = CreateFontW((int)(14 * dpi_scale), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                                    DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                                   CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
+                                   CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Microsoft YaHei");
 
     int pad_x = (int)(16 * dpi_scale);
     int mid_x = (int)(270 * dpi_scale);
@@ -205,19 +223,25 @@ void AllyToastWindow::Render() {
     int bot_y1 = (int)(38 * dpi_scale);
     int bot_y2 = height - (int)(10 * dpi_scale);
 
+    bool is_zh = (AppState::Instance().language == 0);
+
     // Line 1: Ally Name & Stats
     SelectObject(hdcMem, hFontBold);
     SetTextColor(hdcMem, RGB(46, 204, 113));
-    std::wstring ally_title = L"ALLY: " + ToWide(m_ally_name);
+    std::wstring ally_title = (is_zh ? L"盟友: " : L"ALLY: ") + ToWide(m_ally_name);
     RECT rcTitle = { pad_x, top_y1, mid_x, top_y2 };
     DrawTextW(hdcMem, ally_title.c_str(), -1, &rcTitle, DT_SINGLELINE | DT_VCENTER);
 
     SelectObject(hdcMem, hFontBold);
     std::wostringstream oss;
     if (m_total_games > 0) {
-        oss << std::fixed << std::setprecision(1) << m_total_games << L" Games  |  " << m_winrate << L"% Win  |  APM: " << m_apm;
+        if (is_zh) {
+            oss << std::fixed << std::setprecision(1) << m_total_games << L" 场比赛  |  胜率 " << m_winrate << L"%  |  APM: " << m_apm;
+        } else {
+            oss << std::fixed << std::setprecision(1) << m_total_games << L" Games  |  " << m_winrate << L"% Win  |  APM: " << m_apm;
+        }
     } else {
-        oss << L"New Ally (0 previous matches)";
+        oss << (is_zh ? L"新盟友 (暂无历史记录)" : L"New Ally (0 previous matches)");
     }
     std::wstring stats_w = oss.str();
     SetTextColor(hdcMem, RGB(255, 230, 100)); // Gold
@@ -228,10 +252,10 @@ void AllyToastWindow::Render() {
     SelectObject(hdcMem, hFontSmall);
     std::wstring note_w;
     if (!m_note.empty()) {
-        note_w = L"Note: " + ToWide(m_note);
+        note_w = (is_zh ? L"备注: " : L"Note: ") + ToWide(m_note);
         SetTextColor(hdcMem, RGB(220, 230, 245));
     } else {
-        note_w = L"No custom note (Edit notes in Players tab)";
+        note_w = is_zh ? L"暂无备注 (可在玩家统计页面双击添加)" : L"No custom note (Edit notes in Players tab)";
         SetTextColor(hdcMem, RGB(130, 150, 175));
     }
     RECT rcNote = { pad_x, bot_y1, width - pad_x, bot_y2 };

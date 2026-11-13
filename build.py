@@ -57,6 +57,7 @@ CXX_FLAGS = [
 SOURCES = [
     PROJECT_ROOT / "src" / "main.cpp",
     PROJECT_ROOT / "src" / "app_state.cpp",
+    PROJECT_ROOT / "src" / "i18n" / "i18n.cpp",
     PROJECT_ROOT / "src" / "db" / "database.cpp",
     PROJECT_ROOT / "src" / "replay" / "mpq_reader.cpp",
     PROJECT_ROOT / "src" / "replay" / "s2_decoder.cpp",

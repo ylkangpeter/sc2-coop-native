@@ -1,4 +1,5 @@
 #include "app_state.h"
+#include "i18n/i18n.h"
 #include "db/database.h"
 #include "replay/replay_parser.h"
 #include "utils/win32_utils.h"
@@ -42,15 +43,48 @@ void AppState::Init() {
 void AppState::LoadSettings() {
     auto& db = Database::Instance();
     account_folder = db.GetSetting("account_folder", "");
+
+    std::string lang_str = db.GetSetting("language", "0");
+    try { language = std::stoi(lang_str); } catch (...) { language = 0; }
+    I18n::SetLanguage(static_cast<Language>(language));
+
     start_minimized = (db.GetSetting("start_minimized", "0") == "1");
     minimize_to_tray = (db.GetSetting("minimize_to_tray", "1") == "1");
     start_with_windows = (db.GetSetting("start_with_windows", "0") == "1");
     enable_logging = (db.GetSetting("enable_logging", "1") == "1");
     show_ally_hud = (db.GetSetting("show_ally_hud", "1") == "1");
     auto_show_summary = (db.GetSetting("auto_show_summary", "1") == "1");
+
     hotkey_summary_enabled = (db.GetSetting("hotkey_summary_enabled", "1") == "1");
+    try {
+        hotkey_summary_mod = static_cast<unsigned int>(std::stoul(db.GetSetting("hotkey_summary_mod", std::to_string(0x0002 | 0x0004))));
+        hotkey_summary_vk = static_cast<unsigned int>(std::stoul(db.GetSetting("hotkey_summary_vk", std::to_string('H'))));
+    } catch (...) {
+        hotkey_summary_mod = 0x0002 | 0x0004;
+        hotkey_summary_vk = 'H';
+    }
+
     hotkey_nav_enabled = (db.GetSetting("hotkey_nav_enabled", "1") == "1");
+    try {
+        hotkey_prev_mod = static_cast<unsigned int>(std::stoul(db.GetSetting("hotkey_prev_mod", std::to_string(0x0002 | 0x0001))));
+        hotkey_prev_vk = static_cast<unsigned int>(std::stoul(db.GetSetting("hotkey_prev_vk", std::to_string(0x25))));
+        hotkey_next_mod = static_cast<unsigned int>(std::stoul(db.GetSetting("hotkey_next_mod", std::to_string(0x0002 | 0x0001))));
+        hotkey_next_vk = static_cast<unsigned int>(std::stoul(db.GetSetting("hotkey_next_vk", std::to_string(0x27))));
+    } catch (...) {
+        hotkey_prev_mod = 0x0002 | 0x0001;
+        hotkey_prev_vk = 0x25;
+        hotkey_next_mod = 0x0002 | 0x0001;
+        hotkey_next_vk = 0x27;
+    }
+
     hotkey_ally_enabled = (db.GetSetting("hotkey_ally_enabled", "1") == "1");
+    try {
+        hotkey_ally_mod = static_cast<unsigned int>(std::stoul(db.GetSetting("hotkey_ally_mod", std::to_string(0x0002 | 0x0001))));
+        hotkey_ally_vk = static_cast<unsigned int>(std::stoul(db.GetSetting("hotkey_ally_vk", std::to_string('W'))));
+    } catch (...) {
+        hotkey_ally_mod = 0x0002 | 0x0001;
+        hotkey_ally_vk = 'W';
+    }
 
     std::string fs = db.GetSetting("font_scale", "1.0");
     try { font_scale = std::stof(fs); } catch (...) { font_scale = 1.0f; }
@@ -62,15 +96,30 @@ void AppState::LoadSettings() {
 void AppState::SaveSettings() {
     auto& db = Database::Instance();
     db.SetSetting("account_folder", account_folder);
+    db.SetSetting("language", std::to_string(language));
+    I18n::SetLanguage(static_cast<Language>(language));
+
     db.SetSetting("start_minimized", start_minimized ? "1" : "0");
     db.SetSetting("minimize_to_tray", minimize_to_tray ? "1" : "0");
     db.SetSetting("start_with_windows", start_with_windows ? "1" : "0");
     db.SetSetting("enable_logging", enable_logging ? "1" : "0");
     db.SetSetting("show_ally_hud", show_ally_hud ? "1" : "0");
     db.SetSetting("auto_show_summary", auto_show_summary ? "1" : "0");
+
     db.SetSetting("hotkey_summary_enabled", hotkey_summary_enabled ? "1" : "0");
+    db.SetSetting("hotkey_summary_mod", std::to_string(hotkey_summary_mod));
+    db.SetSetting("hotkey_summary_vk", std::to_string(hotkey_summary_vk));
+
     db.SetSetting("hotkey_nav_enabled", hotkey_nav_enabled ? "1" : "0");
+    db.SetSetting("hotkey_prev_mod", std::to_string(hotkey_prev_mod));
+    db.SetSetting("hotkey_prev_vk", std::to_string(hotkey_prev_vk));
+    db.SetSetting("hotkey_next_mod", std::to_string(hotkey_next_mod));
+    db.SetSetting("hotkey_next_vk", std::to_string(hotkey_next_vk));
+
     db.SetSetting("hotkey_ally_enabled", hotkey_ally_enabled ? "1" : "0");
+    db.SetSetting("hotkey_ally_mod", std::to_string(hotkey_ally_mod));
+    db.SetSetting("hotkey_ally_vk", std::to_string(hotkey_ally_vk));
+
     db.SetSetting("font_scale", std::to_string(font_scale));
     db.SetSetting("hud_duration", std::to_string(hud_duration_seconds));
 

@@ -1,5 +1,6 @@
 #include "ui_manager.h"
 #include "../app_state.h"
+#include "../i18n/i18n.h"
 #include "../db/database.h"
 #include "texture_loader.h"
 #include "tabs/tab_settings.h"
@@ -405,13 +406,7 @@ bool UIManager::Init(HINSTANCE hInstance, int nCmdShow) {
         SummaryOverlay::Instance().ShowNext();
     });
     hk.SetCallback(HotkeyAction::AllyInfo, []() {
-        int total = 0;
-        auto replays = Database::Instance().QueryReplays("", 1, 0, total);
-        if (!replays.empty() && !replays[0].p2.name.empty()) {
-            AllyToastWindow::Instance().ShowAllyInfo(replays[0].p2.name);
-        } else {
-            AllyToastWindow::Instance().ShowTestToast();
-        }
+        AllyToastWindow::Instance().Toggle();
     });
 
     // Start background real-time replay watcher for automated post-game popups
@@ -520,24 +515,26 @@ void UIManager::Run() {
             }
         };
 
-        TabBtn("Games", 1, 90);
+        TabBtn(TR("对局历史", "Games"), 1, 95);
         ImGui::SameLine();
-        TabBtn("Players", 2, 90);
+        TabBtn(TR("玩家统计", "Players"), 2, 95);
         ImGui::SameLine();
-        TabBtn("Weeklies", 3, 90);
+        TabBtn(TR("每周突变", "Weeklies"), 3, 95);
         ImGui::SameLine();
-        TabBtn("Statistics", 4, 100);
+        TabBtn(TR("数据大盘", "Statistics"), 4, 100);
         ImGui::SameLine();
-        TabBtn("Settings", 0, 90);
+        TabBtn(TR("系统设置", "Settings"), 0, 95);
         ImGui::SameLine();
-        if (ImGui::Button("Summary Overlay (F11)", ImVec2(165, 28))) {
+        std::string sum_btn_label = std::string(TR("赛后战报浮窗", "Summary Overlay")) + " [" + HotkeyManager::FormatHotkey(state.hotkey_summary_mod, state.hotkey_summary_vk) + "]";
+        if (ImGui::Button(sum_btn_label.c_str(), ImVec2(200, 28))) {
             SummaryOverlay::Instance().Toggle();
         }
 
         // Right side: Scanner status & Rescan indicator
         if (state.is_scanning) {
             ImGui::SameLine(ImGui::GetContentRegionAvail().x - 180);
-            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "Scanning (%d/%d)...",
+            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "%s (%d/%d)...",
+                               TR("扫描中", "Scanning"),
                                state.scan_progress.load(), state.scan_total.load());
         }
 
