@@ -1,0 +1,37 @@
+# Build outputs and distributions
+build/
+dist/
+bin/
+out/
+__pycache__/
+*.pyc
+
+# Executables, objects, and binary artifacts
+*.exe
+*.o
+*.obj
+*.lib
+*.a
+*.dll
+*.bin
+*.rsp
+
+# SQLite databases and WAL
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+
+# ImGui settings
+imgui.ini
+
+# IDE & Editor files
+.vscode/
+.vs/
+.idea/
+*.suo
+*.user
+
+# Temporary images in root/tests (keep assets/ and res/)
+/*.png
+/tests/*.png
