@@ -347,8 +347,8 @@ bool UIManager::Init(HINSTANCE hInstance, int nCmdShow) {
     int mon_w = mi.rcWork.right - mi.rcWork.left;
     int mon_h = mi.rcWork.bottom - mi.rcWork.top;
 
-    int win_w = (int)(1100 * dpi_scale);
-    int win_h = (int)(700 * dpi_scale);
+    int win_w = (int)(1250 * dpi_scale);
+    int win_h = (int)(800 * dpi_scale);
     if (win_w > (int)(mon_w * 0.95f)) win_w = (int)(mon_w * 0.95f);
     if (win_h > (int)(mon_h * 0.95f)) win_h = (int)(mon_h * 0.95f);
 
@@ -499,10 +499,10 @@ void UIManager::Run() {
         ImGui::TextColored(ImVec4(0.0f, 0.75f, 1.0f, 1.0f), "SC2 CO-OP NATIVE");
         ImGui::SameLine();
         ImGui::TextDisabled("v1.0.0");
-        ImGui::SameLine(180);
+        ImGui::SameLine(0, 16.0f);
 
         // Tab Buttons
-        auto TabBtn = [&](const char* label, int tab_idx, float width = 110.0f) {
+        auto TabBtn = [&](const char* label, int tab_idx, float width = 0.0f) {
             bool is_active = (state.active_tab == tab_idx);
             if (is_active) {
                 ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.45f, 0.85f, 1.0f));
@@ -515,30 +515,45 @@ void UIManager::Run() {
             }
         };
 
-        TabBtn(TR("Games"), 1, 95);
+        TabBtn(TR("Games"), 1, 0.0f);
         ImGui::SameLine();
-        TabBtn(TR("Players"), 2, 95);
+        TabBtn(TR("Players"), 2, 0.0f);
         ImGui::SameLine();
-        TabBtn(TR("Weeklies"), 3, 95);
+        TabBtn(TR("Weeklies"), 3, 0.0f);
         ImGui::SameLine();
-        TabBtn(TR("Statistics"), 4, 100);
+        TabBtn(TR("Statistics"), 4, 0.0f);
         ImGui::SameLine();
-        TabBtn(TR("Settings"), 0, 95);
+        TabBtn(TR("Settings"), 0, 0.0f);
         ImGui::SameLine();
         std::string sum_btn_label = std::string(TR("Summary Overlay")) + " [" + HotkeyManager::FormatHotkey(state.hotkey_summary_mod, state.hotkey_summary_vk) + "]";
-        if (ImGui::Button(sum_btn_label.c_str(), ImVec2(200, 28))) {
+        if (ImGui::Button(sum_btn_label.c_str(), ImVec2(0.0f, 28))) {
             SummaryOverlay::Instance().Toggle();
         }
 
         // Right side: Scanner status & Rescan indicator
         if (state.is_scanning) {
-            ImGui::SameLine(ImGui::GetContentRegionAvail().x - 180);
-            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "%s (%d/%d)...",
-                               TR("Scanning"),
-                               state.scan_progress.load(), state.scan_total.load());
+            char scan_buf[128];
+            std::snprintf(scan_buf, sizeof(scan_buf), "%s (%d/%d)...",
+                          TR("Scanning"),
+                          state.scan_progress.load(), state.scan_total.load());
+            float text_w = ImGui::CalcTextSize(scan_buf).x;
+            float target_x = ImGui::GetWindowWidth() - text_w - ImGui::GetStyle().WindowPadding.x - 10.0f;
+            if (target_x > ImGui::GetCursorPosX()) {
+                ImGui::SameLine(target_x);
+            } else {
+                ImGui::SameLine();
+            }
+            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "%s", scan_buf);
         } else {
-            ImGui::SameLine(ImGui::GetContentRegionAvail().x - 100);
-            ImGui::TextDisabled("%s", TR("Idle"));
+            const char* idle_txt = TR("Idle");
+            float text_w = ImGui::CalcTextSize(idle_txt).x;
+            float target_x = ImGui::GetWindowWidth() - text_w - ImGui::GetStyle().WindowPadding.x - 10.0f;
+            if (target_x > ImGui::GetCursorPosX()) {
+                ImGui::SameLine(target_x);
+            } else {
+                ImGui::SameLine();
+            }
+            ImGui::TextDisabled("%s", idle_txt);
         }
 
         ImGui::Spacing();

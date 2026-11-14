@@ -6,6 +6,7 @@
 #include "../../replay/mpq_reader.h"
 #include "../../replay/s2_decoder.h"
 #include "../texture_loader.h"
+#include "../hud/summary_overlay.h"
 
 #include <imgui.h>
 #include <algorithm>
@@ -17,7 +18,9 @@ int TabGames::s_current_page = 0;
 
 void TabGames::Render(AppState& state) {
     // 1. Search Bar & Controls Header
-    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 280);
+    float clear_w = ImGui::CalcTextSize(TR("Clear")).x + ImGui::GetStyle().FramePadding.x * 2.0f + 16.0f;
+    float refresh_w = ImGui::CalcTextSize(TR("Refresh")).x + ImGui::GetStyle().FramePadding.x * 2.0f + 16.0f;
+    ImGui::SetNextItemWidth(std::max(200.0f, ImGui::GetContentRegionAvail().x - clear_w - refresh_w - ImGui::GetStyle().ItemSpacing.x * 2.0f));
     const char* search_hint = TR("Search_Games_Hint");
     bool search_changed = ImGui::InputTextWithHint("##SearchGames",
                              search_hint,
@@ -27,13 +30,13 @@ void TabGames::Render(AppState& state) {
     }
 
     ImGui::SameLine();
-    if (ImGui::Button(TR("Clear"), ImVec2(60, 0))) {
+    if (ImGui::Button(TR("Clear"), ImVec2(clear_w, 0))) {
         state.games_search_buf[0] = '\0';
         s_current_page = 0;
     }
 
     ImGui::SameLine();
-    if (ImGui::Button(TR("Refresh"), ImVec2(70, 0))) {
+    if (ImGui::Button(TR("Refresh"), ImVec2(refresh_w, 0))) {
         // Trigger re-query
     }
 
@@ -52,24 +55,26 @@ void TabGames::Render(AppState& state) {
 
     // 3. Render Table (10 columns: Map, Mode, Result, P1, P2, Enemy, Length, Difficulty, Date, Actions)
     const ImGuiTableFlags table_flags = ImGuiTableFlags_ScrollY |
+                                        ImGuiTableFlags_ScrollX |
                                         ImGuiTableFlags_RowBg |
                                         ImGuiTableFlags_BordersOuter |
                                         ImGuiTableFlags_BordersInnerH |
                                         ImGuiTableFlags_Resizable;
 
     float table_height = ImGui::GetContentRegionAvail().y - 36.0f; // Leave space for pagination footer
-    if (ImGui::BeginTable("GamesTable", 10, table_flags, ImVec2(0, table_height))) {
+    float inner_width = std::max(1180.0f, ImGui::GetContentRegionAvail().x);
+    if (ImGui::BeginTable("GamesTable", 10, table_flags, ImVec2(0, table_height), inner_width)) {
         ImGui::TableSetupScrollFreeze(0, 1);
-        ImGui::TableSetupColumn(TR("Map"), ImGuiTableColumnFlags_WidthFixed, 135.0f);
-        ImGui::TableSetupColumn(TR("Mode"), ImGuiTableColumnFlags_WidthFixed, 85.0f);
+        ImGui::TableSetupColumn(TR("Map"), ImGuiTableColumnFlags_WidthFixed, 150.0f);
+        ImGui::TableSetupColumn(TR("Mode"), ImGuiTableColumnFlags_WidthFixed, 80.0f);
         ImGui::TableSetupColumn(TR("Result"), ImGuiTableColumnFlags_WidthFixed, 65.0f);
-        ImGui::TableSetupColumn(TR("Player 1"), ImGuiTableColumnFlags_WidthStretch);
-        ImGui::TableSetupColumn(TR("Player 2 (Ally)"), ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn(TR("Player 1"), ImGuiTableColumnFlags_WidthStretch, 1.3f);
+        ImGui::TableSetupColumn(TR("Player 2 (Ally)"), ImGuiTableColumnFlags_WidthStretch, 1.3f);
         ImGui::TableSetupColumn(TR("Enemy"), ImGuiTableColumnFlags_WidthFixed, 65.0f);
         ImGui::TableSetupColumn(TR("Length"), ImGuiTableColumnFlags_WidthFixed, 60.0f);
-        ImGui::TableSetupColumn(TR("Difficulty"), ImGuiTableColumnFlags_WidthFixed, 75.0f);
-        ImGui::TableSetupColumn(TR("Date"), ImGuiTableColumnFlags_WidthFixed, 120.0f);
-        ImGui::TableSetupColumn(TR("Actions"), ImGuiTableColumnFlags_WidthFixed, 160.0f);
+        ImGui::TableSetupColumn(TR("Difficulty"), ImGuiTableColumnFlags_WidthFixed, 80.0f);
+        ImGui::TableSetupColumn(TR("Date"), ImGuiTableColumnFlags_WidthFixed, 130.0f);
+        ImGui::TableSetupColumn(TR("Actions"), ImGuiTableColumnFlags_WidthFixed, 180.0f);
         ImGui::TableHeadersRow();
 
         for (size_t i = 0; i < replays.size(); ++i) {
@@ -108,9 +113,9 @@ void TabGames::Render(AppState& state) {
             ImGui::Text("%s", p1_clean.c_str());
             ImGui::SameLine();
             if (r.p1.prestige >= 0 && r.p1.prestige <= 3) {
-                ImGui::TextDisabled("(%s P%d)", r.p1.commander.c_str(), r.p1.prestige);
+                ImGui::TextDisabled("(%s P%d)", TR(r.p1.commander.c_str()), r.p1.prestige);
             } else {
-                ImGui::TextDisabled("(%s)", r.p1.commander.c_str());
+                ImGui::TextDisabled("(%s)", TR(r.p1.commander.c_str()));
             }
 
             // Col 4: Player 2 (Ally)
@@ -120,9 +125,9 @@ void TabGames::Render(AppState& state) {
                 ImGui::Text("%s", p2_clean.c_str());
                 ImGui::SameLine();
                 if (r.p2.prestige >= 0 && r.p2.prestige <= 3) {
-                    ImGui::TextDisabled("(%s P%d)", r.p2.commander.c_str(), r.p2.prestige);
+                    ImGui::TextDisabled("(%s P%d)", TR(r.p2.commander.c_str()), r.p2.prestige);
                 } else {
-                    ImGui::TextDisabled("(%s)", r.p2.commander.c_str());
+                    ImGui::TextDisabled("(%s)", TR(r.p2.commander.c_str()));
                 }
             } else {
                 ImGui::TextDisabled("-");
@@ -139,11 +144,11 @@ void TabGames::Render(AppState& state) {
             // Col 7: Difficulty
             ImGui::TableSetColumnIndex(7);
             if (r.brutal_plus >= 1 && r.brutal_plus <= 6) {
-                ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f), "%s", r.difficulty.c_str());
+                ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f), "%s", TR(r.difficulty.c_str()));
             } else if (r.brutal_plus > 6 || r.brutal_plus < 0) {
-                ImGui::TextUnformatted("Brutal");
+                ImGui::TextUnformatted(TR("Brutal"));
             } else {
-                ImGui::TextUnformatted(r.difficulty.c_str());
+                ImGui::TextUnformatted(TR(r.difficulty.c_str()));
             }
 
             // Col 8: Date
@@ -155,40 +160,7 @@ void TabGames::Render(AppState& state) {
             ImGui::PushID(static_cast<int>(i));
 
             if (ImGui::SmallButton(TR("Detail"))) {
-                state.detail_replay = r;
-                if (state.detail_replay.chat.empty()) {
-                    std::wstring wpath = Win32Utils::Utf8ToWide(state.detail_replay.file_path);
-                    std::vector<uint8_t> msg_bytes;
-                    if (MpqReader::ReadFile(wpath, "replay.message.events", msg_bytes)) {
-                        auto msgs = S2Decoder::DecodeMessageEvents(msg_bytes);
-                        if (!msgs.empty()) {
-                            std::vector<DecodedPlayer> players;
-                            std::vector<uint8_t> details_bytes;
-                            if (MpqReader::ReadFile(wpath, "replay.details", details_bytes)) {
-                                players = S2Decoder::DecodeDetails(details_bytes);
-                            }
-                            for (const auto& m : msgs) {
-                                ChatRecord cr;
-                                cr.time_seconds = m.time_seconds;
-                                cr.player_id = m.player_id;
-                                if (m.player_id >= 1 && m.player_id <= static_cast<int>(players.size())) {
-                                    cr.player_name = Win32Utils::CleanPlayerName(players[m.player_id - 1].name);
-                                } else if (m.player_id == 1 && !state.detail_replay.p1.name.empty()) {
-                                    cr.player_name = state.detail_replay.p1.name;
-                                } else if (m.player_id == 2 && !state.detail_replay.p2.name.empty()) {
-                                    cr.player_name = state.detail_replay.p2.name;
-                                } else {
-                                    cr.player_name = "Player " + std::to_string(m.player_id);
-                                }
-                                cr.text = m.text;
-                                state.detail_replay.chat.push_back(cr);
-                            }
-                            Database::Instance().UpdateReplayChat(state.detail_replay.file_path, state.detail_replay.ChatToJson());
-                            r.chat = state.detail_replay.chat;
-                        }
-                    }
-                }
-                state.show_detail_modal = true;
+                SummaryOverlay::Instance().ShowMatch(r);
             }
             ImGui::SameLine();
             bool has_chat = !r.chat.empty();
@@ -250,7 +222,16 @@ void TabGames::Render(AppState& state) {
     // 4. Pagination Footer
     ImGui::Separator();
     ImGui::Text(TR("page_info_format"), s_current_page + 1, total_pages, total_records);
-    ImGui::SameLine(ImGui::GetContentRegionAvail().x - 240);
+
+    float btn_bar_w = ImGui::CalcTextSize(TR("<< First")).x + ImGui::CalcTextSize(TR("< Prev")).x +
+                      ImGui::CalcTextSize(TR("Next >")).x + ImGui::CalcTextSize(TR("Last >>")).x +
+                      (ImGui::GetStyle().FramePadding.x * 2.0f * 4) + (ImGui::GetStyle().ItemSpacing.x * 3) + 20.0f;
+    float page_btn_x = ImGui::GetWindowWidth() - btn_bar_w - ImGui::GetStyle().WindowPadding.x;
+    if (page_btn_x > ImGui::GetCursorPosX()) {
+        ImGui::SameLine(page_btn_x);
+    } else {
+        ImGui::SameLine();
+    }
 
     if (ImGui::Button(TR("<< First")) && s_current_page > 0) {
         s_current_page = 0;

@@ -18,8 +18,8 @@ StatsSummary TabStats::s_cached_summary;
 
 void TabStats::Render(AppState& state) {
     // 1. Top Filters Bar
-    ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "%s", TR("Filters"));
-    ImGui::SameLine(100);
+    ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "%s:", TR("Filters"));
+    ImGui::SameLine();
 
     ImGui::Checkbox(TR("Casual"), &state.stats_filter.casual);
     ImGui::SameLine();
@@ -31,7 +31,10 @@ void TabStats::Render(AppState& state) {
     ImGui::SameLine();
     ImGui::Checkbox(TR("Brutal+"), &state.stats_filter.brutal_plus);
 
-    ImGui::SameLine(520);
+    ImGui::SameLine(0, 16.0f);
+    ImGui::TextDisabled("|");
+    ImGui::SameLine(0, 16.0f);
+
     ImGui::Checkbox("NA", &state.stats_filter.region_na);
     ImGui::SameLine();
     ImGui::Checkbox("EU", &state.stats_filter.region_eu);
@@ -40,7 +43,7 @@ void TabStats::Render(AppState& state) {
     ImGui::SameLine();
     ImGui::Checkbox("CN", &state.stats_filter.region_cn);
 
-    ImGui::SameLine(820);
+    ImGui::SameLine(0, 20.0f);
     if (ImGui::SmallButton(TR("Refresh##Stats"))) {
         s_cache_valid = false;
     }
@@ -60,18 +63,31 @@ void TabStats::Render(AppState& state) {
 
     // Games found count
     ImGui::TextColored(ImVec4(0.3f, 0.9f, 0.4f, 1.0f), TR("Games found: %d"), summary.total_games);
-    ImGui::SameLine(200);
+    ImGui::Spacing();
 
     // 3. Stats Sub-Navigation
-    if (ImGui::Button(TR("Maps Overview"), ImVec2(120, 24))) s_sub_tab = 0;
+    auto SubTabBtn = [&](const char* label, int tab_idx) {
+        bool is_active = (s_sub_tab == tab_idx);
+        if (is_active) {
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.45f, 0.85f, 1.0f));
+        }
+        if (ImGui::Button(label, ImVec2(0, 28))) {
+            s_sub_tab = tab_idx;
+        }
+        if (is_active) {
+            ImGui::PopStyleColor();
+        }
+    };
+
+    SubTabBtn(TR("Maps Overview"), 0);
     ImGui::SameLine();
-    if (ImGui::Button(TR("Difficulty & Regions"), ImVec2(140, 24))) s_sub_tab = 1;
+    SubTabBtn(TR("Difficulty & Regions"), 1);
     ImGui::SameLine();
-    if (ImGui::Button(TR("My Commanders"), ImVec2(130, 24))) s_sub_tab = 2;
+    SubTabBtn(TR("My Commanders"), 2);
     ImGui::SameLine();
-    if (ImGui::Button(TR("Allied Commanders"), ImVec2(130, 24))) s_sub_tab = 3;
+    SubTabBtn(TR("Allied Commanders"), 3);
     ImGui::SameLine();
-    if (ImGui::Button(TR("Career Summary"), ImVec2(130, 24))) s_sub_tab = 4;
+    SubTabBtn(TR("Career Summary"), 4);
 
     ImGui::Spacing();
 
@@ -81,8 +97,8 @@ void TabStats::Render(AppState& state) {
         ImGui::Spacing();
 
         float avail_w = ImGui::GetContentRegionAvail().x;
-        float preview_w = 300.0f;
-        float table_w = (avail_w > 650.0f) ? (avail_w - preview_w - 20.0f) : (avail_w * 0.65f);
+        float preview_w = std::clamp(avail_w * 0.32f, 280.0f, 360.0f);
+        float table_w = avail_w - preview_w - ImGui::GetStyle().ItemSpacing.x;
 
         // Left Pane: Maps Table
         ImGui::BeginChild("MapsTablePane", ImVec2(table_w, 0), false);
@@ -90,9 +106,11 @@ void TabStats::Render(AppState& state) {
                                             ImGuiTableFlags_BordersOuter |
                                             ImGuiTableFlags_BordersInnerH |
                                             ImGuiTableFlags_ScrollY |
+                                            ImGuiTableFlags_ScrollX |
                                             ImGuiTableFlags_Resizable;
 
-        if (ImGui::BeginTable("MapsTable", 7, table_flags)) {
+        float maps_inner_w = std::max(560.0f, table_w);
+        if (ImGui::BeginTable("MapsTable", 7, table_flags, ImVec2(0, 0), maps_inner_w)) {
             ImGui::TableSetupColumn(TR("Map Name"), ImGuiTableColumnFlags_WidthStretch);
             ImGui::TableSetupColumn(TR("Fastest"), ImGuiTableColumnFlags_WidthFixed, 75.0f);
             ImGui::TableSetupColumn(TR("Avg"), ImGuiTableColumnFlags_WidthFixed, 75.0f);
@@ -105,7 +123,7 @@ void TabStats::Render(AppState& state) {
             for (const auto& m : summary.maps) {
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
-                ImGui::TextUnformatted(m.map_name.c_str());
+                ImGui::TextUnformatted(TR(m.map_name.c_str()));
 
                 ImGui::TableSetColumnIndex(1);
                 ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.4f, 1.0f), "%s", m.fastest_str.c_str());
@@ -134,7 +152,7 @@ void TabStats::Render(AppState& state) {
         ImGui::BeginChild("MapPreviewPane", ImVec2(0, 0), true);
         if (!summary.maps.empty()) {
             ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "%s", TR("Most Played Map:"));
-            ImGui::Text("%s (%d %s)", summary.maps[0].map_name.c_str(),
+            ImGui::Text("%s (%d %s)", TR(summary.maps[0].map_name.c_str()),
                         summary.maps[0].wins + summary.maps[0].losses,
                         TR("games"));
             ImGui::Spacing();
@@ -158,8 +176,11 @@ void TabStats::Render(AppState& state) {
         ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "%s", TR("Difficulty Breakdown & Regional Statistics"));
         ImGui::Spacing();
 
+        float avail_w = ImGui::GetContentRegionAvail().x;
+        float half_w = (avail_w - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
+
         // Left Table: Difficulty
-        ImGui::BeginChild("DiffChild", ImVec2(480, 0), false);
+        ImGui::BeginChild("DiffChild", ImVec2(half_w, 0), false);
         ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "%s", TR("Difficulty Breakdown"));
         ImGui::Spacing();
 
@@ -177,9 +198,9 @@ void TabStats::Render(AppState& state) {
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
                 if (d.difficulty.find("Brutal+") == 0) {
-                    ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f), "%s", d.difficulty.c_str());
+                    ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f), "%s", TR(d.difficulty.c_str()));
                 } else {
-                    ImGui::TextUnformatted(d.difficulty.c_str());
+                    ImGui::TextUnformatted(TR(d.difficulty.c_str()));
                 }
 
                 ImGui::TableSetColumnIndex(1);
@@ -252,7 +273,7 @@ void TabStats::Render(AppState& state) {
         ImGui::Spacing();
 
         float avail_w = ImGui::GetContentRegionAvail().x;
-        float left_w = (avail_w > 800.0f) ? 500.0f : (avail_w * 0.55f);
+        float left_w = (avail_w - ImGui::GetStyle().ItemSpacing.x) * 0.52f;
 
         ImGui::BeginChild("MyComTablePane", ImVec2(left_w, 0), false);
         if (ImGui::BeginTable("MyComTable", 6, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersOuter | ImGuiTableFlags_ScrollY | ImGuiTableFlags_Resizable)) {
@@ -273,7 +294,7 @@ void TabStats::Render(AppState& state) {
                     ImGui::Image(icon, ImVec2(18, 18));
                     ImGui::SameLine();
                 }
-                ImGui::TextUnformatted(c.commander.c_str());
+                ImGui::TextUnformatted(TR(c.commander.c_str()));
 
                 ImGui::TableSetColumnIndex(1);
                 ImGui::Text("%d", c.total_games);
@@ -303,7 +324,7 @@ void TabStats::Render(AppState& state) {
             for (size_t i = 0; i < summary.my_commanders.size(); ++i) {
                 x.push_back(static_cast<double>(i));
                 y.push_back(static_cast<double>(summary.my_commanders[i].total_games));
-                labels.push_back(summary.my_commanders[i].commander.c_str());
+                labels.push_back(TR(summary.my_commanders[i].commander.c_str()));
             }
 
             ImPlot::SetupAxes(TR("Commander"), TR("Total Games"), ImPlotAxisFlags_None, ImPlotAxisFlags_AutoFit);
@@ -341,7 +362,7 @@ void TabStats::Render(AppState& state) {
                     ImGui::Image(icon, ImVec2(18, 18));
                     ImGui::SameLine();
                 }
-                ImGui::TextUnformatted(c.commander.c_str());
+                ImGui::TextUnformatted(TR(c.commander.c_str()));
 
                 ImGui::TableSetColumnIndex(1);
                 ImGui::Text("%d", c.total_games);

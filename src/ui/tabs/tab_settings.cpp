@@ -48,13 +48,15 @@ void TabSettings::Render(AppState& state) {
         strncpy_s(folder_buf, state.account_folder.c_str(), sizeof(folder_buf) - 1);
     }
 
-    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 220);
+    float browse_btn_w = ImGui::CalcTextSize(TR("Browse...")).x + ImGui::GetStyle().FramePadding.x * 2.0f + 16.0f;
+    float auto_btn_w = ImGui::CalcTextSize(TR("Auto Detect")).x + ImGui::GetStyle().FramePadding.x * 2.0f + 16.0f;
+    ImGui::SetNextItemWidth(std::max(200.0f, ImGui::GetContentRegionAvail().x - browse_btn_w - auto_btn_w - ImGui::GetStyle().ItemSpacing.x * 2.0f));
     if (ImGui::InputText("##AccountFolder", folder_buf, sizeof(folder_buf))) {
         state.account_folder = folder_buf;
         state.SaveSettings();
     }
     ImGui::SameLine();
-    if (ImGui::Button(TR("Browse..."), ImVec2(90, 0))) {
+    if (ImGui::Button(TR("Browse..."), ImVec2(browse_btn_w, 0))) {
         std::string chosen = Win32Utils::SelectFolderDialog(nullptr, TR("StarCraft II Replays & Account Directory"));
         if (!chosen.empty()) {
             state.account_folder = chosen;
@@ -63,7 +65,7 @@ void TabSettings::Render(AppState& state) {
         }
     }
     ImGui::SameLine();
-    if (ImGui::Button(TR("Auto Detect"), ImVec2(100, 0))) {
+    if (ImGui::Button(TR("Auto Detect"), ImVec2(auto_btn_w, 0))) {
         std::string detected = Win32Utils::FindDefaultAccountsFolder();
         if (!detected.empty()) {
             state.account_folder = detected;
@@ -100,15 +102,15 @@ void TabSettings::Render(AppState& state) {
             state.StopScan();
         }
     } else {
-        if (ImGui::Button(TR("Rescan Library Now"), ImVec2(160, 26))) {
+        if (ImGui::Button(TR("Rescan Library Now"), ImVec2(0, 28))) {
             state.StartScanAsync(false);
         }
         ImGui::SameLine();
-        if (ImGui::Button(TR("Re-parse All Replays"), ImVec2(170, 26))) {
+        if (ImGui::Button(TR("Re-parse All Replays"), ImVec2(0, 28))) {
             state.StartScanAsync(true);
         }
         ImGui::SameLine();
-        if (ImGui::Button(TR("Export Database to JSON"), ImVec2(180, 26))) {
+        if (ImGui::Button(TR("Export Database to JSON"), ImVec2(0, 28))) {
             Database::Instance().DumpAllToJson("replay_data_dump.json");
             ShellExecuteW(nullptr, L"open", L"explorer.exe", L"/select,replay_data_dump.json", nullptr, SW_SHOWNORMAL);
         }
@@ -125,18 +127,22 @@ void TabSettings::Render(AppState& state) {
     if (ImGui::Checkbox(TR("Auto-show Match Summary Overlay after each game"), &state.auto_show_summary)) {
         state.SaveSettings();
     }
-    ImGui::SameLine(460);
-    if (ImGui::Button(TR("Toggle Summary Preview"), ImVec2(180, 24))) {
+    ImGui::Indent(24.0f);
+    if (ImGui::Button(TR("Toggle Summary Preview"), ImVec2(0, 28))) {
         SummaryOverlay::Instance().Toggle();
     }
+    ImGui::Unindent(24.0f);
+    ImGui::Spacing();
 
     if (ImGui::Checkbox(TR("Show in-game Ally Winrate & Notes Toast on match start"), &state.show_ally_hud)) {
         state.SaveSettings();
     }
-    ImGui::SameLine(460);
-    if (ImGui::Button(TR("Toggle Ally Toast Preview"), ImVec2(180, 24))) {
+    ImGui::Indent(24.0f);
+    if (ImGui::Button(TR("Toggle Ally Toast Preview"), ImVec2(0, 28))) {
         AllyToastWindow::Instance().Toggle();
     }
+    ImGui::Unindent(24.0f);
+    ImGui::Spacing();
 
     ImGui::SetNextItemWidth(200);
     if (ImGui::SliderInt(TR("Overlay Display Duration (seconds)"), &state.hud_duration_seconds, 5, 60)) {
@@ -207,44 +213,55 @@ void TabSettings::Render(AppState& state) {
         }
     }
 
-    auto RenderHotkeyRow = [&](const char* label_key, bool& enabled, UINT mod, UINT vk, int action_id) {
-        if (ImGui::Checkbox(TR(label_key), &enabled)) {
-            state.SaveSettings();
-            HotkeyManager::Instance().RegisterAll();
-        }
-        ImGui::SameLine(360);
+    if (ImGui::BeginTable("HotkeysTable", 2, ImGuiTableFlags_SizingStretchProp)) {
+        ImGui::TableSetupColumn("Action", ImGuiTableColumnFlags_WidthStretch, 0.45f);
+        ImGui::TableSetupColumn("Hotkey", ImGuiTableColumnFlags_WidthStretch, 0.55f);
 
-        std::string btn_label;
-        if (s_recording_action == action_id) {
-            btn_label = std::string("[ ") + TR("Press key combo... (Esc to cancel)") + " ]";
-            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.85f, 0.25f, 0.25f, 1.0f));
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
-        } else {
-            btn_label = "[ " + HotkeyManager::FormatHotkey(mod, vk) + " ]";
-        }
-
-        std::string btn_id = btn_label + "##HKBtn" + std::to_string(action_id);
-        if (ImGui::Button(btn_id.c_str(), ImVec2(240, 24))) {
-            if (s_recording_action == action_id) {
-                s_recording_action = -1;
-            } else {
-                s_recording_action = action_id;
-                s_skip_first_frame = true;
+        auto RenderHotkeyRow = [&](const char* label_key, bool& enabled, UINT mod, UINT vk, int action_id) {
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            if (ImGui::Checkbox(TR(label_key), &enabled)) {
+                state.SaveSettings();
+                HotkeyManager::Instance().RegisterAll();
             }
-        }
 
-        if (s_recording_action == action_id) {
-            ImGui::PopStyleColor(2);
-        }
-    };
+            ImGui::TableSetColumnIndex(1);
+            bool is_pushed = (s_recording_action == action_id);
+            std::string btn_label;
+            if (is_pushed) {
+                btn_label = std::string("[ ") + TR("Press key combo... (Esc to cancel)") + " ]";
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.85f, 0.25f, 0.25f, 1.0f));
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
+            } else {
+                btn_label = "[ " + HotkeyManager::FormatHotkey(mod, vk) + " ]";
+            }
 
-    RenderHotkeyRow("Toggle Match Summary Overlay", state.hotkey_summary_enabled, state.hotkey_summary_mod, state.hotkey_summary_vk, 1);
-    RenderHotkeyRow("Toggle Ally Winrate & Notes Toast", state.hotkey_ally_enabled, state.hotkey_ally_mod, state.hotkey_ally_vk, 2);
-    RenderHotkeyRow("Browse Older Match Summary", state.hotkey_nav_enabled, state.hotkey_prev_mod, state.hotkey_prev_vk, 3);
-    RenderHotkeyRow("Browse Newer Match Summary", state.hotkey_nav_enabled, state.hotkey_next_mod, state.hotkey_next_vk, 4);
+            std::string btn_id = btn_label + "##HKBtn" + std::to_string(action_id);
+            float btn_w = std::max(200.0f, ImGui::CalcTextSize(btn_label.c_str()).x + ImGui::GetStyle().FramePadding.x * 2.0f + 16.0f);
+            if (ImGui::Button(btn_id.c_str(), ImVec2(btn_w, 28))) {
+                if (s_recording_action == action_id) {
+                    s_recording_action = -1;
+                } else {
+                    s_recording_action = action_id;
+                    s_skip_first_frame = true;
+                }
+            }
+
+            if (is_pushed) {
+                ImGui::PopStyleColor(2);
+            }
+        };
+
+        RenderHotkeyRow("Toggle Match Summary Overlay", state.hotkey_summary_enabled, state.hotkey_summary_mod, state.hotkey_summary_vk, 1);
+        RenderHotkeyRow("Toggle Ally Winrate & Notes Toast", state.hotkey_ally_enabled, state.hotkey_ally_mod, state.hotkey_ally_vk, 2);
+        RenderHotkeyRow("Browse Older Match Summary", state.hotkey_nav_enabled, state.hotkey_prev_mod, state.hotkey_prev_vk, 3);
+        RenderHotkeyRow("Browse Newer Match Summary", state.hotkey_nav_enabled, state.hotkey_next_mod, state.hotkey_next_vk, 4);
+
+        ImGui::EndTable();
+    }
 
     ImGui::Spacing();
-    if (ImGui::Button(TR("Reset Default Hotkeys"), ImVec2(180, 25))) {
+    if (ImGui::Button(TR("Reset Default Hotkeys"), ImVec2(0, 28))) {
         state.hotkey_summary_mod = MOD_CONTROL | MOD_SHIFT;
         state.hotkey_summary_vk = 'H';
         state.hotkey_ally_mod = MOD_CONTROL | MOD_ALT;
@@ -269,15 +286,12 @@ void TabSettings::Render(AppState& state) {
     if (ImGui::Checkbox(TR("Start with Windows"), &state.start_with_windows)) {
         state.SaveSettings();
     }
-    ImGui::SameLine(250);
     if (ImGui::Checkbox(TR("Start Minimized"), &state.start_minimized)) {
         state.SaveSettings();
     }
-
     if (ImGui::Checkbox(TR("Minimize to System Tray on Close"), &state.minimize_to_tray)) {
         state.SaveSettings();
     }
-    ImGui::SameLine(250);
     if (ImGui::Checkbox(TR("Enable App Logging"), &state.enable_logging)) {
         state.SaveSettings();
     }

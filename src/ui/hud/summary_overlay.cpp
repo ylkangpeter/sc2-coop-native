@@ -585,27 +585,85 @@ void SummaryOverlay::Render() {
     int rw = (int)(height * 0.48f);
     int rx = width - rw - (int)(height * 0.015f);
 
-    // --- Row 1: Player Names and Victory Banner ---
+    // --- Row 1: Player Names, Victory Banner & Match Timestamp ---
     bool is_win = (r.result == "Victory");
     COLORREF color_result = is_win ? RGB(225, 225, 225) : RGB(231, 76, 60);
 
+    std::wstring p1_name_w = ToWide(Win32Utils::CleanPlayerName(r.p1.name));
+    std::wstring p2_name_w = ToWide(Win32Utils::CleanPlayerName(r.p2.name));
+
+    SelectObject(hdcMem, hFontPlayerName);
+    SIZE szName1 = { 0, 0 };
+    GetTextExtentPoint32W(hdcMem, p1_name_w.c_str(), (int)p1_name_w.length(), &szName1);
+    SIZE szName2 = { 0, 0 };
+    GetTextExtentPoint32W(hdcMem, p2_name_w.c_str(), (int)p2_name_w.length(), &szName2);
+
+    std::wstring result_w = is_win ? (r.is_weekly ? L"Weekly Victory!" : L"Victory!") : L"Defeat!";
+    SelectObject(hdcMem, hFontTitle);
+    SIZE szRes = { 0, 0 };
+    GetTextExtentPoint32W(hdcMem, result_w.c_str(), (int)result_w.length(), &szRes);
+
+    std::wstring time_text = ToWide(r.game_date);
+    SIZE szTime = { 0, 0 };
+    if (!time_text.empty()) {
+        SelectObject(hdcMem, hFontMap);
+        GetTextExtentPoint32W(hdcMem, time_text.c_str(), (int)time_text.length(), &szTime);
+    }
+
+    int row1_top = (int)(height * 0.035f);
+    int row1_bot = (int)(height * 0.072f);
+    int name_top = (int)(height * 0.038f);
+
+    int gap = (int)(height * 0.010f);
+    if (gap < 8) gap = 8;
+
+    int total_mid_w = szRes.cx;
+    if (!time_text.empty()) {
+        total_mid_w += gap + szTime.cx;
+    }
+
+    int mid_start = (rx + rw / 2) - total_mid_w / 2;
+    int min_left = rx + szName1.cx + 10;
+    int max_right = rx + rw - szName2.cx - 10;
+
+    if (mid_start < min_left) {
+        mid_start = min_left;
+    }
+    if (mid_start + total_mid_w > max_right) {
+        mid_start = max_right - total_mid_w;
+        if (mid_start < min_left) {
+            mid_start = min_left;
+        }
+    }
+
+    // P1 Name (Blue, left-aligned)
     SelectObject(hdcMem, hFontPlayerName);
     SetTextColor(hdcMem, RGB(0, 128, 248));
-    std::wstring p1_name_w = ToWide(Win32Utils::CleanPlayerName(r.p1.name));
-    RECT rcName1 = { rx, (int)(height * 0.038f), rx + rw / 3, (int)(height * 0.072f) };
-    DrawTextW(hdcMem, p1_name_w.c_str(), -1, &rcName1, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+    int p1_r = std::max(rx + rw / 4, mid_start - 6);
+    RECT rcName1 = { rx, name_top, p1_r, row1_bot };
+    DrawTextW(hdcMem, p1_name_w.c_str(), -1, &rcName1, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
 
+    // Result Text (Victory! / Defeat! / Weekly Victory!)
     SelectObject(hdcMem, hFontTitle);
     SetTextColor(hdcMem, color_result);
-    std::wstring result_w = is_win ? (r.is_weekly ? L"Weekly Victory!" : L"Victory!") : L"Defeat!";
-    RECT rcRes = { rx + rw / 4, (int)(height * 0.035f), rx + rw * 3 / 4, (int)(height * 0.072f) };
-    DrawTextW(hdcMem, result_w.c_str(), -1, &rcRes, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    RECT rcRes = { mid_start, row1_top, mid_start + szRes.cx, row1_bot };
+    DrawTextW(hdcMem, result_w.c_str(), -1, &rcRes, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
 
+    // Match Timestamp directly to the right of Result (Font: hFontMap ~18px, bright readable RGB(220, 230, 245))
+    if (!time_text.empty()) {
+        int time_x = mid_start + szRes.cx + gap;
+        SelectObject(hdcMem, hFontMap);
+        SetTextColor(hdcMem, RGB(220, 230, 245));
+        RECT rcTime = { time_x, row1_top, time_x + szTime.cx + 16, row1_bot };
+        DrawTextW(hdcMem, time_text.c_str(), -1, &rcTime, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+    }
+
+    // P2 Name (Green, right-aligned)
     SelectObject(hdcMem, hFontPlayerName);
     SetTextColor(hdcMem, RGB(0, 213, 50));
-    std::wstring p2_name_w = ToWide(Win32Utils::CleanPlayerName(r.p2.name));
-    RECT rcName2 = { rx + rw * 2 / 3, (int)(height * 0.038f), rx + rw, (int)(height * 0.072f) };
-    DrawTextW(hdcMem, p2_name_w.c_str(), -1, &rcName2, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
+    int p2_l = (!time_text.empty()) ? std::min(rx + rw * 3 / 4, mid_start + total_mid_w + 6) : (rx + rw * 2 / 3);
+    RECT rcName2 = { p2_l, name_top, rx + rw, row1_bot };
+    DrawTextW(hdcMem, p2_name_w.c_str(), -1, &rcName2, DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
 
     // --- Row 2: Kill Share Bar ---
     int bar_y = (int)(height * 0.076f);
@@ -913,16 +971,6 @@ void SummaryOverlay::Render() {
     // Draw Amon (Red #FF3333)
     DrawSection(amon_y, "", "", 0, "",
                 {}, r.amon_units, 0, RGB(255, 51, 51), true, r.enemy_comp);
-
-    // Bottom Right: Match Timestamp (e.g. "2024-03-29 18:42")
-    if (!r.game_date.empty()) {
-        SelectObject(hdcMem, hFontUnit);
-        SetTextColor(hdcMem, RGB(140, 160, 185));
-        std::wstring time_text = ToWide(r.game_date);
-        int time_y = height - (int)(height * 0.030f);
-        RECT rcTime = { rx, time_y, rx + rw, height - (int)(height * 0.008f) };
-        DrawTextW(hdcMem, time_text.c_str(), -1, &rcTime, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
-    }
 
     // 4. Alpha Post-Processing Pass:
     // GDI DrawTextW/Polyline/MoveToEx/FillRect writes RGB with Alpha=0 into 32-bit DIBSection.

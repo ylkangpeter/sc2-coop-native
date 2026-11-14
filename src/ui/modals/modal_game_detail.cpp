@@ -23,9 +23,9 @@ void ModalGameDetail::Render(AppState& state) {
         const auto& r = state.detail_replay;
 
         // Top info header
-        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "%s", r.map_name.c_str());
+        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "%s", TR(r.map_name.c_str()));
         ImGui::SameLine();
-        ImGui::TextDisabled("| %s | %s | %s", r.game_date.c_str(), r.form_length.c_str(), r.difficulty.c_str());
+        ImGui::TextDisabled("| %s | %s | %s", r.game_date.c_str(), r.form_length.c_str(), TR(r.difficulty.c_str()));
         ImGui::SameLine();
         if (r.result == "Victory") {
             ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.4f, 1.0f), "[ %s ]", TR("Victory"));
@@ -50,7 +50,7 @@ void ModalGameDetail::Render(AppState& state) {
             ImGui::SameLine();
         }
         ImGui::BeginGroup();
-        ImGui::Text("%s: %s", TR("Commander"), r.p1.commander.c_str());
+        ImGui::Text("%s: %s", TR("Commander"), TR(r.p1.commander.c_str()));
 
         std::string p1_pres_name = "Default";
         auto it1 = kPrestiges.find(r.p1.commander);
@@ -83,7 +83,7 @@ void ModalGameDetail::Render(AppState& state) {
             ImGui::SameLine();
         }
         ImGui::BeginGroup();
-        ImGui::Text("%s: %s", TR("Commander"), r.p2.commander.c_str());
+        ImGui::Text("%s: %s", TR("Commander"), TR(r.p2.commander.c_str()));
 
         std::string p2_pres_name = "Default";
         auto it2 = kPrestiges.find(r.p2.commander);

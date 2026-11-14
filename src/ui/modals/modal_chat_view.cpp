@@ -24,7 +24,7 @@ void ModalChatView::Render(AppState& state) {
         const auto& r = state.chat_replay;
 
         // Title and Game Info Header
-        ImGui::TextColored(ImVec4(1.0f, 0.82f, 0.25f, 1.0f), "%s", r.map_name.c_str());
+        ImGui::TextColored(ImVec4(1.0f, 0.82f, 0.25f, 1.0f), "%s", TR(r.map_name.c_str()));
         ImGui::SameLine();
         ImGui::TextDisabled("(%s, %s)", r.game_date.c_str(), r.form_length.c_str());
 

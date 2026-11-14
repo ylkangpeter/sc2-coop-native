@@ -45,15 +45,23 @@ void TabWeeklies::Render(AppState& state) {
     ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 6.0f);
     ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.12f, 0.15f, 0.20f, 0.95f));
     ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.25f, 0.50f, 0.85f, 0.7f));
-    if (ImGui::BeginChild("CurrentWeeklyBanner", ImVec2(0, 78), true)) {
+    float banner_h = std::max(105.0f, ImGui::GetFrameHeightWithSpacing() * 3.8f);
+    if (ImGui::BeginChild("CurrentWeeklyBanner", ImVec2(0, banner_h), true)) {
         ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.5f, 1.0f), "%s", TR("Active Weekly Mutation"));
         ImGui::SameLine();
-        ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), TR("Week_Format"), curr_wm.week_number, curr_wm.title);
+        ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), TR("Week_Format"), curr_wm.week_number, TR(curr_wm.title));
         ImGui::SameLine();
-        ImGui::TextDisabled(TR("Map_Format"), curr_wm.map_name);
+        ImGui::TextDisabled(TR("Map_Format"), TR(curr_wm.map_name));
 
-        ImGui::SameLine(ImGui::GetWindowWidth() - 165);
-        if (ImGui::Button(TR("Locate Active Week"), ImVec2(150, 24))) {
+        const char* locate_label = TR("Locate Active Week");
+        float locate_w = std::max(150.0f, ImGui::CalcTextSize(locate_label).x + ImGui::GetStyle().FramePadding.x * 2.0f + 16.0f);
+        float locate_x = ImGui::GetWindowWidth() - locate_w - ImGui::GetStyle().WindowPadding.x - 10.0f;
+        if (locate_x > ImGui::GetCursorPosX()) {
+            ImGui::SameLine(locate_x);
+        } else {
+            ImGui::SameLine();
+        }
+        if (ImGui::Button(locate_label, ImVec2(locate_w, 26))) {
             s_locate_target_week = curr_wm.week_number;
         }
 
@@ -71,9 +79,9 @@ void TabWeeklies::Render(AppState& state) {
             }
             int pts = GetMutatorPoint(mut);
             if (pts >= 0) {
-                ImGui::Text("%s (%d %s)", mut, pts, TR("pts"));
+                ImGui::Text("%s (%d %s)", TR(mut), pts, TR("pts"));
             } else {
-                ImGui::Text("%s", mut);
+                ImGui::Text("%s", TR(mut));
             }
             if (m_idx + 1 < curr_wm.mutators.size()) {
                 ImGui::SameLine();
@@ -82,7 +90,13 @@ void TabWeeklies::Render(AppState& state) {
             }
         }
 
-        ImGui::SameLine(ImGui::GetWindowWidth() - 320);
+        float score_tier_w = 260.0f;
+        float st_x = ImGui::GetWindowWidth() - score_tier_w - ImGui::GetStyle().WindowPadding.x - 10.0f;
+        if (st_x > ImGui::GetCursorPosX()) {
+            ImGui::SameLine(st_x);
+        } else {
+            ImGui::SameLine();
+        }
         if (curr_wm.score >= 0) {
             ImGui::Text("%s", TR("Score: "));
             ImGui::SameLine();
@@ -93,7 +107,7 @@ void TabWeeklies::Render(AppState& state) {
         ImGui::SameLine();
         ImGui::Text("%s", TR("Tier: "));
         ImGui::SameLine();
-        ImGui::TextColored(GetTierColor(curr_wm.tier), "%s", curr_wm.tier);
+        ImGui::TextColored(GetTierColor(curr_wm.tier), "%s", TR(curr_wm.tier));
     }
     ImGui::EndChild();
     ImGui::PopStyleColor(2);
@@ -105,11 +119,11 @@ void TabWeeklies::Render(AppState& state) {
     ImGui::SetNextItemWidth(350);
     ImGui::InputTextWithHint("##SearchWeeklies", TR("Search_Weeklies_Hint"), s_search_buf, sizeof(s_search_buf));
     ImGui::SameLine();
-    if (ImGui::Button(TR("Clear"), ImVec2(60, 0))) {
+    if (ImGui::Button(TR("Clear"), ImVec2(0, 0))) {
         s_search_buf[0] = '\0';
     }
     ImGui::SameLine();
-    if (ImGui::Button(TR("Refresh Records"), ImVec2(90, 0))) {
+    if (ImGui::Button(TR("Refresh Records"), ImVec2(0, 0))) {
         s_cache_valid = false;
     }
     ImGui::SameLine();
@@ -123,23 +137,25 @@ void TabWeeklies::Render(AppState& state) {
     for (auto& c : search_term) c = tolower(c);
 
     const ImGuiTableFlags table_flags = ImGuiTableFlags_ScrollY |
+                                        ImGuiTableFlags_ScrollX |
                                         ImGuiTableFlags_RowBg |
                                         ImGuiTableFlags_BordersOuter |
                                         ImGuiTableFlags_BordersInnerH |
                                         ImGuiTableFlags_Resizable;
 
     // Table with 9 columns: Week, Rotation, Title, Map, Mutators, Score, Tier, Personal Record, Action
-    if (ImGui::BeginTable("WeekliesTable", 9, table_flags)) {
+    float inner_width = std::max(1100.0f, ImGui::GetContentRegionAvail().x);
+    if (ImGui::BeginTable("WeekliesTable", 9, table_flags, ImVec2(0, 0), inner_width)) {
         ImGui::TableSetupScrollFreeze(0, 1);
-        ImGui::TableSetupColumn(TR("Week"), ImGuiTableColumnFlags_WidthFixed, 50.0f);
+        ImGui::TableSetupColumn(TR("Week"), ImGuiTableColumnFlags_WidthFixed, 45.0f);
         ImGui::TableSetupColumn(TR("Rotation"), ImGuiTableColumnFlags_WidthFixed, 95.0f);
-        ImGui::TableSetupColumn(TR("Title"), ImGuiTableColumnFlags_WidthFixed, 170.0f);
-        ImGui::TableSetupColumn(TR("Map"), ImGuiTableColumnFlags_WidthFixed, 140.0f);
-        ImGui::TableSetupColumn(TR("Mutators"), ImGuiTableColumnFlags_WidthStretch);
-        ImGui::TableSetupColumn(TR("Score"), ImGuiTableColumnFlags_WidthFixed, 55.0f);
-        ImGui::TableSetupColumn(TR("Tier"), ImGuiTableColumnFlags_WidthFixed, 75.0f);
-        ImGui::TableSetupColumn(TR("Personal Record"), ImGuiTableColumnFlags_WidthFixed, 170.0f);
-        ImGui::TableSetupColumn(TR("Action"), ImGuiTableColumnFlags_WidthFixed, 90.0f);
+        ImGui::TableSetupColumn(TR("Title"), ImGuiTableColumnFlags_WidthStretch, 1.2f);
+        ImGui::TableSetupColumn(TR("Map"), ImGuiTableColumnFlags_WidthFixed, 130.0f);
+        ImGui::TableSetupColumn(TR("Mutators"), ImGuiTableColumnFlags_WidthStretch, 2.0f);
+        ImGui::TableSetupColumn(TR("Score"), ImGuiTableColumnFlags_WidthFixed, 50.0f);
+        ImGui::TableSetupColumn(TR("Tier"), ImGuiTableColumnFlags_WidthFixed, 70.0f);
+        ImGui::TableSetupColumn(TR("Personal Record"), ImGuiTableColumnFlags_WidthFixed, 120.0f);
+        ImGui::TableSetupColumn(TR("Action"), ImGuiTableColumnFlags_WidthFixed, 80.0f);
         ImGui::TableHeadersRow();
 
         for (size_t i = 0; i < kWeeklyMutations.size(); ++i) {
@@ -192,14 +208,14 @@ void TabWeeklies::Render(AppState& state) {
             // Col 2: Title
             ImGui::TableSetColumnIndex(2);
             if (static_cast<int>(i) == curr_idx) {
-                ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "%s", wm.title);
+                ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "%s", TR(wm.title));
             } else {
-                ImGui::TextColored(ImVec4(0.85f, 0.65f, 1.0f, 1.0f), "%s", wm.title);
+                ImGui::TextColored(ImVec4(0.85f, 0.65f, 1.0f, 1.0f), "%s", TR(wm.title));
             }
 
             // Col 3: Map
             ImGui::TableSetColumnIndex(3);
-            ImGui::TextUnformatted(wm.map_name);
+            ImGui::TextUnformatted(TR(wm.map_name));
 
             // Col 4: Mutators with icons, point badges and tooltip descriptions
             ImGui::TableSetColumnIndex(4);
@@ -213,14 +229,14 @@ void TabWeeklies::Render(AppState& state) {
                     ImGui::SameLine();
                 }
 
-                ImGui::Text("%s", mut);
+                ImGui::Text("%s", TR(mut));
                 if (ImGui::IsItemHovered()) {
                     ImGui::BeginTooltip();
                     int pts = GetMutatorPoint(mut);
                     if (pts >= 0) {
-                        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "%s  [%d pts]", mut, pts);
+                        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "%s  [%d pts]", TR(mut), pts);
                     } else {
-                        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "%s", mut);
+                        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "%s", TR(mut));
                     }
                     ImGui::Separator();
                     auto desc_it = kMutators.find(mut);
@@ -249,7 +265,7 @@ void TabWeeklies::Render(AppState& state) {
             // Col 6: Difficulty Tier (Brutal+X)
             ImGui::TableSetColumnIndex(6);
             if (std::strcmp(wm.tier, "-") != 0) {
-                ImGui::TextColored(GetTierColor(wm.tier), "%s", wm.tier);
+                ImGui::TextColored(GetTierColor(wm.tier), "%s", TR(wm.tier));
             } else {
                 ImGui::TextDisabled("-");
             }
@@ -260,7 +276,7 @@ void TabWeeklies::Render(AppState& state) {
             if (it != s_cached_records.end() && (it->second.wins > 0 || it->second.losses > 0)) {
                 const auto& rec = it->second;
                 if (rec.wins > 0) {
-                    ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.4f, 1.0f), "%s", rec.highest_diff.c_str());
+                    ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.4f, 1.0f), "%s", TR(rec.highest_diff.c_str()));
                     if (rec.fastest_win_seconds > 0) {
                         ImGui::SameLine();
                         char time_buf[32];
