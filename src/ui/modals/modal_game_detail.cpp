@@ -131,7 +131,7 @@ void ModalGameDetail::Render(AppState& state) {
         }
         ImGui::SameLine();
         if (ImGui::Button(TR("Summary Overlay"), ImVec2(170, 26))) {
-            SummaryOverlay::Instance().ShowMatch(r);
+            SummaryOverlay::Instance().ToggleMatch(r);
         }
         ImGui::SameLine(ImGui::GetContentRegionAvail().x - 90);
         if (ImGui::Button(TR("Close"), ImVec2(90, 26))) {

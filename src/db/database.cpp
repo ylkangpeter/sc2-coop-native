@@ -87,6 +87,7 @@ bool Database::Open(const std::string& db_path) {
         );
 
         CREATE INDEX IF NOT EXISTS idx_replays_date ON replays(game_date DESC);
+        CREATE INDEX IF NOT EXISTS idx_replays_mtime ON replays(file_mtime DESC);
         CREATE INDEX IF NOT EXISTS idx_replays_map ON replays(map_name);
         CREATE INDEX IF NOT EXISTS idx_replays_result ON replays(result);
         CREATE INDEX IF NOT EXISTS idx_replays_p1 ON replays(p1_name);
@@ -318,7 +319,7 @@ std::vector<ReplayRecord> Database::QueryReplays(const std::string& search_query
     }
 
     // 2. Fetch page results
-    std::string fetch_sql = "SELECT file_path, file_mtime, game_date, map_name, raw_map_name, duration_seconds, form_length, result, difficulty, brutal_plus, enemy_race, region, is_weekly, mutators_json, p1_name, p1_handle, p1_commander, p1_prestige, p1_apm, p1_kills, p2_name, p2_handle, p2_commander, p2_prestige, p2_apm, p2_kills, chat_json, details_json FROM replays" + where_clause + " ORDER BY game_date DESC LIMIT ? OFFSET ?;";
+    std::string fetch_sql = "SELECT file_path, file_mtime, game_date, map_name, raw_map_name, duration_seconds, form_length, result, difficulty, brutal_plus, enemy_race, region, is_weekly, mutators_json, p1_name, p1_handle, p1_commander, p1_prestige, p1_apm, p1_kills, p2_name, p2_handle, p2_commander, p2_prestige, p2_apm, p2_kills, chat_json, details_json FROM replays" + where_clause + " ORDER BY file_mtime DESC, game_date DESC LIMIT ? OFFSET ?;";
     sqlite3_stmt* stmt = nullptr;
     if (sqlite3_prepare_v2(m_db, fetch_sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
         return results;
