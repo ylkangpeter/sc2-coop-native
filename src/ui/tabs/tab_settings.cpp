@@ -159,60 +159,6 @@ void TabSettings::Render(AppState& state) {
     ImGui::TextDisabled("%s", TR("Hotkey_Description"));
     ImGui::Spacing();
 
-    static int s_recording_action = -1; // 1 = Summary, 2 = Ally, 3 = Prev, 4 = Next
-    static bool s_skip_first_frame = false;
-
-    // Check key presses when in recording mode
-    if (s_recording_action > 0) {
-        if (s_skip_first_frame) {
-            s_skip_first_frame = false;
-        } else {
-            if (GetAsyncKeyState(VK_ESCAPE) & 0x8000) {
-                s_recording_action = -1; // Cancel
-            } else {
-                bool ctrl = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
-                bool alt = (GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
-                bool shift = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
-                bool win = ((GetAsyncKeyState(VK_LWIN) & 0x8000) != 0) || ((GetAsyncKeyState(VK_RWIN) & 0x8000) != 0);
-
-                UINT pressed_vk = 0;
-                // Loop through standard keys (skip mouse buttons 1-7 and modifiers)
-                for (int k = 8; k <= 255; ++k) {
-                    if (k == VK_CONTROL || k == VK_LCONTROL || k == VK_RCONTROL ||
-                        k == VK_MENU || k == VK_LMENU || k == VK_RMENU ||
-                        k == VK_SHIFT || k == VK_LSHIFT || k == VK_RSHIFT ||
-                        k == VK_LWIN || k == VK_RWIN || k == VK_ESCAPE) {
-                        continue;
-                    }
-                    if ((GetAsyncKeyState(k) & 0x8000) != 0) {
-                        pressed_vk = static_cast<UINT>(k);
-                        break;
-                    }
-                }
-
-                if (pressed_vk != 0) {
-                    UINT mod = (ctrl ? MOD_CONTROL : 0) | (alt ? MOD_ALT : 0) | (shift ? MOD_SHIFT : 0) | (win ? MOD_WIN : 0);
-                    if (s_recording_action == 1) {
-                        state.hotkey_summary_mod = mod;
-                        state.hotkey_summary_vk = pressed_vk;
-                    } else if (s_recording_action == 2) {
-                        state.hotkey_ally_mod = mod;
-                        state.hotkey_ally_vk = pressed_vk;
-                    } else if (s_recording_action == 3) {
-                        state.hotkey_prev_mod = mod;
-                        state.hotkey_prev_vk = pressed_vk;
-                    } else if (s_recording_action == 4) {
-                        state.hotkey_next_mod = mod;
-                        state.hotkey_next_vk = pressed_vk;
-                    }
-                    state.SaveSettings();
-                    HotkeyManager::Instance().RegisterAll();
-                    s_recording_action = -1;
-                }
-            }
-        }
-    }
-
     if (ImGui::BeginTable("HotkeysTable", 2, ImGuiTableFlags_SizingStretchProp)) {
         ImGui::TableSetupColumn("Action", ImGuiTableColumnFlags_WidthStretch, 0.45f);
         ImGui::TableSetupColumn("Hotkey", ImGuiTableColumnFlags_WidthStretch, 0.55f);
@@ -226,7 +172,7 @@ void TabSettings::Render(AppState& state) {
             }
 
             ImGui::TableSetColumnIndex(1);
-            bool is_pushed = (s_recording_action == action_id);
+            bool is_pushed = (HotkeyManager::Instance().GetRecordingAction() == action_id);
             std::string btn_label;
             if (is_pushed) {
                 btn_label = std::string("[ ") + TR("Press key combo... (Esc to cancel)") + " ]";
@@ -239,11 +185,10 @@ void TabSettings::Render(AppState& state) {
             std::string btn_id = btn_label + "##HKBtn" + std::to_string(action_id);
             float btn_w = std::max(200.0f, ImGui::CalcTextSize(btn_label.c_str()).x + ImGui::GetStyle().FramePadding.x * 2.0f + 16.0f);
             if (ImGui::Button(btn_id.c_str(), ImVec2(btn_w, 28))) {
-                if (s_recording_action == action_id) {
-                    s_recording_action = -1;
+                if (is_pushed) {
+                    HotkeyManager::Instance().StopRecording();
                 } else {
-                    s_recording_action = action_id;
-                    s_skip_first_frame = true;
+                    HotkeyManager::Instance().StartRecording(action_id);
                 }
             }
 
@@ -272,7 +217,7 @@ void TabSettings::Render(AppState& state) {
         state.hotkey_next_vk = VK_RIGHT;
         state.SaveSettings();
         HotkeyManager::Instance().RegisterAll();
-        s_recording_action = -1;
+        HotkeyManager::Instance().StopRecording();
     }
 
     ImGui::Spacing();

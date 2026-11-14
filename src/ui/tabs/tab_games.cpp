@@ -160,7 +160,7 @@ void TabGames::Render(AppState& state) {
             ImGui::PushID(static_cast<int>(i));
 
             if (ImGui::SmallButton(TR("Detail"))) {
-                SummaryOverlay::Instance().ShowMatch(r);
+                SummaryOverlay::Instance().ToggleMatch(r);
             }
             ImGui::SameLine();
             bool has_chat = !r.chat.empty();

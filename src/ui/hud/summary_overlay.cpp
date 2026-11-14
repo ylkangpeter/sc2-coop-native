@@ -274,8 +274,20 @@ void SummaryOverlay::ShowNext() {
 void SummaryOverlay::Toggle() {
     if (m_anim_state == OverlayAnimState::Visible || m_anim_state == OverlayAnimState::SlidingIn) {
         Hide();
+    } else if (m_anim_state == OverlayAnimState::SlidingOut) {
+        m_anim_state = OverlayAnimState::SlidingIn;
+        if (m_hwnd) ShowWindow(m_hwnd, SW_SHOWNOACTIVATE);
     } else {
         ShowLatest();
+    }
+}
+
+void SummaryOverlay::ToggleMatch(const ReplayRecord& rec) {
+    if ((m_anim_state == OverlayAnimState::Visible || m_anim_state == OverlayAnimState::SlidingIn) &&
+        m_current_record.file_path == rec.file_path) {
+        Hide();
+    } else {
+        ShowMatch(rec);
     }
 }
 
@@ -305,7 +317,11 @@ void SummaryOverlay::Update(float delta_time) {
         if (m_anim_t <= 0.0f) {
             m_anim_t = 0.0f;
             m_anim_state = OverlayAnimState::Hidden;
-            if (m_hwnd) ShowWindow(m_hwnd, SW_HIDE);
+            if (m_hwnd) {
+                SetWindowPos(m_hwnd, nullptr, -10000, -10000, 0, 0,
+                             SWP_HIDEWINDOW | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+                ShowWindow(m_hwnd, SW_HIDE);
+            }
         } else {
             UpdatePosition();
         }

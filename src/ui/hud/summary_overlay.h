@@ -26,6 +26,7 @@ public:
     void ShowPrevious();
     void ShowNext();
     void Toggle();
+    void ToggleMatch(const ReplayRecord& rec);
     void Hide();
 
     bool IsActive() const { return m_anim_state != OverlayAnimState::Hidden; }

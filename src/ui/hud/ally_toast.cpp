@@ -66,6 +66,8 @@ void AllyToastWindow::Init(HINSTANCE hInstance) {
 void AllyToastWindow::Shutdown() {
     Hide();
     if (m_hwnd) {
+        SetWindowPos(m_hwnd, nullptr, -10000, -10000, 0, 0,
+                     SWP_HIDEWINDOW | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
         DestroyWindow(m_hwnd);
         m_hwnd = nullptr;
     }
@@ -118,13 +120,20 @@ void AllyToastWindow::ShowTestToast() {
 void AllyToastWindow::Hide() {
     m_active = false;
     if (m_hwnd) {
+        SetWindowPos(m_hwnd, nullptr, -10000, -10000, 0, 0,
+                     SWP_HIDEWINDOW | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
         ShowWindow(m_hwnd, SW_HIDE);
     }
 }
 
 void AllyToastWindow::Toggle(const std::string& ally_name) {
     if (m_active) {
-        Hide();
+        std::string clean = Win32Utils::CleanPlayerName(ally_name);
+        if (!clean.empty() && clean != m_ally_name) {
+            ShowAllyInfo(clean);
+        } else {
+            Hide();
+        }
     } else {
         if (!ally_name.empty()) {
             ShowAllyInfo(ally_name);
