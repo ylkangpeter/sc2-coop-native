@@ -2,6 +2,7 @@
 #include "../../db/database.h"
 #include "../../app_state.h"
 #include "../../utils/win32_utils.h"
+#include "../../i18n/i18n.h"
 #include <backends/imgui_impl_win32.h>
 
 #include <algorithm>
@@ -232,12 +233,12 @@ void AllyToastWindow::Render() {
     int bot_y1 = (int)(38 * dpi_scale);
     int bot_y2 = height - (int)(10 * dpi_scale);
 
-    bool is_zh = (AppState::Instance().language == 0);
+    bool is_zh = (AppState::Instance().language == 0 || AppState::Instance().language_code == "zh_CN");
 
     // Line 1: Ally Name & Stats
     SelectObject(hdcMem, hFontBold);
     SetTextColor(hdcMem, RGB(46, 204, 113));
-    std::wstring ally_title = (is_zh ? L"盟友: " : L"ALLY: ") + ToWide(m_ally_name);
+    std::wstring ally_title = ToWide(TR("ALLY: ")) + ToWide(m_ally_name);
     RECT rcTitle = { pad_x, top_y1, mid_x, top_y2 };
     DrawTextW(hdcMem, ally_title.c_str(), -1, &rcTitle, DT_SINGLELINE | DT_VCENTER);
 
@@ -250,7 +251,7 @@ void AllyToastWindow::Render() {
             oss << std::fixed << std::setprecision(1) << m_total_games << L" Games  |  " << m_winrate << L"% Win  |  APM: " << m_apm;
         }
     } else {
-        oss << (is_zh ? L"新盟友 (暂无历史记录)" : L"New Ally (0 previous matches)");
+        oss << ToWide(TR("New Ally (0 previous matches)"));
     }
     std::wstring stats_w = oss.str();
     SetTextColor(hdcMem, RGB(255, 230, 100)); // Gold
@@ -261,10 +262,10 @@ void AllyToastWindow::Render() {
     SelectObject(hdcMem, hFontSmall);
     std::wstring note_w;
     if (!m_note.empty()) {
-        note_w = (is_zh ? L"备注: " : L"Note: ") + ToWide(m_note);
+        note_w = ToWide(TR("Note: ")) + ToWide(m_note);
         SetTextColor(hdcMem, RGB(220, 230, 245));
     } else {
-        note_w = is_zh ? L"暂无备注 (可在玩家统计页面双击添加)" : L"No custom note (Edit notes in Players tab)";
+        note_w = ToWide(TR("No custom note (Edit notes in Players tab)"));
         SetTextColor(hdcMem, RGB(130, 150, 175));
     }
     RECT rcNote = { pad_x, bot_y1, width - pad_x, bot_y2 };

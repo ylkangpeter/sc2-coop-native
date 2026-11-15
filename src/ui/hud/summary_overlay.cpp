@@ -4,6 +4,7 @@
 #include "../../utils/win32_utils.h"
 #include "../../data/sc2_constants.h"
 #include "../../replay/replay_parser.h"
+#include "../../i18n/i18n.h"
 #include <stb/stb_image.h>
 
 #include <algorithm>
@@ -432,8 +433,9 @@ void SummaryOverlay::Render() {
 
     SetBkMode(hdcMem, TRANSPARENT);
 
-    // Dynamic font sizes matching original CSS vh units (Eurostile)
-    const wchar_t* kFontFamily = L"Eurostile";
+    // Dynamic font sizes matching original CSS vh units (Eurostile / Microsoft YaHei)
+    bool is_zh = (AppState::Instance().language == 0 || AppState::Instance().language_code == "zh_CN");
+    const wchar_t* kFontFamily = is_zh ? L"Microsoft YaHei" : L"Eurostile";
     HFONT hFontTitle = CreateFontW((int)(height * 0.026f), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
                                    DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                                    CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, kFontFamily);
@@ -586,13 +588,13 @@ void SummaryOverlay::Render() {
     int chart_x = width - (int)(height * 0.88f);
     int top_margin = (int)(height * 0.045f);
 
-    DrawChart(chart_x, top_margin, chart_w, chart_h, L"Army value",
+    DrawChart(chart_x, top_margin, chart_w, chart_h, ToWide(TR("Army value")),
               s1.time_stamps, s1.army_value, s2.time_stamps, s2.army_value, RGB(0, 128, 248), RGB(0, 213, 50));
-    DrawChart(chart_x, top_margin + chart_h, chart_w, chart_h, L"Supply used",
+    DrawChart(chart_x, top_margin + chart_h, chart_w, chart_h, ToWide(TR("Supply used")),
               s1.time_stamps, s1.supply_used, s2.time_stamps, s2.supply_used, RGB(0, 128, 248), RGB(0, 213, 50));
-    DrawChart(chart_x, top_margin + chart_h * 2, chart_w, chart_h, L"Kill count",
+    DrawChart(chart_x, top_margin + chart_h * 2, chart_w, chart_h, ToWide(TR("Kill count")),
               s1.time_stamps, s1.kill_count, s2.time_stamps, s2.kill_count, RGB(0, 128, 248), RGB(0, 213, 50));
-    DrawChart(chart_x, top_margin + chart_h * 3, chart_w, chart_h, L"Resource collection rate",
+    DrawChart(chart_x, top_margin + chart_h * 3, chart_w, chart_h, ToWide(TR("Resource collection rate")),
               s1.time_stamps, s1.collection_rate, s2.time_stamps, s2.collection_rate, RGB(0, 128, 248), RGB(0, 213, 50));
 
     // ==========================================
@@ -614,7 +616,14 @@ void SummaryOverlay::Render() {
     SIZE szName2 = { 0, 0 };
     GetTextExtentPoint32W(hdcMem, p2_name_w.c_str(), (int)p2_name_w.length(), &szName2);
 
-    std::wstring result_w = is_win ? (r.is_weekly ? L"Weekly Victory!" : L"Victory!") : L"Defeat!";
+    std::wstring result_w;
+    if (is_win) {
+        result_w = r.is_weekly ? ToWide(TR("Weekly Victory!")) : ToWide(TR("Victory!"));
+    } else if (r.result == "Tie") {
+        result_w = ToWide(TR("Tie!"));
+    } else {
+        result_w = ToWide(TR("Defeat!"));
+    }
     SelectObject(hdcMem, hFontTitle);
     SIZE szRes = { 0, 0 };
     GetTextExtentPoint32W(hdcMem, result_w.c_str(), (int)result_w.length(), &szRes);
@@ -772,7 +781,8 @@ void SummaryOverlay::Render() {
 
     SelectObject(hdcMem, hFontMap);
     RECT rcKillsCenter = { rx, bar_y, rx + rw, bar_y + bar_h };
-    DrawTextW(hdcMem, L"kills", -1, &rcKillsCenter, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    std::wstring kills_center = ToWide(TR("kills"));
+    DrawTextW(hdcMem, kills_center.c_str(), -1, &rcKillsCenter, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
     // --- Row 3: Subheader (Commanders, Map Name, Duration, Bonus, APM, Difficulty) ---
     int sub_y = bar_y + bar_h + (int)(height * 0.008f);
@@ -781,7 +791,7 @@ void SummaryOverlay::Render() {
     SetTextColor(hdcMem, RGB(220, 220, 220));
 
     // Left: Commander & APM
-    std::wstring p1_cmdr_w = ToWide(r.p1.commander);
+    std::wstring p1_cmdr_w = ToWide(TR(r.p1.commander.c_str()));
     RECT rcCmdr1 = { rx, sub_y, rx + 160, sub_y + 20 };
     DrawTextW(hdcMem, p1_cmdr_w.c_str(), -1, &rcCmdr1, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
 
@@ -790,7 +800,7 @@ void SummaryOverlay::Render() {
     DrawTextW(hdcMem, p1_apm_w.c_str(), -1, &rcApm1, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
 
     // Right: Commander & APM
-    std::wstring p2_cmdr_w = ToWide(r.p2.commander);
+    std::wstring p2_cmdr_w = ToWide(TR(r.p2.commander.c_str()));
     RECT rcCmdr2 = { rx + rw - 160, sub_y, rx + rw, sub_y + 20 };
     DrawTextW(hdcMem, p2_cmdr_w.c_str(), -1, &rcCmdr2, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
 
@@ -801,12 +811,12 @@ void SummaryOverlay::Render() {
     // Center: Map Name [MM:SS] [b_earned/b_total] & Difficulty
     int b_earned = r.bonus_earned;
     int b_total = r.bonus_total > 0 ? r.bonus_total : 3;
-    std::wstring map_str = ToWide(r.map_name) + L" [" + ToWide(r.form_length) + L"] [" +
+    std::wstring map_str = ToWide(TR(r.map_name.c_str())) + L" [" + ToWide(r.form_length) + L"] [" +
                            std::to_wstring(b_earned) + L"/" + std::to_wstring(b_total) + L"]";
     RECT rcMapCenter = { rx + 140, sub_y, rx + rw - 140, sub_y + 20 };
     DrawTextW(hdcMem, map_str.c_str(), -1, &rcMapCenter, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
-    std::wstring diff_str = ToWide(r.difficulty);
+    std::wstring diff_str = ToWide(TR(r.difficulty.c_str()));
     RECT rcDiff = { rx + 140, sub_y + 22, rx + rw - 140, sub_y + 42 };
     DrawTextW(hdcMem, diff_str.c_str(), -1, &rcDiff, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
@@ -820,7 +830,7 @@ void SummaryOverlay::Render() {
         // Name (Large, Bold)
         SelectObject(hdcMem, hFontPlayerName);
         SetTextColor(hdcMem, theme_col);
-        std::wstring title_str = is_amon ? L"Amon" : ToWide(Win32Utils::CleanPlayerName(player_name));
+        std::wstring title_str = is_amon ? ToWide(TR("Amon")) : ToWide(Win32Utils::CleanPlayerName(player_name));
         RECT rcName = { rx, card_y, rx + rw, card_y + 26 };
         DrawTextW(hdcMem, title_str.c_str(), -1, &rcName, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
 
@@ -828,16 +838,20 @@ void SummaryOverlay::Render() {
         SelectObject(hdcMem, hFontPrestige);
         std::wstring sub_title;
         if (is_amon) {
-            sub_title = enemy_comp_name.empty() ? L"Ravaging Infestation" : ToWide(enemy_comp_name);
+            std::string comp_to_trans = enemy_comp_name.empty() ? "Ravaging Infestation" : enemy_comp_name;
+            sub_title = ToWide(TR(comp_to_trans.c_str()));
         } else {
-            if (!prestige_str.empty()) sub_title = ToWide(prestige_str);
-            else {
+            if (!prestige_str.empty()) {
+                sub_title = ToWide(TR(prestige_str.c_str()));
+            } else {
                 auto pit = kPrestiges.find(cmdr_name);
                 if (pit != kPrestiges.end()) {
-                    if (prestige_idx == 1) sub_title = ToWide(pit->second.p1);
-                    else if (prestige_idx == 2) sub_title = ToWide(pit->second.p2);
-                    else if (prestige_idx == 3) sub_title = ToWide(pit->second.p3);
-                    else sub_title = ToWide(pit->second.p0);
+                    const char* p_raw = nullptr;
+                    if (prestige_idx == 1) p_raw = pit->second.p1;
+                    else if (prestige_idx == 2) p_raw = pit->second.p2;
+                    else if (prestige_idx == 3) p_raw = pit->second.p3;
+                    else p_raw = pit->second.p0;
+                    if (p_raw) sub_title = ToWide(TR(p_raw));
                 }
             }
         }
@@ -854,7 +868,7 @@ void SummaryOverlay::Render() {
                 SelectObject(hdcMem, hFontMastery);
                 for (int m_idx = 0; m_idx < 6; ++m_idx) {
                     int pts = (m_idx < (int)masteries.size()) ? masteries[m_idx] : 0;
-                    std::wstring mname = ToWide(m_it->second[m_idx]);
+                    std::wstring mname = ToWide(TR(m_it->second[m_idx]));
 
                     COLORREF mcol = (pts > 0) ? RGB(255, 255, 255) : RGB(120, 130, 145);
                     SetTextColor(hdcMem, mcol);
@@ -875,15 +889,18 @@ void SummaryOverlay::Render() {
         SelectObject(hdcMem, hFontUnit);
         SetTextColor(hdcMem, RGB(255, 255, 255));
         RECT rcHKills = { rx + (int)(rw * 0.40f), cur_y, rx + (int)(rw * 0.65f), cur_y + 18 };
-        DrawTextW(hdcMem, L"kills", -1, &rcHKills, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        std::wstring kills_th = ToWide(TR("kills"));
+        DrawTextW(hdcMem, kills_th.c_str(), -1, &rcHKills, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
         SetTextColor(hdcMem, RGB(0, 213, 50)); // Green header
         RECT rcHCreated = { rx + (int)(rw * 0.70f), cur_y, rx + (int)(rw * 0.84f), cur_y + 18 };
-        DrawTextW(hdcMem, L"created", -1, &rcHCreated, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        std::wstring created_th = ToWide(TR("created"));
+        DrawTextW(hdcMem, created_th.c_str(), -1, &rcHCreated, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
         SetTextColor(hdcMem, RGB(255, 51, 51)); // Red header
         RECT rcHLost = { rx + (int)(rw * 0.86f), cur_y, rx + rw, cur_y + 18 };
-        DrawTextW(hdcMem, L"lost", -1, &rcHLost, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        std::wstring lost_th = ToWide(TR("lost"));
+        DrawTextW(hdcMem, lost_th.c_str(), -1, &rcHLost, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
         cur_y += 20;
 
@@ -931,7 +948,7 @@ void SummaryOverlay::Render() {
             // Unit Name
             SelectObject(hdcMem, hFontUnit);
             SetTextColor(hdcMem, theme_col);
-            std::wstring uname = ToWide(u.name);
+            std::wstring uname = ToWide(TR(u.name.c_str()));
             RECT rcUName = { rx, row_y, rx + (int)(rw * 0.38f), row_y + 20 };
             DrawTextW(hdcMem, uname.c_str(), -1, &rcUName, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
 
