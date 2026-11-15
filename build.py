@@ -130,6 +130,17 @@ def build_resources(rc_path: Path, res_obj: Path):
         print(f"FAILED to build resource {rc_path}:\n{res.stderr}")
         sys.exit(1)
 
+def kill_running_app():
+    try:
+        if os.name == 'nt':
+            subprocess.run(["powershell.exe", "-NoProfile", "-Command", "Stop-Process -Name sc2_coop* -Force -ErrorAction SilentlyContinue"], stdin=subprocess.DEVNULL, capture_output=True, timeout=5)
+        else:
+            ps_path = "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
+            if os.path.exists(ps_path):
+                subprocess.run([ps_path, "-NoProfile", "-Command", "Stop-Process -Name sc2_coop* -Force -ErrorAction SilentlyContinue"], cwd="/mnt/c", stdin=subprocess.DEVNULL, capture_output=True, timeout=5)
+    except Exception:
+        pass
+
 def main():
     if "--package-only" in sys.argv:
         package_release()
@@ -203,23 +214,13 @@ def main():
     with open(rsp_file, "w") as rf:
         rf.write("\n".join(rsp_args))
 
-    # Pre-link: handle running executable on Windows
-    old_backup = None
+    # Pre-link: terminate running app so file locks and single-instance mutex are freed
+    kill_running_app()
     if target_exe.exists():
         try:
             target_exe.unlink()
         except OSError:
-            # Target is locked by running Windows process; rename it out of the way
-            old_backup = target_exe.with_name(f"{target_exe.stem}_running.tmp")
-            try:
-                if old_backup.exists():
-                    old_backup.unlink()
-            except Exception:
-                pass
-            try:
-                target_exe.rename(old_backup)
-            except Exception:
-                pass
+            pass
 
     link_cmd = [str(CLANG_PP), f"@{rsp_file.relative_to(PROJECT_ROOT)}"]
 
@@ -246,12 +247,6 @@ def main():
         print(f"FAILED to link executable:\n{res.stderr}")
         sys.exit(1)
 
-    # Clean up old backup if it was unlocked
-    if old_backup and old_backup.exists():
-        try:
-            old_backup.unlink()
-        except Exception:
-            pass
     print(f"Successfully linked {target_exe} ({target_exe.stat().st_size // 1024} KB)")
 
     # 5. Copy assets
