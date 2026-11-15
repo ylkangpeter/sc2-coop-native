@@ -71,7 +71,8 @@ void TabPlayers::Render(AppState& state) {
                                         ImGuiTableFlags_BordersInnerH |
                                         ImGuiTableFlags_Resizable;
 
-    float table_height = ImGui::GetContentRegionAvail().y - 36.0f;
+    float footer_h = ImGui::GetFrameHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y + 12.0f;
+    float table_height = ImGui::GetContentRegionAvail().y - footer_h;
     if (ImGui::BeginTable("PlayersTable", 8, table_flags, ImVec2(0, table_height))) {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn(TR("Player Name"), ImGuiTableColumnFlags_WidthStretch);
@@ -151,7 +152,16 @@ void TabPlayers::Render(AppState& state) {
     // 4. Pagination Footer
     ImGui::Separator();
     ImGui::Text(TR("page_players_format"), s_current_page + 1, total_pages, total_records);
-    ImGui::SameLine(ImGui::GetContentRegionAvail().x - 240);
+
+    float btn_bar_w = ImGui::CalcTextSize(TR("<< First")).x + ImGui::CalcTextSize(TR("< Prev")).x +
+                      ImGui::CalcTextSize(TR("Next >")).x + ImGui::CalcTextSize(TR("Last >>")).x +
+                      (ImGui::GetStyle().FramePadding.x * 2.0f * 4) + (ImGui::GetStyle().ItemSpacing.x * 3) + 20.0f;
+    float page_btn_x = ImGui::GetWindowWidth() - btn_bar_w - ImGui::GetStyle().WindowPadding.x;
+    if (page_btn_x > ImGui::GetCursorPosX()) {
+        ImGui::SameLine(page_btn_x);
+    } else {
+        ImGui::SameLine();
+    }
 
     if (ImGui::Button(TR("<< First")) && s_current_page > 0) {
         s_current_page = 0;

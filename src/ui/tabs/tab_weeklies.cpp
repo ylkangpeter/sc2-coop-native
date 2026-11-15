@@ -31,6 +31,44 @@ static ImVec4 GetTierColor(const char* tier) {
     return ImVec4(0.8f, 0.8f, 0.8f, 1.0f);
 }
 
+static void RenderMutatorBadge(const char* mut, bool show_points = true) {
+    ImTextureID icon = TextureLoader::Instance().GetMutatorIcon(mut);
+    if (icon) {
+        ImGui::Image(icon, ImVec2(18, 18));
+        ImGui::SameLine();
+    }
+    int pts = GetMutatorPoint(mut);
+    if (show_points && pts >= 0) {
+        ImGui::Text("%s (%d %s)", TR(mut), pts, TR("pts"));
+    } else {
+        ImGui::Text("%s", TR(mut));
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::BeginTooltip();
+        if (pts >= 0) {
+            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "%s  [%d %s]", TR(mut), pts, TR("pts"));
+        } else {
+            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "%s", TR(mut));
+        }
+        ImGui::Separator();
+        std::string desc_key = std::string("mut_desc_") + mut;
+        const char* localized_desc = TR(desc_key.c_str());
+        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 26.0f);
+        if (std::strcmp(localized_desc, desc_key.c_str()) != 0) {
+            ImGui::TextUnformatted(localized_desc);
+        } else {
+            auto desc_it = kMutators.find(mut);
+            if (desc_it != kMutators.end()) {
+                ImGui::TextUnformatted(desc_it->second.c_str());
+            } else {
+                ImGui::TextDisabled("Special event mutator");
+            }
+        }
+        ImGui::PopTextWrapPos();
+        ImGui::EndTooltip();
+    }
+}
+
 void TabWeeklies::Render(AppState& state) {
     if (!s_cache_valid) {
         s_cached_records = Database::Instance().QueryAllWeeklyRecords();
@@ -43,9 +81,10 @@ void TabWeeklies::Render(AppState& state) {
 
     // 1. Top Card: Current Weekly Mutation Banner
     ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 6.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f, 6.0f));
     ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.12f, 0.15f, 0.20f, 0.95f));
     ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.25f, 0.50f, 0.85f, 0.7f));
-    float banner_h = std::max(105.0f, ImGui::GetFrameHeightWithSpacing() * 3.8f);
+    float banner_h = ImGui::GetFrameHeight() * 2.0f + ImGui::GetStyle().ItemSpacing.y + 16.0f;
     if (ImGui::BeginChild("CurrentWeeklyBanner", ImVec2(0, banner_h), true)) {
         ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.5f, 1.0f), "%s", TR("Active Weekly Mutation"));
         ImGui::SameLine();
@@ -54,35 +93,23 @@ void TabWeeklies::Render(AppState& state) {
         ImGui::TextDisabled(TR("Map_Format"), TR(curr_wm.map_name));
 
         const char* locate_label = TR("Locate Active Week");
-        float locate_w = std::max(150.0f, ImGui::CalcTextSize(locate_label).x + ImGui::GetStyle().FramePadding.x * 2.0f + 16.0f);
-        float locate_x = ImGui::GetWindowWidth() - locate_w - ImGui::GetStyle().WindowPadding.x - 10.0f;
+        float locate_w = std::max(140.0f, ImGui::CalcTextSize(locate_label).x + ImGui::GetStyle().FramePadding.x * 2.0f + 16.0f);
+        float locate_x = ImGui::GetWindowWidth() - locate_w - ImGui::GetStyle().WindowPadding.x - 8.0f;
         if (locate_x > ImGui::GetCursorPosX()) {
             ImGui::SameLine(locate_x);
         } else {
             ImGui::SameLine();
         }
-        if (ImGui::Button(locate_label, ImVec2(locate_w, 26))) {
+        if (ImGui::Button(locate_label, ImVec2(locate_w, ImGui::GetFrameHeight()))) {
             s_locate_target_week = curr_wm.week_number;
         }
 
-        ImGui::Spacing();
         ImGui::AlignTextToFramePadding();
         ImGui::TextDisabled("%s", TR("Mutators:"));
         ImGui::SameLine();
 
         for (size_t m_idx = 0; m_idx < curr_wm.mutators.size(); ++m_idx) {
-            const char* mut = curr_wm.mutators[m_idx];
-            ImTextureID icon = TextureLoader::Instance().GetMutatorIcon(mut);
-            if (icon) {
-                ImGui::Image(icon, ImVec2(18, 18));
-                ImGui::SameLine();
-            }
-            int pts = GetMutatorPoint(mut);
-            if (pts >= 0) {
-                ImGui::Text("%s (%d %s)", TR(mut), pts, TR("pts"));
-            } else {
-                ImGui::Text("%s", TR(mut));
-            }
+            RenderMutatorBadge(curr_wm.mutators[m_idx], true);
             if (m_idx + 1 < curr_wm.mutators.size()) {
                 ImGui::SameLine();
                 ImGui::TextDisabled("|");
@@ -90,8 +117,8 @@ void TabWeeklies::Render(AppState& state) {
             }
         }
 
-        float score_tier_w = 260.0f;
-        float st_x = ImGui::GetWindowWidth() - score_tier_w - ImGui::GetStyle().WindowPadding.x - 10.0f;
+        float score_tier_w = 240.0f;
+        float st_x = ImGui::GetWindowWidth() - score_tier_w - ImGui::GetStyle().WindowPadding.x - 8.0f;
         if (st_x > ImGui::GetCursorPosX()) {
             ImGui::SameLine(st_x);
         } else {
@@ -111,7 +138,7 @@ void TabWeeklies::Render(AppState& state) {
     }
     ImGui::EndChild();
     ImGui::PopStyleColor(2);
-    ImGui::PopStyleVar();
+    ImGui::PopStyleVar(2);
 
     ImGui::Spacing();
 
@@ -137,25 +164,23 @@ void TabWeeklies::Render(AppState& state) {
     for (auto& c : search_term) c = tolower(c);
 
     const ImGuiTableFlags table_flags = ImGuiTableFlags_ScrollY |
-                                        ImGuiTableFlags_ScrollX |
                                         ImGuiTableFlags_RowBg |
                                         ImGuiTableFlags_BordersOuter |
                                         ImGuiTableFlags_BordersInnerH |
                                         ImGuiTableFlags_Resizable;
 
     // Table with 9 columns: Week, Rotation, Title, Map, Mutators, Score, Tier, Personal Record, Action
-    float inner_width = std::max(1100.0f, ImGui::GetContentRegionAvail().x);
-    if (ImGui::BeginTable("WeekliesTable", 9, table_flags, ImVec2(0, 0), inner_width)) {
+    if (ImGui::BeginTable("WeekliesTable", 9, table_flags, ImVec2(0, 0))) {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn(TR("Week"), ImGuiTableColumnFlags_WidthFixed, 45.0f);
         ImGui::TableSetupColumn(TR("Rotation"), ImGuiTableColumnFlags_WidthFixed, 95.0f);
         ImGui::TableSetupColumn(TR("Title"), ImGuiTableColumnFlags_WidthStretch, 1.2f);
-        ImGui::TableSetupColumn(TR("Map"), ImGuiTableColumnFlags_WidthFixed, 130.0f);
+        ImGui::TableSetupColumn(TR("Map"), ImGuiTableColumnFlags_WidthFixed, 135.0f);
         ImGui::TableSetupColumn(TR("Mutators"), ImGuiTableColumnFlags_WidthStretch, 2.0f);
         ImGui::TableSetupColumn(TR("Score"), ImGuiTableColumnFlags_WidthFixed, 50.0f);
         ImGui::TableSetupColumn(TR("Tier"), ImGuiTableColumnFlags_WidthFixed, 70.0f);
-        ImGui::TableSetupColumn(TR("Personal Record"), ImGuiTableColumnFlags_WidthFixed, 120.0f);
-        ImGui::TableSetupColumn(TR("Action"), ImGuiTableColumnFlags_WidthFixed, 80.0f);
+        ImGui::TableSetupColumn(TR("Personal Record"), ImGuiTableColumnFlags_WidthFixed, 110.0f);
+        ImGui::TableSetupColumn(TR("Action"), ImGuiTableColumnFlags_WidthFixed, 75.0f);
         ImGui::TableHeadersRow();
 
         for (size_t i = 0; i < kWeeklyMutations.size(); ++i) {
@@ -221,33 +246,7 @@ void TabWeeklies::Render(AppState& state) {
             ImGui::TableSetColumnIndex(4);
             for (size_t m_idx = 0; m_idx < wm.mutators.size(); ++m_idx) {
                 if (m_idx > 0) ImGui::SameLine();
-                const char* mut = wm.mutators[m_idx];
-
-                ImTextureID icon = TextureLoader::Instance().GetMutatorIcon(mut);
-                if (icon) {
-                    ImGui::Image(icon, ImVec2(18, 18));
-                    ImGui::SameLine();
-                }
-
-                ImGui::Text("%s", TR(mut));
-                if (ImGui::IsItemHovered()) {
-                    ImGui::BeginTooltip();
-                    int pts = GetMutatorPoint(mut);
-                    if (pts >= 0) {
-                        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "%s  [%d pts]", TR(mut), pts);
-                    } else {
-                        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "%s", TR(mut));
-                    }
-                    ImGui::Separator();
-                    auto desc_it = kMutators.find(mut);
-                    if (desc_it != kMutators.end()) {
-                        ImGui::TextUnformatted(desc_it->second.c_str());
-                    } else {
-                        ImGui::TextDisabled("Special event mutator");
-                    }
-                    ImGui::EndTooltip();
-                }
-
+                RenderMutatorBadge(wm.mutators[m_idx], false);
                 if (m_idx + 1 < wm.mutators.size()) {
                     ImGui::SameLine();
                     ImGui::TextDisabled("|");

@@ -490,7 +490,9 @@ void UIManager::Run() {
                                               ImGuiWindowFlags_NoResize |
                                               ImGuiWindowFlags_NoMove |
                                               ImGuiWindowFlags_NoBringToFrontOnFocus |
-                                              ImGuiWindowFlags_NoNavFocus;
+                                              ImGuiWindowFlags_NoNavFocus |
+                                              ImGuiWindowFlags_NoScrollbar |
+                                              ImGuiWindowFlags_NoScrollWithMouse;
 
         ImGui::Begin("MainWindow", nullptr, window_flags);
         ImGui::PopStyleVar(3);
@@ -524,11 +526,42 @@ void UIManager::Run() {
         TabBtn(TR("Statistics"), 4, 0.0f);
         ImGui::SameLine();
         TabBtn(TR("Settings"), 0, 0.0f);
-        ImGui::SameLine();
-        std::string sum_btn_label = std::string(TR("Summary Overlay")) + " [" + HotkeyManager::FormatHotkey(state.hotkey_summary_mod, state.hotkey_summary_vk) + "]";
+
+        // Separator between navigation tabs and action floating HUD toggle
+        ImGui::SameLine(0, 14.0f);
+        ImGui::TextDisabled("|");
+        ImGui::SameLine(0, 14.0f);
+
+        // Summary Overlay action button
+        bool overlay_active = SummaryOverlay::Instance().IsActive();
+        if (overlay_active) {
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.12f, 0.45f, 0.50f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.16f, 0.55f, 0.60f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.20f, 0.65f, 0.70f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.40f, 1.0f, 0.90f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.35f, 0.90f, 0.85f, 0.8f));
+        } else {
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.15f, 0.20f, 0.28f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.22f, 0.32f, 0.44f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.28f, 0.42f, 0.58f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.80f, 0.90f, 1.0f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.30f, 0.45f, 0.65f, 0.6f));
+        }
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
+
+        std::string sum_btn_label = std::string(overlay_active ? "◆ " : "◇ ") + TR("Summary Overlay") + " [" + HotkeyManager::FormatHotkey(state.hotkey_summary_mod, state.hotkey_summary_vk) + "]";
         if (ImGui::Button(sum_btn_label.c_str(), ImVec2(0.0f, 28))) {
             SummaryOverlay::Instance().Toggle();
         }
+        if (ImGui::IsItemHovered()) {
+            ImGui::BeginTooltip();
+            ImGui::TextColored(ImVec4(0.3f, 0.85f, 1.0f, 1.0f), "%s", TR("Summary Overlay"));
+            ImGui::Separator();
+            ImGui::TextUnformatted(TR("Toggle Match Summary Overlay"));
+            ImGui::EndTooltip();
+        }
+        ImGui::PopStyleVar();
+        ImGui::PopStyleColor(5);
 
         // Right side: Scanner status & Rescan indicator
         if (state.is_scanning) {

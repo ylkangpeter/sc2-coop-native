@@ -55,26 +55,25 @@ void TabGames::Render(AppState& state) {
 
     // 3. Render Table (10 columns: Map, Mode, Result, P1, P2, Enemy, Length, Difficulty, Date, Actions)
     const ImGuiTableFlags table_flags = ImGuiTableFlags_ScrollY |
-                                        ImGuiTableFlags_ScrollX |
                                         ImGuiTableFlags_RowBg |
                                         ImGuiTableFlags_BordersOuter |
                                         ImGuiTableFlags_BordersInnerH |
                                         ImGuiTableFlags_Resizable;
 
-    float table_height = ImGui::GetContentRegionAvail().y - 36.0f; // Leave space for pagination footer
-    float inner_width = std::max(1180.0f, ImGui::GetContentRegionAvail().x);
-    if (ImGui::BeginTable("GamesTable", 10, table_flags, ImVec2(0, table_height), inner_width)) {
+    float footer_h = ImGui::GetFrameHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y + 12.0f;
+    float table_height = ImGui::GetContentRegionAvail().y - footer_h;
+    if (ImGui::BeginTable("GamesTable", 10, table_flags, ImVec2(0, table_height))) {
         ImGui::TableSetupScrollFreeze(0, 1);
-        ImGui::TableSetupColumn(TR("Map"), ImGuiTableColumnFlags_WidthFixed, 150.0f);
-        ImGui::TableSetupColumn(TR("Mode"), ImGuiTableColumnFlags_WidthFixed, 80.0f);
+        ImGui::TableSetupColumn(TR("Map"), ImGuiTableColumnFlags_WidthFixed, 140.0f);
+        ImGui::TableSetupColumn(TR("Mode"), ImGuiTableColumnFlags_WidthFixed, 75.0f);
         ImGui::TableSetupColumn(TR("Result"), ImGuiTableColumnFlags_WidthFixed, 65.0f);
-        ImGui::TableSetupColumn(TR("Player 1"), ImGuiTableColumnFlags_WidthStretch, 1.3f);
-        ImGui::TableSetupColumn(TR("Player 2 (Ally)"), ImGuiTableColumnFlags_WidthStretch, 1.3f);
+        ImGui::TableSetupColumn(TR("Player 1"), ImGuiTableColumnFlags_WidthStretch, 1.2f);
+        ImGui::TableSetupColumn(TR("Player 2 (Ally)"), ImGuiTableColumnFlags_WidthStretch, 1.2f);
         ImGui::TableSetupColumn(TR("Enemy"), ImGuiTableColumnFlags_WidthFixed, 65.0f);
         ImGui::TableSetupColumn(TR("Length"), ImGuiTableColumnFlags_WidthFixed, 60.0f);
         ImGui::TableSetupColumn(TR("Difficulty"), ImGuiTableColumnFlags_WidthFixed, 80.0f);
-        ImGui::TableSetupColumn(TR("Date"), ImGuiTableColumnFlags_WidthFixed, 130.0f);
-        ImGui::TableSetupColumn(TR("Actions"), ImGuiTableColumnFlags_WidthFixed, 180.0f);
+        ImGui::TableSetupColumn(TR("Date"), ImGuiTableColumnFlags_WidthFixed, 125.0f);
+        ImGui::TableSetupColumn(TR("Actions"), ImGuiTableColumnFlags_WidthFixed, 160.0f);
         ImGui::TableHeadersRow();
 
         for (size_t i = 0; i < replays.size(); ++i) {
