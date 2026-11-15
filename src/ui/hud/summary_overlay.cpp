@@ -974,7 +974,7 @@ void SummaryOverlay::Render() {
             // Created Count
             SelectObject(hdcMem, hFontUnit);
             SetTextColor(hdcMem, RGB(0, 213, 50));
-            bool hide_counts = (u.name.find("Top Bar") != std::string::npos);
+            bool hide_counts = (u.name.find("Top Bar") != std::string::npos || u.name.find("面板") != std::string::npos);
             std::wstring ctext = (hide_counts || u.created <= 0) ? L"-" : std::to_wstring(u.created);
             RECT rcCText = { rx + (int)(rw * 0.70f), row_y, rx + (int)(rw * 0.84f), row_y + 20 };
             DrawTextW(hdcMem, ctext.c_str(), -1, &rcCText, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
