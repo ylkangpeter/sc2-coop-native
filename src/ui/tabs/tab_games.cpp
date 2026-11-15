@@ -58,22 +58,23 @@ void TabGames::Render(AppState& state) {
                                         ImGuiTableFlags_RowBg |
                                         ImGuiTableFlags_BordersOuter |
                                         ImGuiTableFlags_BordersInnerH |
-                                        ImGuiTableFlags_Resizable;
+                                        ImGuiTableFlags_Resizable |
+                                        ImGuiTableFlags_NoSavedSettings;
 
     float footer_h = ImGui::GetFrameHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y + 12.0f;
     float table_height = ImGui::GetContentRegionAvail().y - footer_h;
     if (ImGui::BeginTable("GamesTable", 10, table_flags, ImVec2(0, table_height))) {
         ImGui::TableSetupScrollFreeze(0, 1);
-        ImGui::TableSetupColumn(TR("Map"), ImGuiTableColumnFlags_WidthFixed, 140.0f);
-        ImGui::TableSetupColumn(TR("Mode"), ImGuiTableColumnFlags_WidthFixed, 75.0f);
-        ImGui::TableSetupColumn(TR("Result"), ImGuiTableColumnFlags_WidthFixed, 65.0f);
-        ImGui::TableSetupColumn(TR("Player 1 (Me)"), ImGuiTableColumnFlags_WidthStretch, 1.2f);
-        ImGui::TableSetupColumn(TR("Player 2 (Ally)"), ImGuiTableColumnFlags_WidthStretch, 1.2f);
-        ImGui::TableSetupColumn(TR("Enemy"), ImGuiTableColumnFlags_WidthFixed, 65.0f);
-        ImGui::TableSetupColumn(TR("Length"), ImGuiTableColumnFlags_WidthFixed, 60.0f);
-        ImGui::TableSetupColumn(TR("Difficulty"), ImGuiTableColumnFlags_WidthFixed, 80.0f);
-        ImGui::TableSetupColumn(TR("Date"), ImGuiTableColumnFlags_WidthFixed, 125.0f);
-        ImGui::TableSetupColumn(TR("Actions"), ImGuiTableColumnFlags_WidthFixed, 195.0f);
+        ImGui::TableSetupColumn(TR("Map"), ImGuiTableColumnFlags_WidthFixed, 130.0f);
+        ImGui::TableSetupColumn(TR("Mode"), ImGuiTableColumnFlags_WidthFixed, 70.0f);
+        ImGui::TableSetupColumn(TR("Result"), ImGuiTableColumnFlags_WidthFixed, 60.0f);
+        ImGui::TableSetupColumn(TR("Player 1 (Me)"), ImGuiTableColumnFlags_WidthStretch, 1.0f);
+        ImGui::TableSetupColumn(TR("Player 2 (Ally)"), ImGuiTableColumnFlags_WidthStretch, 1.0f);
+        ImGui::TableSetupColumn(TR("Enemy"), ImGuiTableColumnFlags_WidthFixed, 55.0f);
+        ImGui::TableSetupColumn(TR("Length"), ImGuiTableColumnFlags_WidthFixed, 55.0f);
+        ImGui::TableSetupColumn(TR("Difficulty"), ImGuiTableColumnFlags_WidthFixed, 75.0f);
+        ImGui::TableSetupColumn(TR("Date"), ImGuiTableColumnFlags_WidthFixed, 120.0f);
+        ImGui::TableSetupColumn(TR("Actions"), ImGuiTableColumnFlags_WidthFixed, 220.0f);
         ImGui::TableHeadersRow();
 
         for (size_t i = 0; i < replays.size(); ++i) {
@@ -157,6 +158,7 @@ void TabGames::Render(AppState& state) {
             // Col 9: Actions
             ImGui::TableSetColumnIndex(9);
             ImGui::PushID(static_cast<int>(i));
+            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4.0f, 0.0f));
 
             if (ImGui::SmallButton(TR("Detail"))) {
                 SummaryOverlay::Instance().ToggleMatch(r);
@@ -216,6 +218,7 @@ void TabGames::Render(AppState& state) {
                 Win32Utils::RevealFileInExplorer(r.file_path);
             }
 
+            ImGui::PopStyleVar();
             ImGui::PopID();
         }
 
@@ -229,9 +232,9 @@ void TabGames::Render(AppState& state) {
     float btn_bar_w = ImGui::CalcTextSize(TR("<< First")).x + ImGui::CalcTextSize(TR("< Prev")).x +
                       ImGui::CalcTextSize(TR("Next >")).x + ImGui::CalcTextSize(TR("Last >>")).x +
                       (ImGui::GetStyle().FramePadding.x * 2.0f * 4) + (ImGui::GetStyle().ItemSpacing.x * 3) + 20.0f;
-    float page_btn_x = ImGui::GetWindowWidth() - btn_bar_w - ImGui::GetStyle().WindowPadding.x;
-    if (page_btn_x > ImGui::GetCursorPosX()) {
-        ImGui::SameLine(page_btn_x);
+    float page_avail = ImGui::GetContentRegionAvail().x;
+    if (page_avail > btn_bar_w) {
+        ImGui::SameLine(ImGui::GetCursorPosX() + page_avail - btn_bar_w);
     } else {
         ImGui::SameLine();
     }

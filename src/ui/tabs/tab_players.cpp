@@ -69,7 +69,8 @@ void TabPlayers::Render(AppState& state) {
                                         ImGuiTableFlags_RowBg |
                                         ImGuiTableFlags_BordersOuter |
                                         ImGuiTableFlags_BordersInnerH |
-                                        ImGuiTableFlags_Resizable;
+                                        ImGuiTableFlags_Resizable |
+                                        ImGuiTableFlags_NoSavedSettings;
 
     float footer_h = ImGui::GetFrameHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y + 12.0f;
     float table_height = ImGui::GetContentRegionAvail().y - footer_h;
@@ -82,7 +83,7 @@ void TabPlayers::Render(AppState& state) {
         ImGui::TableSetupColumn(TR("Winrate"), ImGuiTableColumnFlags_WidthFixed, 75.0f);
         ImGui::TableSetupColumn(TR("APM"), ImGuiTableColumnFlags_WidthFixed, 55.0f);
         ImGui::TableSetupColumn(TR("Player Note"), ImGuiTableColumnFlags_WidthStretch);
-        ImGui::TableSetupColumn(TR("Actions"), ImGuiTableColumnFlags_WidthFixed, 150.0f);
+        ImGui::TableSetupColumn(TR("Actions"), ImGuiTableColumnFlags_WidthFixed, 160.0f);
         ImGui::TableHeadersRow();
 
         for (size_t i = 0; i < players.size(); ++i) {
@@ -139,6 +140,7 @@ void TabPlayers::Render(AppState& state) {
             // Col 7: Actions
             ImGui::TableSetColumnIndex(7);
             ImGui::PushID(static_cast<int>(i * 10 + 2));
+            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4.0f, 0.0f));
             if (ImGui::SmallButton(TR("Notes"))) {
                 state.OpenPlayerNoteModal(p.name);
             }
@@ -147,6 +149,7 @@ void TabPlayers::Render(AppState& state) {
                 strncpy_s(state.games_search_buf, p.name.c_str(), sizeof(state.games_search_buf) - 1);
                 state.request_tab_switch = 1; // switch to Games tab
             }
+            ImGui::PopStyleVar();
             ImGui::PopID();
         }
 
@@ -160,9 +163,9 @@ void TabPlayers::Render(AppState& state) {
     float btn_bar_w = ImGui::CalcTextSize(TR("<< First")).x + ImGui::CalcTextSize(TR("< Prev")).x +
                       ImGui::CalcTextSize(TR("Next >")).x + ImGui::CalcTextSize(TR("Last >>")).x +
                       (ImGui::GetStyle().FramePadding.x * 2.0f * 4) + (ImGui::GetStyle().ItemSpacing.x * 3) + 20.0f;
-    float page_btn_x = ImGui::GetWindowWidth() - btn_bar_w - ImGui::GetStyle().WindowPadding.x;
-    if (page_btn_x > ImGui::GetCursorPosX()) {
-        ImGui::SameLine(page_btn_x);
+    float page_avail = ImGui::GetContentRegionAvail().x;
+    if (page_avail > btn_bar_w) {
+        ImGui::SameLine(ImGui::GetCursorPosX() + page_avail - btn_bar_w);
     } else {
         ImGui::SameLine();
     }

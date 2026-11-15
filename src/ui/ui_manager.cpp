@@ -349,15 +349,15 @@ bool UIManager::Init(HINSTANCE hInstance, int nCmdShow) {
     int mon_w = mi.rcWork.right - mi.rcWork.left;
     int mon_h = mi.rcWork.bottom - mi.rcWork.top;
 
-    int win_w = (int)(1250 * dpi_scale);
-    int win_h = (int)(800 * dpi_scale);
+    int win_w = (int)(1380 * dpi_scale);
+    int win_h = (int)(860 * dpi_scale);
     if (win_w > (int)(mon_w * 0.95f)) win_w = (int)(mon_w * 0.95f);
     if (win_h > (int)(mon_h * 0.95f)) win_h = (int)(mon_h * 0.95f);
 
     int win_x = mi.rcWork.left + (mon_w - win_w) / 2;
     int win_y = mi.rcWork.top + (mon_h - win_h) / 2;
 
-    m_hwnd = CreateWindowW(m_wc.lpszClassName, L"StarCraft II Co-op Native v1.0.3",
+    m_hwnd = CreateWindowW(m_wc.lpszClassName, L"StarCraft II Co-op Native v1.0.4",
                            WS_OVERLAPPEDWINDOW, win_x, win_y, win_w, win_h,
                            nullptr, nullptr, m_wc.hInstance, nullptr);
 
@@ -494,7 +494,8 @@ void UIManager::Run() {
                                               ImGuiWindowFlags_NoBringToFrontOnFocus |
                                               ImGuiWindowFlags_NoNavFocus |
                                               ImGuiWindowFlags_NoScrollbar |
-                                              ImGuiWindowFlags_NoScrollWithMouse;
+                                              ImGuiWindowFlags_NoScrollWithMouse |
+                                              ImGuiWindowFlags_NoSavedSettings;
 
         ImGui::Begin("MainWindow", nullptr, window_flags);
         ImGui::PopStyleVar(3);
@@ -502,7 +503,7 @@ void UIManager::Run() {
         // Header Navigation Bar
         ImGui::TextColored(ImVec4(0.0f, 0.75f, 1.0f, 1.0f), "SC2 CO-OP NATIVE");
         ImGui::SameLine();
-        ImGui::TextDisabled("v1.0.3");
+        ImGui::TextDisabled("v1.0.4");
         ImGui::SameLine(0, 16.0f);
 
         // Tab Buttons

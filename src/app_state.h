@@ -58,6 +58,27 @@ public:
     bool show_note_modal = false;
     std::string note_target_player;
     char note_edit_buf[1024] = {0};
+
+    struct NoteModalRecentMatch {
+        std::string game_date;
+        std::string map_name;
+        std::string commander;
+        std::string difficulty;
+        std::string result;
+    };
+
+    struct NoteModalData {
+        bool valid = false;
+        std::string player_name;
+        int total_games = 0;
+        int wins = 0;
+        int losses = 0;
+        double winrate = 0.0;
+        int median_apm = 0;
+        std::vector<NoteModalRecentMatch> recent_matches;
+    };
+    NoteModalData note_modal_data;
+
     void OpenPlayerNoteModal(const std::string& player_name);
 
     // Search filters

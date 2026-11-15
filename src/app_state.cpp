@@ -309,6 +309,39 @@ void AppState::OpenPlayerNoteModal(const std::string& player_name) {
     std::string existing = Database::Instance().GetPlayerNote(note_target_player);
     memset(note_edit_buf, 0, sizeof(note_edit_buf));
     strncpy_s(note_edit_buf, existing.c_str(), sizeof(note_edit_buf) - 1);
+
+    // Populate modal data ONCE on click to ensure silky smooth 144+ FPS modal rendering
+    note_modal_data.valid = true;
+    note_modal_data.player_name = note_target_player;
+    int dummy_total = 0;
+    auto players = Database::Instance().QueryPlayers(note_target_player, "total_games", false, 1, 0, dummy_total);
+    if (!players.empty() && players[0].name == note_target_player) {
+        note_modal_data.total_games = players[0].total_games;
+        note_modal_data.wins = players[0].wins;
+        note_modal_data.losses = players[0].losses;
+        note_modal_data.winrate = players[0].winrate;
+        note_modal_data.median_apm = players[0].median_apm;
+    } else {
+        note_modal_data.total_games = 0;
+        note_modal_data.wins = 0;
+        note_modal_data.losses = 0;
+        note_modal_data.winrate = 0.0;
+        note_modal_data.median_apm = 0;
+    }
+
+    note_modal_data.recent_matches.clear();
+    int rec_dummy = 0;
+    auto recent_replays = Database::Instance().QueryReplays(note_target_player, 4, 0, rec_dummy);
+    for (const auto& r : recent_replays) {
+        NoteModalRecentMatch rm;
+        rm.game_date = r.game_date;
+        rm.map_name = r.map_name;
+        rm.commander = (r.p2.name == note_target_player) ? r.p2.commander : r.p1.commander;
+        rm.difficulty = r.difficulty;
+        rm.result = r.result;
+        note_modal_data.recent_matches.push_back(std::move(rm));
+    }
+
     show_note_modal = true;
 }
 

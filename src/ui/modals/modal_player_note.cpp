@@ -23,6 +23,7 @@ void ModalPlayerNote::Render(AppState& state) {
                                          ImGuiWindowFlags_NoSavedSettings;
 
     if (ImGui::BeginPopupModal(TR("Player Notes & Stats"), &state.show_note_modal, modal_flags)) {
+        const auto& md = state.note_modal_data;
         std::string player_name = state.note_target_player;
         std::string clean_name = Win32Utils::CleanPlayerName(player_name);
 
@@ -35,27 +36,24 @@ void ModalPlayerNote::Render(AppState& state) {
         ImGui::Separator();
         ImGui::Spacing();
 
-        // 1. Career Stats with this player
-        int dummy_total = 0;
-        auto players = Database::Instance().QueryPlayers(player_name, "total_games", false, 1, 0, dummy_total);
-        if (!players.empty() && players[0].name == player_name) {
-            const auto& p = players[0];
+        // 1. Career Stats with this player (instant 0ms render from cached NoteModalData)
+        if (md.valid && md.total_games > 0) {
             ImGui::BeginGroup();
-            ImGui::Text("%s: %d", TR("Total Games"), p.total_games);
+            ImGui::Text("%s: %d", TR("Total Games"), md.total_games);
             ImGui::SameLine(160.0f);
-            ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.4f, 1.0f), "%s: %d", TR("Wins"), p.wins);
+            ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.4f, 1.0f), "%s: %d", TR("Wins"), md.wins);
             ImGui::SameLine(280.0f);
-            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s: %d", TR("Losses"), p.losses);
+            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s: %d", TR("Losses"), md.losses);
             ImGui::SameLine(390.0f);
-            if (p.winrate >= 70.0) {
-                ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.4f, 1.0f), "%s: %.1f%%", TR("Winrate"), p.winrate);
-            } else if (p.winrate >= 50.0) {
-                ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "%s: %.1f%%", TR("Winrate"), p.winrate);
+            if (md.winrate >= 70.0) {
+                ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.4f, 1.0f), "%s: %.1f%%", TR("Winrate"), md.winrate);
+            } else if (md.winrate >= 50.0) {
+                ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "%s: %.1f%%", TR("Winrate"), md.winrate);
             } else {
-                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s: %.1f%%", TR("Winrate"), p.winrate);
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s: %.1f%%", TR("Winrate"), md.winrate);
             }
             ImGui::SameLine(510.0f);
-            ImGui::Text("%s: %d", TR("APM"), p.median_apm);
+            ImGui::Text("%s: %d", TR("APM"), md.median_apm);
             ImGui::EndGroup();
         } else {
             ImGui::TextDisabled("%s", TR("No career games recorded with this player yet."));
@@ -65,11 +63,9 @@ void ModalPlayerNote::Render(AppState& state) {
         ImGui::Separator();
         ImGui::Spacing();
 
-        // 2. Recent Matches with this player
+        // 2. Recent Matches with this player (instant 0ms render from cached NoteModalData)
         ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "%s:", TR("Recent Games with Player"));
-        int rec_dummy = 0;
-        auto recent_replays = Database::Instance().QueryReplays(player_name, 4, 0, rec_dummy);
-        if (!recent_replays.empty()) {
+        if (!md.recent_matches.empty()) {
             if (ImGui::BeginTable("RecentMatchesTable", 5, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg, ImVec2(0, 115))) {
                 ImGui::TableSetupColumn(TR("Date"), ImGuiTableColumnFlags_WidthFixed, 120.0f);
                 ImGui::TableSetupColumn(TR("Map"), ImGuiTableColumnFlags_WidthStretch);
@@ -78,28 +74,27 @@ void ModalPlayerNote::Render(AppState& state) {
                 ImGui::TableSetupColumn(TR("Result"), ImGuiTableColumnFlags_WidthFixed, 65.0f);
                 ImGui::TableHeadersRow();
 
-                for (const auto& r : recent_replays) {
+                for (const auto& rm : md.recent_matches) {
                     ImGui::TableNextRow();
                     ImGui::TableSetColumnIndex(0);
-                    ImGui::TextUnformatted(r.game_date.c_str());
+                    ImGui::TextUnformatted(rm.game_date.c_str());
 
                     ImGui::TableSetColumnIndex(1);
-                    ImGui::TextUnformatted(TR(r.map_name.c_str()));
+                    ImGui::TextUnformatted(TR(rm.map_name.c_str()));
 
                     ImGui::TableSetColumnIndex(2);
-                    std::string cmdr = (r.p2.name == player_name) ? r.p2.commander : r.p1.commander;
-                    ImGui::TextUnformatted(TR(cmdr.c_str()));
+                    ImGui::TextUnformatted(TR(rm.commander.c_str()));
 
                     ImGui::TableSetColumnIndex(3);
-                    ImGui::TextUnformatted(TR(r.difficulty.c_str()));
+                    ImGui::TextUnformatted(TR(rm.difficulty.c_str()));
 
                     ImGui::TableSetColumnIndex(4);
-                    if (r.result == "Victory") {
+                    if (rm.result == "Victory") {
                         ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.4f, 1.0f), "%s", TR("Victory"));
-                    } else if (r.result == "Defeat") {
+                    } else if (rm.result == "Defeat") {
                         ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.35f, 1.0f), "%s", TR("Defeat"));
                     } else {
-                        ImGui::TextDisabled("%s", TR(r.result.c_str()));
+                        ImGui::TextDisabled("%s", TR(rm.result.c_str()));
                     }
                 }
                 ImGui::EndTable();
