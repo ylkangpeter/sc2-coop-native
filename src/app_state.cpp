@@ -303,4 +303,13 @@ void AppState::AutoRepairCorruptedReplaysAsync() {
     }).detach();
 }
 
+void AppState::OpenPlayerNoteModal(const std::string& player_name) {
+    if (player_name.empty()) return;
+    note_target_player = Win32Utils::CleanPlayerName(player_name);
+    std::string existing = Database::Instance().GetPlayerNote(note_target_player);
+    memset(note_edit_buf, 0, sizeof(note_edit_buf));
+    strncpy_s(note_edit_buf, existing.c_str(), sizeof(note_edit_buf) - 1);
+    show_note_modal = true;
+}
+
 } // namespace sc2

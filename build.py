@@ -76,6 +76,7 @@ SOURCES = [
     PROJECT_ROOT / "src" / "ui" / "tabs" / "tab_stats.cpp",
     PROJECT_ROOT / "src" / "ui" / "modals" / "modal_game_detail.cpp",
     PROJECT_ROOT / "src" / "ui" / "modals" / "modal_chat_view.cpp",
+    PROJECT_ROOT / "src" / "ui" / "modals" / "modal_player_note.cpp",
     PROJECT_ROOT / "vendor" / "imgui" / "imgui.cpp",
     PROJECT_ROOT / "vendor" / "imgui" / "imgui_draw.cpp",
     PROJECT_ROOT / "vendor" / "imgui" / "imgui_tables.cpp",
@@ -264,7 +265,7 @@ def main():
     if "--package" in sys.argv or "-p" in sys.argv:
         package_release()
 
-def package_release(version: str = "v1.0.2"):
+def package_release(version: str = "v1.0.3"):
     import zipfile
     zip_name = f"sc2-coop-native-{version}-windows-x64.zip"
     zip_dest = PROJECT_ROOT / "dist" / zip_name

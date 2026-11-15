@@ -55,6 +55,10 @@ public:
     ReplayRecord detail_replay;
     bool show_chat_modal = false;
     ReplayRecord chat_replay;
+    bool show_note_modal = false;
+    std::string note_target_player;
+    char note_edit_buf[1024] = {0};
+    void OpenPlayerNoteModal(const std::string& player_name);
 
     // Search filters
     char games_search_buf[256] = {0};

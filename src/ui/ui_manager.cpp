@@ -10,6 +10,7 @@
 #include "tabs/tab_stats.h"
 #include "modals/modal_game_detail.h"
 #include "modals/modal_chat_view.h"
+#include "modals/modal_player_note.h"
 #include "hud/summary_overlay.h"
 #include "hud/ally_toast.h"
 #include "../utils/hotkey_manager.h"
@@ -356,7 +357,7 @@ bool UIManager::Init(HINSTANCE hInstance, int nCmdShow) {
     int win_x = mi.rcWork.left + (mon_w - win_w) / 2;
     int win_y = mi.rcWork.top + (mon_h - win_h) / 2;
 
-    m_hwnd = CreateWindowW(m_wc.lpszClassName, L"StarCraft II Co-op Native v1.0.2",
+    m_hwnd = CreateWindowW(m_wc.lpszClassName, L"StarCraft II Co-op Native v1.0.3",
                            WS_OVERLAPPEDWINDOW, win_x, win_y, win_w, win_h,
                            nullptr, nullptr, m_wc.hInstance, nullptr);
 
@@ -501,7 +502,7 @@ void UIManager::Run() {
         // Header Navigation Bar
         ImGui::TextColored(ImVec4(0.0f, 0.75f, 1.0f, 1.0f), "SC2 CO-OP NATIVE");
         ImGui::SameLine();
-        ImGui::TextDisabled("v1.0.2");
+        ImGui::TextDisabled("v1.0.3");
         ImGui::SameLine(0, 16.0f);
 
         // Tab Buttons
@@ -607,6 +608,7 @@ void UIManager::Run() {
         // Render Modals
         ModalGameDetail::Render(state);
         ModalChatView::Render(state);
+        ModalPlayerNote::Render(state);
 
         ImGui::End();
 

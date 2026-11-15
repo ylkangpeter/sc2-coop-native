@@ -73,7 +73,7 @@ void TabGames::Render(AppState& state) {
         ImGui::TableSetupColumn(TR("Length"), ImGuiTableColumnFlags_WidthFixed, 60.0f);
         ImGui::TableSetupColumn(TR("Difficulty"), ImGuiTableColumnFlags_WidthFixed, 80.0f);
         ImGui::TableSetupColumn(TR("Date"), ImGuiTableColumnFlags_WidthFixed, 125.0f);
-        ImGui::TableSetupColumn(TR("Actions"), ImGuiTableColumnFlags_WidthFixed, 160.0f);
+        ImGui::TableSetupColumn(TR("Actions"), ImGuiTableColumnFlags_WidthFixed, 195.0f);
         ImGui::TableHeadersRow();
 
         for (size_t i = 0; i < replays.size(); ++i) {
@@ -206,6 +206,10 @@ void TabGames::Render(AppState& state) {
                     }
                 }
                 state.show_chat_modal = true;
+            }
+            ImGui::SameLine();
+            if (ImGui::SmallButton(TR("Notes"))) {
+                state.OpenPlayerNoteModal(r.p2.name);
             }
             ImGui::SameLine();
             if (ImGui::SmallButton(TR("File"))) {

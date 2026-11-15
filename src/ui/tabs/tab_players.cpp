@@ -82,7 +82,7 @@ void TabPlayers::Render(AppState& state) {
         ImGui::TableSetupColumn(TR("Winrate"), ImGuiTableColumnFlags_WidthFixed, 75.0f);
         ImGui::TableSetupColumn(TR("APM"), ImGuiTableColumnFlags_WidthFixed, 55.0f);
         ImGui::TableSetupColumn(TR("Player Note"), ImGuiTableColumnFlags_WidthStretch);
-        ImGui::TableSetupColumn(TR("Actions"), ImGuiTableColumnFlags_WidthFixed, 100.0f);
+        ImGui::TableSetupColumn(TR("Actions"), ImGuiTableColumnFlags_WidthFixed, 150.0f);
         ImGui::TableHeadersRow();
 
         for (size_t i = 0; i < players.size(); ++i) {
@@ -139,6 +139,10 @@ void TabPlayers::Render(AppState& state) {
             // Col 7: Actions
             ImGui::TableSetColumnIndex(7);
             ImGui::PushID(static_cast<int>(i * 10 + 2));
+            if (ImGui::SmallButton(TR("Notes"))) {
+                state.OpenPlayerNoteModal(p.name);
+            }
+            ImGui::SameLine();
             if (ImGui::SmallButton(TR("Find Games"))) {
                 strncpy_s(state.games_search_buf, p.name.c_str(), sizeof(state.games_search_buf) - 1);
                 state.request_tab_switch = 1; // switch to Games tab
