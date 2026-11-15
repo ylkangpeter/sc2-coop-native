@@ -75,8 +75,8 @@ void SummaryOverlay::Init(HINSTANCE hInstance) {
     std::wstring font_path = exe_path;
     auto pos = font_path.find_last_of(L"\\/");
     if (pos != std::wstring::npos) {
-        font_path = font_path.substr(0, pos + 1) + L"assets\\Eurostile-Reg.otf";
-        AddFontResourceExW(font_path.c_str(), FR_PRIVATE, nullptr);
+        m_font_path = font_path.substr(0, pos + 1) + L"assets\\Eurostile-Reg.otf";
+        AddFontResourceExW(m_font_path.c_str(), FR_PRIVATE, nullptr);
     }
     AddFontResourceExW(L"assets\\Eurostile-Reg.otf", FR_PRIVATE, nullptr);
 
@@ -130,6 +130,11 @@ void SummaryOverlay::Init(HINSTANCE hInstance) {
 
 void SummaryOverlay::Shutdown() {
     Hide();
+    if (!m_font_path.empty()) {
+        RemoveFontResourceExW(m_font_path.c_str(), FR_PRIVATE, nullptr);
+        m_font_path.clear();
+    }
+    RemoveFontResourceExW(L"assets\\Eurostile-Reg.otf", FR_PRIVATE, nullptr);
     if (m_hFontRotated) {
         DeleteObject(m_hFontRotated);
         m_hFontRotated = nullptr;

@@ -58,6 +58,7 @@ private:
     int m_overlay_h = 1080;
 
     HFONT m_hFontRotated = nullptr;
+    std::wstring m_font_path;
     std::string m_dump_path;
 };
 

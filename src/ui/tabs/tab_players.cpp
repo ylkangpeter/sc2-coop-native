@@ -13,6 +13,14 @@ int TabPlayers::s_current_page = 0;
 std::string TabPlayers::s_sort_column = "wins";
 bool TabPlayers::s_sort_ascending = false;
 
+uint64_t TabPlayers::s_last_revision = 0;
+std::string TabPlayers::s_last_search = "";
+std::string TabPlayers::s_last_sort_col = "";
+bool TabPlayers::s_last_sort_asc = false;
+int TabPlayers::s_last_page = -1;
+int TabPlayers::s_cached_total_records = 0;
+std::vector<PlayerRecord> TabPlayers::s_cached_players;
+
 void TabPlayers::Render(AppState& state) {
     // 1. Search Bar & Controls
     ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 420);
@@ -53,16 +61,38 @@ void TabPlayers::Render(AppState& state) {
     ImGui::Separator();
     ImGui::Spacing();
 
-    // 2. Fetch Players from Database
-    int total_records = 0;
-    int offset = s_current_page * kPageSize;
-    auto players = Database::Instance().QueryPlayers(state.players_search_buf,
-                                                     s_sort_column, s_sort_ascending,
-                                                     kPageSize, offset, total_records);
+    // 2. Fetch Players from Database (cached via unified revision)
+    uint64_t current_rev = Database::Instance().GetRevision();
+    std::string current_search = state.players_search_buf;
+    if (s_last_revision != current_rev || current_search != s_last_search ||
+        s_sort_column != s_last_sort_col || s_sort_ascending != s_last_sort_asc ||
+        s_current_page != s_last_page) {
+        int offset = s_current_page * kPageSize;
+        s_cached_players = Database::Instance().QueryPlayers(current_search,
+                                                             s_sort_column, s_sort_ascending,
+                                                             kPageSize, offset, s_cached_total_records);
+        s_last_search = current_search;
+        s_last_sort_col = s_sort_column;
+        s_last_sort_asc = s_sort_ascending;
+        s_last_page = s_current_page;
+        s_last_revision = current_rev;
+    }
 
+    int total_records = s_cached_total_records;
     int total_pages = (total_records > 0) ? ((total_records + kPageSize - 1) / kPageSize) : 1;
-    if (s_current_page >= total_pages) s_current_page = total_pages - 1;
+    if (s_current_page >= total_pages) {
+        s_current_page = total_pages - 1;
+        if (s_current_page != s_last_page) {
+            int offset = s_current_page * kPageSize;
+            s_cached_players = Database::Instance().QueryPlayers(current_search,
+                                                                 s_sort_column, s_sort_ascending,
+                                                                 kPageSize, offset, s_cached_total_records);
+            s_last_page = s_current_page;
+        }
+    }
     if (s_current_page < 0) s_current_page = 0;
+
+    auto& players = s_cached_players;
 
     // 3. Render Table
     const ImGuiTableFlags table_flags = ImGuiTableFlags_ScrollY |

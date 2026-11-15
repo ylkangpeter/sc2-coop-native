@@ -11,15 +11,16 @@
 namespace sc2 {
 
 void ModalGameDetail::Render(AppState& state) {
+    std::string modal_title = std::string(TR("Match Details")) + "###ModalGameDetail";
     if (state.show_detail_modal) {
-        ImGui::OpenPopup(TR("Match Details"));
+        ImGui::OpenPopup(modal_title.c_str());
     }
 
     ImVec2 center = ImGui::GetMainViewport()->GetCenter();
     ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
     ImGui::SetNextWindowSize(ImVec2(680, 520), ImGuiCond_Appearing);
 
-    if (ImGui::BeginPopupModal(TR("Match Details"), &state.show_detail_modal, ImGuiWindowFlags_NoResize)) {
+    if (ImGui::BeginPopupModal(modal_title.c_str(), &state.show_detail_modal, ImGuiWindowFlags_NoResize)) {
         const auto& r = state.detail_replay;
 
         // Top info header

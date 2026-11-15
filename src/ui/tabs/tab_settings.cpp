@@ -51,7 +51,8 @@ void TabSettings::Render(AppState& state) {
     float browse_btn_w = ImGui::CalcTextSize(TR("Browse...")).x + ImGui::GetStyle().FramePadding.x * 2.0f + 16.0f;
     float auto_btn_w = ImGui::CalcTextSize(TR("Auto Detect")).x + ImGui::GetStyle().FramePadding.x * 2.0f + 16.0f;
     ImGui::SetNextItemWidth(std::max(200.0f, ImGui::GetContentRegionAvail().x - browse_btn_w - auto_btn_w - ImGui::GetStyle().ItemSpacing.x * 2.0f));
-    if (ImGui::InputText("##AccountFolder", folder_buf, sizeof(folder_buf))) {
+    ImGui::InputText("##AccountFolder", folder_buf, sizeof(folder_buf));
+    if (ImGui::IsItemDeactivatedAfterEdit()) {
         state.account_folder = folder_buf;
         state.SaveSettings();
     }
@@ -82,7 +83,14 @@ void TabSettings::Render(AppState& state) {
     ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "%s", TR("Replay Library & Database"));
     ImGui::Spacing();
 
-    int total_db_replays = Database::Instance().GetTotalReplayCount();
+    static int s_cached_total_db_replays = 0;
+    static double s_last_count_check = 0.0;
+    double current_time = ImGui::GetTime();
+    if (current_time - s_last_count_check > 1.5 || s_last_count_check == 0.0) {
+        s_cached_total_db_replays = Database::Instance().GetTotalReplayCount();
+        s_last_count_check = current_time;
+    }
+    int total_db_replays = s_cached_total_db_replays;
     ImGui::Text(TR("Total Replays Indexed in Database: %d"), total_db_replays);
 
     if (state.is_scanning) {
@@ -246,7 +254,7 @@ void TabSettings::Render(AppState& state) {
     ImGui::Spacing();
 
     // 6. About & Version Info
-    ImGui::TextDisabled("StarCraft II Co-op Native v1.0.4 (DirectX 11 + Dear ImGui + SQLite3)");
+    ImGui::TextDisabled("StarCraft II Co-op Native v1.0.5 (DirectX 11 + Dear ImGui + SQLite3)");
     ImGui::TextDisabled("%s", TR("About_Description"));
 }
 

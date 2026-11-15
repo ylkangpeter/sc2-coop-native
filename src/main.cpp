@@ -8,15 +8,12 @@
 #include <backends/imgui_impl_win32.h>
 
 static LONG WINAPI CrashHandler(EXCEPTION_POINTERS* pException) {
-    std::ofstream f("crash_log.txt", std::ios::app);
-    if (f.is_open()) {
+    HANDLE hFile = CreateFileA("crash_log.txt", FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (hFile != INVALID_HANDLE_VALUE) {
         SYSTEMTIME st;
         GetLocalTime(&st);
-        f << "\n================ CRASH REPORT ================\n";
-        f << "Timestamp: " << st.wYear << "-" << st.wMonth << "-" << st.wDay << " "
-          << st.wHour << ":" << st.wMinute << ":" << st.wSecond << "." << st.wMilliseconds << "\n";
-        f << "Unhandled Exception: 0x" << std::hex << pException->ExceptionRecord->ExceptionCode << std::dec << "\n";
-        f << "Fault Address: " << pException->ExceptionRecord->ExceptionAddress << "\n";
+        char log_buf[2048];
+        DWORD bytesWritten = 0;
 
         HMODULE hMod = nullptr;
         char modName[MAX_PATH] = "UnknownModule";
@@ -25,16 +22,30 @@ static LONG WINAPI CrashHandler(EXCEPTION_POINTERS* pException) {
             GetModuleFileNameA(hMod, modName, MAX_PATH);
         }
         uintptr_t offset = (uintptr_t)pException->ExceptionRecord->ExceptionAddress - (uintptr_t)hMod;
-        f << "Fault Module: " << modName << " (+0x" << std::hex << offset << std::dec << ")\n";
+
+        int len = snprintf(log_buf, sizeof(log_buf),
+            "\n================ CRASH REPORT ================\n"
+            "Timestamp: %04d-%02d-%02d %02d:%02d:%02d.%03d\n"
+            "Unhandled Exception: 0x%08X\n"
+            "Fault Address: 0x%p\n"
+            "Fault Module: %s (+0x%zx)\n",
+            st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond, st.wMilliseconds,
+            (unsigned int)pException->ExceptionRecord->ExceptionCode,
+            pException->ExceptionRecord->ExceptionAddress,
+            modName, offset);
+        if (len > 0) WriteFile(hFile, log_buf, len, &bytesWritten, nullptr);
 
         if (pException->ExceptionRecord->ExceptionCode == 0xC0000005 && pException->ExceptionRecord->NumberParameters >= 2) {
             ULONG_PTR op = pException->ExceptionRecord->ExceptionInformation[0];
             ULONG_PTR targetAddr = pException->ExceptionRecord->ExceptionInformation[1];
             const char* opStr = (op == 0) ? "READ" : ((op == 1) ? "WRITE" : "EXECUTE");
-            f << "Access Violation: " << opStr << " at address 0x" << std::hex << targetAddr << std::dec << "\n";
+            len = snprintf(log_buf, sizeof(log_buf), "Access Violation: %s at address 0x%zx\n", opStr, targetAddr);
+            if (len > 0) WriteFile(hFile, log_buf, len, &bytesWritten, nullptr);
         }
 
-        f << "Stack Backtrace:\n";
+        const char* traceHdr = "Stack Backtrace:\n";
+        WriteFile(hFile, traceHdr, (DWORD)strlen(traceHdr), &bytesWritten, nullptr);
+
         void* stack[32];
         USHORT frames = CaptureStackBackTrace(0, 32, stack, nullptr);
         for (USHORT i = 0; i < frames; ++i) {
@@ -45,20 +56,33 @@ static LONG WINAPI CrashHandler(EXCEPTION_POINTERS* pException) {
                 GetModuleFileNameA(frameMod, frameModName, MAX_PATH);
             }
             uintptr_t frameOffset = (uintptr_t)stack[i] - (uintptr_t)frameMod;
-            f << "  #" << i << " " << stack[i] << " (" << frameModName << " + 0x" << std::hex << frameOffset << std::dec << ")\n";
+            len = snprintf(log_buf, sizeof(log_buf), "  #%u %p (%s + 0x%zx)\n", (unsigned int)i, stack[i], frameModName, frameOffset);
+            if (len > 0) WriteFile(hFile, log_buf, len, &bytesWritten, nullptr);
         }
-        f << "==============================================\n" << std::endl;
-        f.close();
+
+        const char* sep = "==============================================\n\n";
+        WriteFile(hFile, sep, (DWORD)strlen(sep), &bytesWritten, nullptr);
+        CloseHandle(hFile);
     }
+
     wchar_t buf[256];
-    wsprintfW(buf, L"Fatal Crash: Exception code 0x%08X at 0x%p.\nDetailed diagnostic backtrace written to crash_log.txt.",
-              pException->ExceptionRecord->ExceptionCode, pException->ExceptionRecord->ExceptionAddress);
+    _snwprintf_s(buf, _TRUNCATE, L"Fatal Crash: Exception code 0x%08X at 0x%p.\nDetailed diagnostic backtrace written to crash_log.txt.",
+                 (unsigned int)pException->ExceptionRecord->ExceptionCode, pException->ExceptionRecord->ExceptionAddress);
     MessageBoxW(nullptr, buf, L"SC2 Co-op Native Error", MB_ICONERROR | MB_OK);
     return EXCEPTION_EXECUTE_HANDLER;
 }
 
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLine, int nCmdShow) {
     SetUnhandledExceptionFilter(CrashHandler);
+
+    // Ensure working directory is always the executable's directory
+    wchar_t exePath[MAX_PATH] = { 0 };
+    if (GetModuleFileNameW(nullptr, exePath, MAX_PATH)) {
+        std::filesystem::path p(exePath);
+        SetCurrentDirectoryW(p.parent_path().c_str());
+    }
+
+    CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
 
     // Enable modern Per-Monitor V2 DPI Awareness for crisp High-DPI scaling
     ImGui_ImplWin32_EnableDpiAwareness();
@@ -74,6 +98,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
         if (hMutex) {
             CloseHandle(hMutex);
         }
+        CoUninitialize();
         return 0;
     }
 
@@ -88,6 +113,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
                 ReleaseMutex(hMutex);
                 CloseHandle(hMutex);
             }
+            CoUninitialize();
             return 1;
         }
 
@@ -106,13 +132,17 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
             f.close();
         }
         int len = MultiByteToWideChar(CP_UTF8, 0, e.what(), -1, nullptr, 0);
-        std::wstring wmsg(len, 0);
-        MultiByteToWideChar(CP_UTF8, 0, e.what(), -1, &wmsg[0], len);
+        std::wstring wmsg;
+        if (len > 1) {
+            wmsg.resize(len - 1);
+            MultiByteToWideChar(CP_UTF8, 0, e.what(), -1, &wmsg[0], len);
+        }
         MessageBoxW(nullptr, wmsg.c_str(), L"SC2 Co-op Native Exception", MB_ICONERROR | MB_OK);
         if (hMutex) {
             ReleaseMutex(hMutex);
             CloseHandle(hMutex);
         }
+        CoUninitialize();
         return 1;
     } catch (...) {
         MessageBoxW(nullptr, L"An unknown fatal exception occurred.", L"SC2 Co-op Native Error", MB_ICONERROR | MB_OK);
@@ -120,6 +150,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
             ReleaseMutex(hMutex);
             CloseHandle(hMutex);
         }
+        CoUninitialize();
         return 1;
     }
 
@@ -128,6 +159,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
         CloseHandle(hMutex);
     }
 
+    CoUninitialize();
     return 0;
 }
 

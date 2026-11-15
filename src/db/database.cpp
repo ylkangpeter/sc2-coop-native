@@ -120,6 +120,7 @@ bool Database::Open(const std::string& db_path) {
     sqlite3_exec(m_db, "UPDATE replays SET p1_commander = 'HanHorner' WHERE p1_commander = 'Horner';", nullptr, nullptr, nullptr);
     sqlite3_exec(m_db, "UPDATE replays SET p2_commander = 'HanHorner' WHERE p2_commander = 'Horner';", nullptr, nullptr, nullptr);
 
+    BumpRevision();
     return true;
 }
 
@@ -200,6 +201,7 @@ bool Database::BatchSaveReplays(const std::vector<ReplayRecord>& recs) {
 
     sqlite3_exec(m_db, "COMMIT;", nullptr, nullptr, nullptr);
     sqlite3_finalize(stmt);
+    BumpRevision();
     return true;
 }
 
@@ -253,6 +255,7 @@ void Database::SanitizeInvalidPrestiges() {
                       "UPDATE replays SET p2_prestige = 0 WHERE p2_prestige < 0 OR p2_prestige > 3;"
                       "UPDATE replays SET brutal_plus = 0 WHERE brutal_plus < 0 OR brutal_plus > 6;";
     sqlite3_exec(m_db, sql, nullptr, nullptr, nullptr);
+    BumpRevision();
 }
 
 int Database::GetTotalReplayCount() {
@@ -336,40 +339,40 @@ std::vector<ReplayRecord> Database::QueryReplays(const std::string& search_query
     sqlite3_bind_int(stmt, param_idx++, limit);
     sqlite3_bind_int(stmt, param_idx++, offset);
 
+    auto safe_text = [](sqlite3_stmt* s, int col) -> std::string {
+        const unsigned char* p = sqlite3_column_text(s, col);
+        return p ? reinterpret_cast<const char*>(p) : "";
+    };
+
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         ReplayRecord r;
-        r.file_path = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+        r.file_path = safe_text(stmt, 0);
         r.file_mtime = sqlite3_column_int64(stmt, 1);
-        r.game_date = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
-        r.map_name = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));
-        r.raw_map_name = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4));
+        r.game_date = safe_text(stmt, 2);
+        r.map_name = safe_text(stmt, 3);
+        r.raw_map_name = safe_text(stmt, 4);
         r.duration_seconds = sqlite3_column_int(stmt, 5);
-        r.form_length = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 6));
-        r.result = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 7));
-        r.difficulty = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 8));
+        r.form_length = safe_text(stmt, 6);
+        r.result = safe_text(stmt, 7);
+        r.difficulty = safe_text(stmt, 8);
         r.brutal_plus = sqlite3_column_int(stmt, 9);
-        const char* enemy = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 10));
-        r.enemy_race = enemy ? enemy : "";
-        const char* reg = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 11));
-        r.region = reg ? reg : "";
+        r.enemy_race = safe_text(stmt, 10);
+        r.region = safe_text(stmt, 11);
         r.is_weekly = (sqlite3_column_int(stmt, 12) != 0);
 
         const char* muts = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 13));
         if (muts) r.MutatorsFromJson(muts);
 
-        r.p1.name = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 14));
-        r.p1.handle = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 15));
-        r.p1.commander = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 16));
+        r.p1.name = safe_text(stmt, 14);
+        r.p1.handle = safe_text(stmt, 15);
+        r.p1.commander = safe_text(stmt, 16);
         r.p1.prestige = sqlite3_column_int(stmt, 17);
         r.p1.apm = sqlite3_column_int(stmt, 18);
         r.p1.kills = sqlite3_column_int(stmt, 19);
 
-        const char* p2_name = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 20));
-        r.p2.name = p2_name ? p2_name : "";
-        const char* p2_h = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 21));
-        r.p2.handle = p2_h ? p2_h : "";
-        const char* p2_c = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 22));
-        r.p2.commander = p2_c ? p2_c : "";
+        r.p2.name = safe_text(stmt, 20);
+        r.p2.handle = safe_text(stmt, 21);
+        r.p2.commander = safe_text(stmt, 22);
         r.p2.prestige = sqlite3_column_int(stmt, 23);
         r.p2.apm = sqlite3_column_int(stmt, 24);
         r.p2.kills = sqlite3_column_int(stmt, 25);
@@ -397,14 +400,26 @@ std::vector<PlayerRecord> Database::QueryPlayers(const std::string& search_filte
     out_total_count = 0;
     if (!m_db) return players;
 
-    std::string filter_clause;
+    std::string count_sql = R"(
+        SELECT COUNT(DISTINCT p.p2_name)
+        FROM replays p
+        LEFT JOIN player_notes n ON p.p2_name = n.player_name
+        WHERE p.p2_name IS NOT NULL AND p.p2_name != ''
+          AND p.p2_name NOT IN ('莫比斯军团', '埃蒙的部队', "Amon's Forces", 'Moebius Forces')
+          AND p.p2_name != '埃蒙' AND p.p2_name != p.p1_name
+    )";
     if (!search_filter.empty()) {
-        filter_clause = " WHERE p.p2_name LIKE ? OR n.note LIKE ? ";
+        count_sql += " AND (p.p2_name LIKE ? OR n.note LIKE ?)";
     }
+    count_sql += ";";
 
-    std::string count_sql = "SELECT COUNT(DISTINCT p2_name) FROM replays WHERE p2_name IS NOT NULL AND p2_name != '' AND p2_name NOT IN ('莫比斯军团', '埃蒙的部队', \"Amon's Forces\", 'Moebius Forces') AND p2_name != '埃蒙' AND p2_name != p1_name;" ;
     sqlite3_stmt* count_stmt = nullptr;
     if (sqlite3_prepare_v2(m_db, count_sql.c_str(), -1, &count_stmt, nullptr) == SQLITE_OK) {
+        if (!search_filter.empty()) {
+            std::string pat = "%" + search_filter + "%";
+            sqlite3_bind_text(count_stmt, 1, pat.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(count_stmt, 2, pat.c_str(), -1, SQLITE_TRANSIENT);
+        }
         if (sqlite3_step(count_stmt) == SQLITE_ROW) {
             out_total_count = sqlite3_column_int(count_stmt, 0);
         }
@@ -417,6 +432,7 @@ std::vector<PlayerRecord> Database::QueryPlayers(const std::string& search_filte
     else if (sort_column == "winrate") order_sql = sort_ascending ? "winrate ASC" : "winrate DESC";
     else if (sort_column == "apm") order_sql = sort_ascending ? "median_apm ASC" : "median_apm DESC";
     else if (sort_column == "name") order_sql = sort_ascending ? "player_name ASC" : "player_name DESC";
+    else if (sort_column == "total_games") order_sql = sort_ascending ? "total_games ASC" : "total_games DESC";
 
     std::string query_sql = R"(
         SELECT p.p2_name as player_name,
@@ -481,6 +497,7 @@ bool Database::SetPlayerNote(const std::string& player_name, const std::string& 
 
     bool ok = (sqlite3_step(stmt) == SQLITE_DONE);
     sqlite3_finalize(stmt);
+    if (ok) BumpRevision();
     return ok;
 }
 
@@ -513,6 +530,7 @@ bool Database::UpdateReplayChat(const std::string& file_path, const std::string&
 
     bool ok = (sqlite3_step(stmt) == SQLITE_DONE);
     sqlite3_finalize(stmt);
+    if (ok) BumpRevision();
     return ok;
 }
 
@@ -556,15 +574,23 @@ StatsSummary Database::CalculateStats(const StatsFilter& filter) {
     // Build dynamic WHERE clause based on StatsFilter
     std::string where_clause = " WHERE 1=1";
 
-    // 1. Difficulty filter (Exclusion-based matching Python MassReplayAnalysis)
-    if (!filter.casual && !filter.normal && !filter.hard && !filter.brutal && !filter.brutal_plus) {
+    // 1. Difficulty filter (inclusion-based)
+    std::vector<std::string> diff_conds;
+    if (filter.casual) diff_conds.push_back("(difficulty LIKE '%Casual%' AND (brutal_plus IS NULL OR brutal_plus = 0))");
+    if (filter.normal) diff_conds.push_back("(difficulty LIKE '%Normal%' AND (brutal_plus IS NULL OR brutal_plus = 0))");
+    if (filter.hard) diff_conds.push_back("(difficulty LIKE '%Hard%' AND (brutal_plus IS NULL OR brutal_plus = 0))");
+    if (filter.brutal) diff_conds.push_back("(difficulty LIKE '%Brutal%' AND (brutal_plus IS NULL OR brutal_plus = 0))");
+    if (filter.brutal_plus) diff_conds.push_back("(brutal_plus > 0 OR difficulty LIKE '%Brutal+%')");
+
+    if (diff_conds.empty()) {
         where_clause += " AND 1=0";
-    } else {
-        if (!filter.casual) where_clause += " AND NOT (difficulty LIKE '%Casual%' AND (brutal_plus IS NULL OR brutal_plus = 0))";
-        if (!filter.normal) where_clause += " AND NOT (difficulty LIKE '%Normal%' AND (brutal_plus IS NULL OR brutal_plus = 0))";
-        if (!filter.hard) where_clause += " AND NOT (difficulty LIKE '%Hard%' AND (brutal_plus IS NULL OR brutal_plus = 0))";
-        if (!filter.brutal) where_clause += " AND NOT (difficulty LIKE '%Brutal%' AND (brutal_plus IS NULL OR brutal_plus = 0))";
-        if (!filter.brutal_plus) where_clause += " AND (brutal_plus IS NULL OR brutal_plus = 0)";
+    } else if (diff_conds.size() < 5) {
+        where_clause += " AND (";
+        for (size_t i = 0; i < diff_conds.size(); ++i) {
+            if (i > 0) where_clause += " OR ";
+            where_clause += diff_conds[i];
+        }
+        where_clause += ")";
     }
 
     // 2. Region filter
@@ -599,24 +625,19 @@ StatsSummary Database::CalculateStats(const StatsFilter& filter) {
         where_clause += " AND result = 'Victory'";
     }
 
-    // 5. Date range and duration filters
-    auto escape_sql = [](const std::string& input) {
-        std::string out = input;
-        size_t pos = 0;
-        while ((pos = out.find('\'', pos)) != std::string::npos) {
-            out.replace(pos, 1, "''");
-            pos += 2;
-        }
-        return out;
-    };
+    std::string date_from_val;
+    std::string date_to_val;
+    std::string ally_pattern;
 
-    if (!filter.date_from.empty()) {
-        where_clause += " AND game_date >= '" + escape_sql(filter.date_from) + "'";
+    if (!filter.date_from.empty() && filter.date_from != "2015-11-10") {
+        where_clause += " AND game_date >= ?";
+        date_from_val = filter.date_from;
     }
-    if (!filter.date_to.empty()) {
+    if (!filter.date_to.empty() && filter.date_to != "2030-12-31") {
         std::string to = filter.date_to;
         if (to.length() == 10) to += " 23:59:59";
-        where_clause += " AND game_date <= '" + escape_sql(to) + "'";
+        where_clause += " AND game_date <= ?";
+        date_to_val = to;
     }
 
     if (filter.min_length_minutes > 0) {
@@ -626,7 +647,8 @@ StatsSummary Database::CalculateStats(const StatsFilter& filter) {
         where_clause += " AND duration_seconds <= " + std::to_string(filter.max_length_minutes * 60);
     }
     if (!filter.ally_name_filter.empty()) {
-        where_clause += " AND p2_name LIKE '%" + escape_sql(filter.ally_name_filter) + "%'";
+        where_clause += " AND p2_name LIKE ?";
+        ally_pattern = "%" + filter.ally_name_filter + "%";
     }
 
     // Unified Single-Pass Query across the filtered dataset
@@ -635,6 +657,17 @@ StatsSummary Database::CalculateStats(const StatsFilter& filter) {
     sqlite3_stmt* stmt = nullptr;
     if (sqlite3_prepare_v2(m_db, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
         return sum;
+    }
+
+    int pidx = 1;
+    if (!date_from_val.empty()) {
+        sqlite3_bind_text(stmt, pidx++, date_from_val.c_str(), -1, SQLITE_TRANSIENT);
+    }
+    if (!date_to_val.empty()) {
+        sqlite3_bind_text(stmt, pidx++, date_to_val.c_str(), -1, SQLITE_TRANSIENT);
+    }
+    if (!ally_pattern.empty()) {
+        sqlite3_bind_text(stmt, pidx++, ally_pattern.c_str(), -1, SQLITE_TRANSIENT);
     }
 
     struct MapAcc {
@@ -1002,12 +1035,7 @@ void Database::RepairWeeklyMutationsIfNeeded() {
 
     if (paths.empty()) return;
 
-    sqlite3_stmt* update_stmt = nullptr;
-    if (sqlite3_prepare_v2(m_db, "UPDATE replays SET is_weekly = 1, mutators_json = ? WHERE file_path = ?;", -1, &update_stmt, nullptr) != SQLITE_OK) {
-        return;
-    }
-
-    sqlite3_exec(m_db, "BEGIN TRANSACTION;", nullptr, nullptr, nullptr);
+    std::vector<std::pair<std::string, std::string>> updates;
     for (const auto& path : paths) {
         std::vector<uint8_t> initdata;
         if (MpqReader::ReadFile(path, "replay.initData", initdata)) {
@@ -1017,16 +1045,28 @@ void Database::RepairWeeklyMutationsIfNeeded() {
             S2Decoder::DecodeInitDataSlots(initdata, handles, mutators, is_weekly);
             if (is_weekly && !mutators.empty()) {
                 nlohmann::json j = mutators;
-                std::string mj = j.dump();
-                sqlite3_bind_text(update_stmt, 1, mj.c_str(), -1, SQLITE_TRANSIENT);
-                sqlite3_bind_text(update_stmt, 2, path.c_str(), -1, SQLITE_TRANSIENT);
-                sqlite3_step(update_stmt);
-                sqlite3_reset(update_stmt);
+                updates.emplace_back(j.dump(), path);
             }
         }
     }
+
+    if (updates.empty()) return;
+
+    sqlite3_stmt* update_stmt = nullptr;
+    if (sqlite3_prepare_v2(m_db, "UPDATE replays SET is_weekly = 1, mutators_json = ? WHERE file_path = ?;", -1, &update_stmt, nullptr) != SQLITE_OK) {
+        return;
+    }
+
+    sqlite3_exec(m_db, "BEGIN TRANSACTION;", nullptr, nullptr, nullptr);
+    for (const auto& [mj, path] : updates) {
+        sqlite3_bind_text(update_stmt, 1, mj.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(update_stmt, 2, path.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_step(update_stmt);
+        sqlite3_reset(update_stmt);
+    }
     sqlite3_exec(m_db, "COMMIT;", nullptr, nullptr, nullptr);
     sqlite3_finalize(update_stmt);
+    BumpRevision();
 }
 
 void Database::AlignPlayerSlotsWithUserAccount() {
@@ -1121,8 +1161,13 @@ void Database::AlignPlayerSlotsWithUserAccount() {
                         for (auto& item : cj) {
                             if (item.contains("pid")) {
                                 int pid = item["pid"].get<int>();
-                                if (pid == 1) item["pid"] = 2;
-                                else if (pid == 2) item["pid"] = 1;
+                                if (pid == 1) {
+                                    item["pid"] = 2;
+                                    if (!r.p1_name.empty()) item["name"] = r.p1_name;
+                                } else if (pid == 2) {
+                                    item["pid"] = 1;
+                                    if (!r.p2_name.empty()) item["name"] = r.p2_name;
+                                }
                             }
                         }
                         new_chat = cj.dump();
@@ -1154,6 +1199,7 @@ void Database::AlignPlayerSlotsWithUserAccount() {
         sqlite3_finalize(ustmt);
     }
     sqlite3_exec(m_db, "COMMIT;", nullptr, nullptr, nullptr);
+    BumpRevision();
 }
 
 bool Database::DumpAllToJson(const std::string& output_path) {

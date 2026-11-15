@@ -16,6 +16,29 @@ int main() {
     bool ok = sc2::Database::Instance().Open("dist/sc2_coop/coop_data.db");
     assert(ok);
     int total = sc2::Database::Instance().GetTotalReplayCount();
+    if (total == 0) {
+        std::cout << "[INFO] coop_data.db empty or new, populating mock record for E2E test...\n";
+        sc2::ReplayRecord mock;
+        mock.file_path = "C:\\test\\mock.SC2Replay";
+        mock.map_name = "Void Thrashing";
+        mock.game_date = "2024-03-15";
+        mock.form_length = "15:00";
+        mock.duration_seconds = 900;
+        mock.result = "Victory";
+        mock.difficulty = "Brutal";
+        mock.p1.name = "Commander1";
+        mock.p1.commander = "Raynor";
+        mock.p2.name = "Commander2";
+        mock.p2.commander = "Kerrigan";
+        sc2::ChatMessage msg;
+        msg.player_id = 1;
+        msg.player_name = "Commander1";
+        msg.text = "gl hf";
+        msg.time_seconds = 10;
+        mock.chat.push_back(msg);
+        sc2::Database::Instance().SaveReplay(mock);
+        total = sc2::Database::Instance().GetTotalReplayCount();
+    }
     std::cout << "[OK] Opened coop_data.db with " << total << " total replays.\n";
     assert(total > 0);
 

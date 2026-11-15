@@ -20,20 +20,29 @@ bool MpqReader::ReadFile(const std::wstring& archive_path,
         return false;
     }
 
+    struct HandleGuard {
+        HANDLE hA;
+        HANDLE hF;
+        ~HandleGuard() {
+            if (hF) SFileCloseFile(hF);
+            if (hA) SFileCloseArchive(hA);
+        }
+    } guard{hArchive, hFile};
+
     DWORD fileSizeHigh = 0;
     DWORD fileSize = SFileGetFileSize(hFile, &fileSizeHigh);
-    if (fileSize == SFILE_INVALID_SIZE || fileSize == 0) {
-        SFileCloseFile(hFile);
-        SFileCloseArchive(hArchive);
+    if (fileSizeHigh > 0 || fileSize == SFILE_INVALID_SIZE || fileSize == 0 || fileSize > 100 * 1024 * 1024) {
         return false;
     }
 
-    out_bytes.resize(fileSize);
+    try {
+        out_bytes.resize(fileSize);
+    } catch (...) {
+        return false;
+    }
+
     DWORD bytesRead = 0;
     BOOL ok = SFileReadFile(hFile, out_bytes.data(), fileSize, &bytesRead, nullptr);
-
-    SFileCloseFile(hFile);
-    SFileCloseArchive(hArchive);
 
     if (!ok || bytesRead == 0) {
         out_bytes.clear();

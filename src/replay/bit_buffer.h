@@ -31,6 +31,7 @@ public:
 
     uint32_t ReadBits(int bits) {
         if (bits <= 0) return 0;
+        if (bits > 32) bits = 32;
         uint32_t result = 0;
         int resultbits = 0;
 
@@ -82,7 +83,7 @@ public:
         bool negative = (b & 1) != 0;
         int64_t result = (b >> 1) & 0x3f;
         int bits = 6;
-        while ((b & 0x80) != 0 && bits < 64) {
+        while ((b & 0x80) != 0 && bits <= 56) {
             b = ReadBits(8);
             result |= static_cast<int64_t>(b & 0x7f) << bits;
             bits += 7;

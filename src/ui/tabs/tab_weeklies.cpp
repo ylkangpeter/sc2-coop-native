@@ -16,7 +16,7 @@
 namespace sc2 {
 
 char TabWeeklies::s_search_buf[128] = {0};
-bool TabWeeklies::s_cache_valid = false;
+uint64_t TabWeeklies::s_last_revision = 0;
 int TabWeeklies::s_locate_target_week = -1;
 std::unordered_map<int, Database::WeeklyRecord> TabWeeklies::s_cached_records;
 
@@ -70,9 +70,10 @@ static void RenderMutatorBadge(const char* mut, bool show_points = true) {
 }
 
 void TabWeeklies::Render(AppState& state) {
-    if (!s_cache_valid) {
+    uint64_t current_rev = Database::Instance().GetRevision();
+    if (s_last_revision != current_rev) {
         s_cached_records = Database::Instance().QueryAllWeeklyRecords();
-        s_cache_valid = true;
+        s_last_revision = current_rev;
     }
 
     int64_t now_ts = std::time(nullptr);
@@ -151,7 +152,7 @@ void TabWeeklies::Render(AppState& state) {
     }
     ImGui::SameLine();
     if (ImGui::Button(TR("Refresh Records"), ImVec2(0, 0))) {
-        s_cache_valid = false;
+        Database::Instance().BumpRevision();
     }
     ImGui::SameLine();
     ImGui::TextDisabled(TR("Catalog_Count_Format"), kWeeklyMutations.size());

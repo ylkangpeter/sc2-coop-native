@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <iostream>
 #include "../data/cached_mutators.h"
+#include "../data/sc2_constants.h"
 
 namespace sc2 {
 
@@ -518,7 +519,9 @@ private:
         std::string raw_cmdr = buf.read_aligned_bytes(cmdr_len);
         if (raw_cmdr == "Horner") {
             slot.commander = "HanHorner";
-        } else if (kKnownCommanders.find(raw_cmdr) != kKnownCommanders.end()) {
+        } else if (std::find(kCommanders.begin(), kCommanders.end(), raw_cmdr) != kCommanders.end()) {
+            slot.commander = raw_cmdr;
+        } else if (!raw_cmdr.empty()) {
             slot.commander = raw_cmdr;
         } else {
             slot.commander = "Unknown";

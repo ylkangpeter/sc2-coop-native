@@ -5,6 +5,7 @@
 #include <fstream>
 #include <iostream>
 #include <algorithm>
+#include <mutex>
 
 namespace sc2 {
 
@@ -12,6 +13,7 @@ static std::vector<LanguageMeta> s_languages;
 static std::string s_current_code = "zh_CN";
 static bool s_is_chinese = true;
 static std::unordered_map<std::string, std::string> s_dict;
+static std::mutex s_dict_mutex;
 
 static std::filesystem::path GetAppDirectory() {
     wchar_t buf[MAX_PATH] = { 0 };
@@ -132,15 +134,15 @@ bool I18n::SetLanguage(const std::string& code) {
 
     if (!target) return false;
 
-    s_current_code = target->code;
-    s_is_chinese = (s_current_code == "zh_CN");
-    s_dict.clear();
+    std::string new_code = target->code;
+    bool new_is_chinese = (new_code == "zh_CN");
+    std::unordered_map<std::string, std::string> new_dict;
 
     // Load entire dictionary from external plain JSON resource file
     std::vector<std::string> paths_to_try = {
         target->file_path,
-        "assets/lang/" + s_current_code + ".json",
-        "lang/" + s_current_code + ".json"
+        "assets/lang/" + new_code + ".json",
+        "lang/" + new_code + ".json"
     };
 
     for (const auto& p : paths_to_try) {
@@ -152,7 +154,7 @@ bool I18n::SetLanguage(const std::string& code) {
                 if (!j.is_discarded() && j.is_object()) {
                     for (auto it = j.begin(); it != j.end(); ++it) {
                         if (it.key() != "_meta" && it.value().is_string()) {
-                            s_dict[it.key()] = it.value().get<std::string>();
+                            new_dict[it.key()] = it.value().get<std::string>();
                         }
                     }
                     break;
@@ -160,6 +162,13 @@ bool I18n::SetLanguage(const std::string& code) {
             } catch (...) {
             }
         }
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(s_dict_mutex);
+        s_current_code = new_code;
+        s_is_chinese = new_is_chinese;
+        s_dict = std::move(new_dict);
     }
 
     return true;
@@ -193,6 +202,7 @@ bool I18n::IsChinese() {
 
 const char* I18n::Get(const char* key) {
     if (!key) return "";
+    std::lock_guard<std::mutex> lock(s_dict_mutex);
     auto it = s_dict.find(key);
     if (it != s_dict.end() && !it->second.empty()) {
         return it->second.c_str();
@@ -202,6 +212,7 @@ const char* I18n::Get(const char* key) {
 
 const char* I18n::Get(const char* key, const char* fallback) {
     if (!key) return fallback ? fallback : "";
+    std::lock_guard<std::mutex> lock(s_dict_mutex);
     auto it = s_dict.find(key);
     if (it != s_dict.end() && !it->second.empty()) {
         return it->second.c_str();
@@ -212,6 +223,7 @@ const char* I18n::Get(const char* key, const char* fallback) {
 const char* I18n::Text(const char* zh, const char* en) {
     if (!en && !zh) return "";
 
+    std::lock_guard<std::mutex> lock(s_dict_mutex);
     if (en) {
         auto it = s_dict.find(en);
         if (it != s_dict.end() && !it->second.empty()) {

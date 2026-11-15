@@ -168,8 +168,10 @@ std::optional<ReplayRecord> ReplayParser::ParseFile(const std::wstring& replay_p
     };
 
     std::string d1, d2;
-    if (slots.size() > 2) d1 = DifficultyFromInt(slots[2].difficulty);
-    if (slots.size() > 3) d2 = DifficultyFromInt(slots[3].difficulty);
+    if (slots.size() > 0 && slots[0].difficulty > 0) d1 = DifficultyFromInt(slots[0].difficulty);
+    if (slots.size() > 1 && slots[1].difficulty > 0) d2 = DifficultyFromInt(slots[1].difficulty);
+    if (d1.empty() && slots.size() > 2) d1 = DifficultyFromInt(slots[2].difficulty);
+    if (d2.empty() && slots.size() > 3) d2 = DifficultyFromInt(slots[3].difficulty);
 
     if (record.brutal_plus >= 1 && record.brutal_plus <= 6) {
         record.difficulty = "Brutal+" + std::to_string(record.brutal_plus);
@@ -285,9 +287,8 @@ std::optional<ReplayRecord> ReplayParser::ParseFile(const std::wstring& replay_p
     bool p2_is_user = (!record.p2.handle.empty() && path_u8.find(record.p2.handle) != std::string::npos);
 
     if (!p1_is_user && !p2_is_user) {
-        const auto& handles = AppState::Instance().user_handles;
-        if (!record.p1.handle.empty() && handles.count(record.p1.handle)) p1_is_user = true;
-        if (!record.p2.handle.empty() && handles.count(record.p2.handle)) p2_is_user = true;
+        if (!record.p1.handle.empty() && AppState::Instance().HasUserHandle(record.p1.handle)) p1_is_user = true;
+        if (!record.p2.handle.empty() && AppState::Instance().HasUserHandle(record.p2.handle)) p2_is_user = true;
     }
 
     if (p2_is_user && !p1_is_user) {

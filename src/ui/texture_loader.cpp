@@ -45,12 +45,14 @@ ImTextureID TextureLoader::GetTexture(const std::string& file_path, int* out_wid
 
     std::wstring wpath = Win32Utils::Utf8ToWide(file_path);
     if (GetFileAttributesW(wpath.c_str()) == INVALID_FILE_ATTRIBUTES) {
+        m_cache[file_path] = TextureEntry{nullptr, 0, 0};
         return (ImTextureID)0;
     }
 
     int width = 0, height = 0, channels = 0;
     unsigned char* image_data = stbi_load(file_path.c_str(), &width, &height, &channels, 4);
     if (!image_data) {
+        m_cache[file_path] = TextureEntry{nullptr, 0, 0};
         return (ImTextureID)0;
     }
 
@@ -102,7 +104,13 @@ ImTextureID TextureLoader::GetTexture(const std::string& file_path, int* out_wid
 ImTextureID TextureLoader::GetCommanderIcon(const std::string& commander_name) {
     if (commander_name.empty() || commander_name == "Unknown") return (ImTextureID)0;
     std::string path = "assets/icons/commanders/" + commander_name + ".png";
-    return GetTexture(path);
+    ImTextureID tex = GetTexture(path);
+    if (!tex && commander_name == "HanHorner") {
+        tex = GetTexture("assets/icons/commanders/Horner.png");
+    } else if (!tex && commander_name == "Horner") {
+        tex = GetTexture("assets/icons/commanders/HanHorner.png");
+    }
+    return tex;
 }
 
 ImTextureID TextureLoader::GetMutatorIcon(const std::string& mutator_name) {

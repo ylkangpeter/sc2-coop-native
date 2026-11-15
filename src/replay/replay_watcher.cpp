@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <chrono>
 #include <iostream>
+#include <algorithm>
 
 namespace sc2 {
 
@@ -44,6 +45,9 @@ void ReplayWatcher::WatchLoop() {
     auto watcher_start = std::chrono::system_clock::now();
     int64_t watcher_start_epoch = std::chrono::duration_cast<std::chrono::seconds>(watcher_start.time_since_epoch()).count();
 
+    std::vector<std::filesystem::path> watched_dirs;
+    auto last_dir_refresh = std::chrono::steady_clock::time_point{};
+
     while (m_running.load()) {
         std::this_thread::sleep_for(std::chrono::milliseconds(1500));
         if (!m_running.load()) break;
@@ -56,28 +60,52 @@ void ReplayWatcher::WatchLoop() {
         if (!std::filesystem::exists(root_w, ec) || ec) continue;
 
         try {
-            // Find newest .SC2Replay file
+            // Refresh replay directory cache periodically (every 60s) to avoid full recursive scans on every tick
+            auto now_time = std::chrono::steady_clock::now();
+            if (watched_dirs.empty() || (now_time - last_dir_refresh > std::chrono::seconds(60))) {
+                watched_dirs.clear();
+                std::error_code dir_ec;
+                for (auto it = std::filesystem::recursive_directory_iterator(root_w, std::filesystem::directory_options::skip_permission_denied, dir_ec);
+                     it != std::filesystem::recursive_directory_iterator();
+                     it.increment(dir_ec)) {
+                    if (dir_ec || !m_running.load()) break;
+                    if (it->is_directory(dir_ec)) {
+                        auto fname = it->path().filename().string();
+                        if (fname == "Multiplayer" || fname == "Recent" || fname == "Replays") {
+                            watched_dirs.push_back(it->path());
+                        }
+                    }
+                }
+                if (watched_dirs.empty()) {
+                    watched_dirs.push_back(root_w);
+                }
+                last_dir_refresh = now_time;
+            }
+
+            // Find newest .SC2Replay file in watched replay folders
             std::filesystem::path newest_path;
             std::filesystem::file_time_type newest_time;
             bool found_any = false;
 
-            for (auto it = std::filesystem::recursive_directory_iterator(root_w, std::filesystem::directory_options::skip_permission_denied, ec);
-                 it != std::filesystem::recursive_directory_iterator();
-                 it.increment(ec)) {
-                if (ec || !m_running.load()) break;
-
-                const auto& entry = *it;
-                std::error_code entry_ec;
-                if (entry.is_regular_file(entry_ec)) {
-                    auto ext = entry.path().extension().string();
-                    for (auto& c : ext) c = tolower(c);
-                    if (ext == ".sc2replay") {
-                        auto cur_time = entry.last_write_time(entry_ec);
-                        if (!entry_ec) {
-                            if (!found_any || cur_time > newest_time) {
-                                newest_time = cur_time;
-                                newest_path = entry.path();
-                                found_any = true;
+            for (const auto& dir : watched_dirs) {
+                std::error_code dir_ec;
+                for (auto it = std::filesystem::directory_iterator(dir, std::filesystem::directory_options::skip_permission_denied, dir_ec);
+                     it != std::filesystem::directory_iterator();
+                     it.increment(dir_ec)) {
+                    if (dir_ec || !m_running.load()) break;
+                    const auto& entry = *it;
+                    std::error_code entry_ec;
+                    if (entry.is_regular_file(entry_ec)) {
+                        auto ext = entry.path().extension().string();
+                        for (auto& c : ext) c = tolower(c);
+                        if (ext == ".sc2replay") {
+                            auto cur_time = entry.last_write_time(entry_ec);
+                            if (!entry_ec) {
+                                if (!found_any || cur_time > newest_time) {
+                                    newest_time = cur_time;
+                                    newest_path = entry.path();
+                                    found_any = true;
+                                }
                             }
                         }
                     }

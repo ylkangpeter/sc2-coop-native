@@ -71,6 +71,7 @@ std::string Win32Utils::SelectFolderDialog(void* hwnd_parent, const std::string&
 
 void Win32Utils::RevealFileInExplorer(const std::string& file_path) {
     std::wstring wpath = Utf8ToWide(file_path);
+    std::replace(wpath.begin(), wpath.end(), L'/', L'\\');
     std::wstring param = L"/select,\"" + wpath + L"\"";
     ShellExecuteW(nullptr, L"open", L"explorer.exe", param.c_str(), nullptr, SW_SHOWNORMAL);
 }

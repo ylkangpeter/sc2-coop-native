@@ -208,7 +208,7 @@ std::vector<DecodedSlot> S2Decoder::DecodeInitDataSlots(const std::vector<uint8_
 
     // 2. Fallback heuristic scanner
     const char* kKnownCommanders[] = {
-        "Abathur", "Alarak", "Artanis", "Dehaka", "Fenix", "Horner", "Karax",
+        "Abathur", "Alarak", "Artanis", "Dehaka", "Fenix", "Horner", "HanHorner", "Karax",
         "Kerrigan", "Mengsk", "Nova", "Raynor", "Stetmann", "Stukov", "Swann",
         "Tychus", "Vorazun", "Zagara", "Zeratul"
     };
@@ -280,13 +280,17 @@ std::vector<DecodedSlot> S2Decoder::DecodeInitDataSlots(const std::vector<uint8_
 std::vector<int> S2Decoder::ExtractMasteries(const std::vector<uint8_t>& initdata_bytes,
                                             const std::string& commander) {
     std::vector<int> out = {0, 0, 0, 0, 0, 0};
-    if (initdata_bytes.empty() || commander.empty()) return out;
+    if (initdata_bytes.size() < 25 || commander.empty()) return out;
 
     std::string_view data_sv(reinterpret_cast<const char*>(initdata_bytes.data()), initdata_bytes.size());
     size_t c_idx = data_sv.find(commander);
+    if (c_idx == std::string_view::npos && commander == "HanHorner") {
+        c_idx = data_sv.find("Horner");
+    }
     if (c_idx == std::string_view::npos) return out;
 
-    size_t scan_end = std::min(c_idx + 120, initdata_bytes.size() - 25);
+    size_t max_scan = initdata_bytes.size() - 25;
+    size_t scan_end = std::min(c_idx + 120, max_scan);
     for (size_t byte_start = c_idx; byte_start < scan_end; ++byte_start) {
         for (int bit_start = 0; bit_start < 8; ++bit_start) {
             BitBuffer buf(initdata_bytes.data() + byte_start, initdata_bytes.size() - byte_start, true);

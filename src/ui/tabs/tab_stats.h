@@ -9,11 +9,10 @@ class AppState;
 class TabStats {
 public:
     static void Render(AppState& state);
-    static void InvalidateCache() { s_cache_valid = false; }
 
 private:
     static int s_sub_tab;
-    static bool s_cache_valid;
+    static uint64_t s_last_revision;
     static StatsFilter s_last_filter;
     static StatsSummary s_cached_summary;
 };

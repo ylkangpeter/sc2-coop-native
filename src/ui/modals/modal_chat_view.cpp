@@ -7,8 +7,9 @@
 namespace sc2 {
 
 void ModalChatView::Render(AppState& state) {
+    std::string modal_title = std::string(TR("Replay Chat Log")) + "###ModalChatView";
     if (state.show_chat_modal) {
-        ImGui::OpenPopup(TR("Replay Chat Log"));
+        ImGui::OpenPopup(modal_title.c_str());
     }
 
     ImVec2 center = ImGui::GetMainViewport()->GetCenter();
@@ -20,7 +21,7 @@ void ModalChatView::Render(AppState& state) {
                                          ImGuiWindowFlags_NoScrollbar |
                                          ImGuiWindowFlags_NoSavedSettings;
 
-    if (ImGui::BeginPopupModal(TR("Replay Chat Log"), &state.show_chat_modal, modal_flags)) {
+    if (ImGui::BeginPopupModal(modal_title.c_str(), &state.show_chat_modal, modal_flags)) {
         const auto& r = state.chat_replay;
 
         // Title and Game Info Header

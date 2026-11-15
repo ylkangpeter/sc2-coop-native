@@ -6,6 +6,7 @@
 #include <memory>
 #include <optional>
 #include <mutex>
+#include <atomic>
 #include "../replay/replay_types.h"
 
 struct sqlite3;
@@ -179,6 +180,10 @@ public:
     void RepairWeeklyMutationsIfNeeded();
     void AlignPlayerSlotsWithUserAccount();
 
+    // Data revision for global UI cache invalidation
+    uint64_t GetRevision() const { return m_revision.load(); }
+    void BumpRevision() { m_revision.fetch_add(1); }
+
     // Export
     bool DumpAllToJson(const std::string& output_path);
 
@@ -188,6 +193,7 @@ private:
 
     mutable std::recursive_mutex m_mutex;
     sqlite3* m_db = nullptr;
+    std::atomic<uint64_t> m_revision{1};
 };
 
 } // namespace sc2

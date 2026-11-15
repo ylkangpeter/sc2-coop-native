@@ -31,9 +31,21 @@ def find_llvm_bin() -> Path:
 
 LLVM_BIN = find_llvm_bin()
 
-CLANG = LLVM_BIN / "clang.exe"
-CLANG_PP = LLVM_BIN / "clang++.exe"
-WINDRES = LLVM_BIN / "x86_64-w64-mingw32-windres.exe"
+def find_tool(name: str) -> Path:
+    candidates = [
+        LLVM_BIN / f"{name}.exe",
+        LLVM_BIN / name,
+    ]
+    for c in candidates:
+        if c.exists():
+            return c
+    return LLVM_BIN / (f"{name}.exe" if os.name == 'nt' or (LLVM_BIN / f"{name}.exe").exists() else name)
+
+CLANG = find_tool("clang")
+CLANG_PP = find_tool("clang++")
+WINDRES = find_tool("x86_64-w64-mingw32-windres")
+if not WINDRES.exists():
+    WINDRES = find_tool("llvm-windres")
 BUILD_DIR = PROJECT_ROOT / "build"
 DIST_DIR = PROJECT_ROOT / "dist" / "sc2_coop"
 
@@ -96,8 +108,10 @@ def get_max_header_mtime():
 MAX_HEADER_MTIME = get_max_header_mtime()
 
 def compile_file(src_path: Path, obj_path: Path):
+    is_src = (PROJECT_ROOT / "src") in src_path.parents or src_path.parent == PROJECT_ROOT / "src"
     if obj_path.exists() and obj_path.stat().st_mtime >= src_path.stat().st_mtime:
-        return
+        if not is_src or obj_path.stat().st_mtime >= MAX_HEADER_MTIME:
+            return
     obj_path.parent.mkdir(parents=True, exist_ok=True)
     rel_src = src_path.relative_to(PROJECT_ROOT)
     rel_obj = obj_path.relative_to(PROJECT_ROOT)
@@ -126,8 +140,18 @@ def build_resources(rc_path: Path, res_obj: Path):
     rel_obj = res_obj.relative_to(PROJECT_ROOT)
     print(f"Building resource {rel_rc}...")
     cmd = [str(WINDRES), str(rel_rc), "-O", "coff", "-o", str(rel_obj)]
-    res = subprocess.run(cmd, cwd=PROJECT_ROOT, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    if res.returncode != 0:
+    res = None
+    for attempt in range(12):
+        res = subprocess.run(cmd, cwd=PROJECT_ROOT, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        if res.returncode == 0:
+            break
+        if "UtilAcceptVsock" in res.stderr or "vsock" in res.stderr:
+            import time
+            time.sleep(1.0)
+            continue
+        print(f"FAILED to build resource {rc_path}:\n{res.stderr}")
+        sys.exit(1)
+    if res and res.returncode != 0:
         print(f"FAILED to build resource {rc_path}:\n{res.stderr}")
         sys.exit(1)
 
@@ -170,8 +194,18 @@ def main():
     if not sqlite_obj.exists() or sqlite_obj.stat().st_mtime < sqlite_c.stat().st_mtime:
         print("Compiling sqlite3.c...")
         cmd = [str(CLANG), "-O2", "-c", str(sqlite_c.relative_to(PROJECT_ROOT)), "-o", str(sqlite_obj.relative_to(PROJECT_ROOT))]
-        res = subprocess.run(cmd, cwd=PROJECT_ROOT, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        if res.returncode != 0:
+        res = None
+        for attempt in range(12):
+            res = subprocess.run(cmd, cwd=PROJECT_ROOT, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            if res.returncode == 0:
+                break
+            if "UtilAcceptVsock" in res.stderr or "vsock" in res.stderr:
+                import time
+                time.sleep(1.0)
+                continue
+            print(f"FAILED to compile sqlite3.c:\n{res.stderr}")
+            sys.exit(1)
+        if res and res.returncode != 0:
             print(f"FAILED to compile sqlite3.c:\n{res.stderr}")
             sys.exit(1)
 
@@ -265,7 +299,7 @@ def main():
     if "--package" in sys.argv or "-p" in sys.argv:
         package_release()
 
-def package_release(version: str = "v1.0.4"):
+def package_release(version: str = "v1.0.5"):
     import zipfile
     zip_name = f"sc2-coop-native-{version}-windows-x64.zip"
     zip_dest = PROJECT_ROOT / "dist" / zip_name

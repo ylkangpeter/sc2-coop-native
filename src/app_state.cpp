@@ -3,8 +3,6 @@
 #include "db/database.h"
 #include "replay/replay_parser.h"
 #include "utils/win32_utils.h"
-#include "ui/tabs/tab_stats.h"
-#include "ui/tabs/tab_weeklies.h"
 
 #include <windows.h>
 #include <filesystem>
@@ -139,6 +137,7 @@ void AppState::SaveSettings() {
 }
 
 void AppState::RefreshUserHandles() {
+    std::lock_guard<std::mutex> lock(user_handles_mutex);
     user_handles.clear();
     if (account_folder.empty()) return;
 
@@ -181,10 +180,19 @@ void AppState::RefreshUserHandles() {
     }
 }
 
+bool AppState::HasUserHandle(const std::string& handle) {
+    std::lock_guard<std::mutex> lock(user_handles_mutex);
+    return user_handles.find(handle) != user_handles.end();
+}
+
 void AppState::StopScan() {
     m_stop_scan_flag = true;
+    m_stop_repair_flag = true;
     if (m_scan_thread.joinable()) {
         m_scan_thread.join();
+    }
+    if (m_repair_thread.joinable()) {
+        m_repair_thread.join();
     }
     is_scanning = false;
 }
@@ -265,19 +273,23 @@ void AppState::StartScanAsync(bool force_reparse) {
             std::lock_guard<std::mutex> lock(scan_status_mutex);
             scan_status_message = "Scan complete (" + std::to_string(scan_total.load()) + " total replays)";
         }
-        TabStats::InvalidateCache();
-        TabWeeklies::InvalidateCache();
         is_scanning = false;
     });
 }
 
 void AppState::AutoRepairCorruptedReplaysAsync() {
-    std::thread([this]() {
+    if (m_repair_thread.joinable()) {
+        m_stop_repair_flag = true;
+        m_repair_thread.join();
+    }
+    m_stop_repair_flag = false;
+    m_repair_thread = std::thread([this]() {
         auto corrupted = Database::Instance().GetCorruptedReplayPaths();
-        if (corrupted.empty()) return;
+        if (corrupted.empty() || m_stop_repair_flag) return;
 
         std::vector<ReplayRecord> batch;
         for (const auto& u8path : corrupted) {
+            if (m_stop_repair_flag) break;
             std::wstring wpath = Win32Utils::Utf8ToWide(u8path);
             if (std::filesystem::exists(wpath)) {
                 auto parsed = ReplayParser::ParseFile(wpath);
@@ -290,17 +302,16 @@ void AppState::AutoRepairCorruptedReplaysAsync() {
                 }
             }
         }
-        if (!batch.empty()) {
+        if (!batch.empty() && !m_stop_repair_flag) {
             Database::Instance().BatchSaveReplays(batch);
             batch.clear();
         }
 
-        // Clamp any remaining invalid values in DB (e.g. deleted files)
-        Database::Instance().SanitizeInvalidPrestiges();
-
-        TabStats::InvalidateCache();
-        TabWeeklies::InvalidateCache();
-    }).detach();
+        if (!m_stop_repair_flag) {
+            // Clamp any remaining invalid values in DB (e.g. deleted files)
+            Database::Instance().SanitizeInvalidPrestiges();
+        }
+    });
 }
 
 void AppState::OpenPlayerNoteModal(const std::string& player_name) {

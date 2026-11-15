@@ -175,15 +175,13 @@ bool HotkeyManager::HandleLowLevelKey(DWORD vk, bool is_sys_key, bool is_down) {
         return true;
     }
 
-    // 2. Escape closes any visible overlay/toast
+    // 2. Escape closes any visible overlay/toast without consuming ESC for the game
     if (vk == VK_ESCAPE) {
         if (SummaryOverlay::Instance().IsActive()) {
             SummaryOverlay::Instance().Hide();
-            return true;
         }
         if (AllyToastWindow::Instance().IsActive()) {
             AllyToastWindow::Instance().Hide();
-            return true;
         }
         return false;
     }

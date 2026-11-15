@@ -87,13 +87,19 @@ void AllyToastWindow::ShowAllyInfo(const std::string& ally_name, float duration)
     // Query stats for this player
     int total_dummy = 0;
     auto players = Database::Instance().QueryPlayers(m_ally_name, "total_games", false, 5, 0, total_dummy);
-    if (!players.empty()) {
-        m_total_games = players[0].total_games;
-        m_wins = players[0].wins;
-        m_winrate = players[0].winrate;
-        m_apm = players[0].median_apm;
-        if (m_note.empty()) m_note = players[0].note;
-    } else {
+    bool found_exact = false;
+    for (const auto& p : players) {
+        if (p.name == m_ally_name) {
+            m_total_games = p.total_games;
+            m_wins = p.wins;
+            m_winrate = p.winrate;
+            m_apm = p.median_apm;
+            if (m_note.empty()) m_note = p.note;
+            found_exact = true;
+            break;
+        }
+    }
+    if (!found_exact) {
         m_total_games = 0;
         m_wins = 0;
         m_winrate = 0.0;

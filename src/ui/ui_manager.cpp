@@ -357,7 +357,7 @@ bool UIManager::Init(HINSTANCE hInstance, int nCmdShow) {
     int win_x = mi.rcWork.left + (mon_w - win_w) / 2;
     int win_y = mi.rcWork.top + (mon_h - win_h) / 2;
 
-    m_hwnd = CreateWindowW(m_wc.lpszClassName, L"StarCraft II Co-op Native v1.0.4",
+    m_hwnd = CreateWindowW(m_wc.lpszClassName, L"StarCraft II Co-op Native v1.0.5",
                            WS_OVERLAPPEDWINDOW, win_x, win_y, win_w, win_h,
                            nullptr, nullptr, m_wc.hInstance, nullptr);
 
@@ -464,8 +464,8 @@ void UIManager::Run() {
         SummaryOverlay::Instance().Update(dt);
         AllyToastWindow::Instance().Update(dt);
 
-        if (m_minimized) {
-            Sleep(10);
+        if (m_minimized || (m_hwnd && !IsWindowVisible(m_hwnd))) {
+            Sleep(25);
             continue;
         }
 
@@ -503,7 +503,7 @@ void UIManager::Run() {
         // Header Navigation Bar
         ImGui::TextColored(ImVec4(0.0f, 0.75f, 1.0f, 1.0f), "SC2 CO-OP NATIVE");
         ImGui::SameLine();
-        ImGui::TextDisabled("v1.0.4");
+        ImGui::TextDisabled("v1.0.5");
         ImGui::SameLine(0, 16.0f);
 
         // Tab Buttons

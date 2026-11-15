@@ -15,6 +15,11 @@
 namespace sc2 {
 
 int TabGames::s_current_page = 0;
+uint64_t TabGames::s_last_revision = 0;
+std::string TabGames::s_last_search = "";
+int TabGames::s_last_page = -1;
+int TabGames::s_cached_total_records = 0;
+std::vector<ReplayRecord> TabGames::s_cached_replays;
 
 void TabGames::Render(AppState& state) {
     // 1. Search Bar & Controls Header
@@ -37,21 +42,37 @@ void TabGames::Render(AppState& state) {
 
     ImGui::SameLine();
     if (ImGui::Button(TR("Refresh"), ImVec2(refresh_w, 0))) {
-        // Trigger re-query
+        Database::Instance().BumpRevision();
     }
 
     ImGui::Spacing();
     ImGui::Separator();
     ImGui::Spacing();
 
-    // 2. Fetch Data from Database
-    int total_records = 0;
-    int offset = s_current_page * kPageSize;
-    auto replays = Database::Instance().QueryReplays(state.games_search_buf, kPageSize, offset, total_records);
+    // 2. Fetch Data from Database (cached via unified revision)
+    uint64_t current_rev = Database::Instance().GetRevision();
+    std::string current_search = state.games_search_buf;
+    if (s_last_revision != current_rev || current_search != s_last_search || s_current_page != s_last_page) {
+        int offset = s_current_page * kPageSize;
+        s_cached_replays = Database::Instance().QueryReplays(current_search, kPageSize, offset, s_cached_total_records);
+        s_last_search = current_search;
+        s_last_page = s_current_page;
+        s_last_revision = current_rev;
+    }
 
+    int total_records = s_cached_total_records;
     int total_pages = (total_records > 0) ? ((total_records + kPageSize - 1) / kPageSize) : 1;
-    if (s_current_page >= total_pages) s_current_page = total_pages - 1;
+    if (s_current_page >= total_pages) {
+        s_current_page = total_pages - 1;
+        if (s_current_page != s_last_page) {
+            int offset = s_current_page * kPageSize;
+            s_cached_replays = Database::Instance().QueryReplays(current_search, kPageSize, offset, s_cached_total_records);
+            s_last_page = s_current_page;
+        }
+    }
     if (s_current_page < 0) s_current_page = 0;
+
+    auto& replays = s_cached_replays;
 
     // 3. Render Table (10 columns: Map, Mode, Result, P1, P2, Enemy, Length, Difficulty, Date, Actions)
     const ImGuiTableFlags table_flags = ImGuiTableFlags_ScrollY |

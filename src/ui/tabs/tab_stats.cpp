@@ -12,7 +12,7 @@
 namespace sc2 {
 
 int TabStats::s_sub_tab = 0;
-bool TabStats::s_cache_valid = false;
+uint64_t TabStats::s_last_revision = 0;
 StatsFilter TabStats::s_last_filter;
 StatsSummary TabStats::s_cached_summary;
 
@@ -45,19 +45,20 @@ void TabStats::Render(AppState& state) {
 
     ImGui::SameLine(0, 20.0f);
     if (ImGui::SmallButton((std::string(TR("Refresh")) + "##Stats").c_str())) {
-        s_cache_valid = false;
+        Database::Instance().BumpRevision();
     }
 
     ImGui::Spacing();
     ImGui::Separator();
     ImGui::Spacing();
 
-    // 2. Fetch Aggregated Stats (Cached - only recalculate when filters change or cache invalidated)
-    bool filter_changed = !s_cache_valid || (s_last_filter != state.stats_filter);
+    // 2. Fetch Aggregated Stats (cached via unified revision)
+    uint64_t current_rev = Database::Instance().GetRevision();
+    bool filter_changed = (s_last_revision != current_rev) || (s_last_filter != state.stats_filter);
     if (filter_changed) {
         s_cached_summary = Database::Instance().CalculateStats(state.stats_filter);
         s_last_filter = state.stats_filter;
-        s_cache_valid = true;
+        s_last_revision = current_rev;
     }
     const auto& summary = s_cached_summary;
 

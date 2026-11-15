@@ -11,8 +11,9 @@
 namespace sc2 {
 
 void ModalPlayerNote::Render(AppState& state) {
+    std::string modal_title = std::string(TR("Player Notes & Stats")) + "###ModalPlayerNote";
     if (state.show_note_modal) {
-        ImGui::OpenPopup(TR("Player Notes & Stats"));
+        ImGui::OpenPopup(modal_title.c_str());
     }
 
     ImVec2 center = ImGui::GetMainViewport()->GetCenter();
@@ -22,7 +23,7 @@ void ModalPlayerNote::Render(AppState& state) {
     const ImGuiWindowFlags modal_flags = ImGuiWindowFlags_NoResize |
                                          ImGuiWindowFlags_NoSavedSettings;
 
-    if (ImGui::BeginPopupModal(TR("Player Notes & Stats"), &state.show_note_modal, modal_flags)) {
+    if (ImGui::BeginPopupModal(modal_title.c_str(), &state.show_note_modal, modal_flags)) {
         const auto& md = state.note_modal_data;
         std::string player_name = state.note_target_player;
         std::string clean_name = Win32Utils::CleanPlayerName(player_name);
