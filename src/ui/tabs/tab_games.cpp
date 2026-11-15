@@ -67,7 +67,7 @@ void TabGames::Render(AppState& state) {
         ImGui::TableSetupColumn(TR("Map"), ImGuiTableColumnFlags_WidthFixed, 140.0f);
         ImGui::TableSetupColumn(TR("Mode"), ImGuiTableColumnFlags_WidthFixed, 75.0f);
         ImGui::TableSetupColumn(TR("Result"), ImGuiTableColumnFlags_WidthFixed, 65.0f);
-        ImGui::TableSetupColumn(TR("Player 1"), ImGuiTableColumnFlags_WidthStretch, 1.2f);
+        ImGui::TableSetupColumn(TR("Player 1 (Me)"), ImGuiTableColumnFlags_WidthStretch, 1.2f);
         ImGui::TableSetupColumn(TR("Player 2 (Ally)"), ImGuiTableColumnFlags_WidthStretch, 1.2f);
         ImGui::TableSetupColumn(TR("Enemy"), ImGuiTableColumnFlags_WidthFixed, 65.0f);
         ImGui::TableSetupColumn(TR("Length"), ImGuiTableColumnFlags_WidthFixed, 60.0f);

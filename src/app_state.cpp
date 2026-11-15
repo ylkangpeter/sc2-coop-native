@@ -29,6 +29,8 @@ void AppState::Init() {
     if (account_folder.empty() || !std::filesystem::exists(Win32Utils::Utf8ToWide(account_folder))) {
         account_folder = Win32Utils::FindDefaultAccountsFolder();
         SaveSettings();
+    } else {
+        RefreshUserHandles();
     }
 
     // Auto-repair any corrupted replays in background
@@ -101,6 +103,7 @@ void AppState::LoadSettings() {
 void AppState::SaveSettings() {
     auto& db = Database::Instance();
     db.SetSetting("account_folder", account_folder);
+    RefreshUserHandles();
     db.SetSetting("language_code", language_code);
     db.SetSetting("language", std::to_string(language));
     I18n::SetLanguage(language_code);
@@ -133,6 +136,49 @@ void AppState::SaveSettings() {
     wchar_t exe_buf[MAX_PATH];
     GetModuleFileNameW(nullptr, exe_buf, MAX_PATH);
     Win32Utils::SetAutoStart(start_with_windows, "SC2CoopNative", Win32Utils::WideToUtf8(exe_buf));
+}
+
+void AppState::RefreshUserHandles() {
+    user_handles.clear();
+    if (account_folder.empty()) return;
+
+    std::filesystem::path folder = Win32Utils::Utf8ToWide(account_folder);
+    std::error_code ec;
+
+    while (folder.has_parent_path()) {
+        auto parent = folder.parent_path();
+        if (parent.wstring().find(L"StarCraft") != std::wstring::npos) {
+            folder = parent;
+        } else {
+            break;
+        }
+    }
+
+    std::filesystem::path scan_root = std::filesystem::exists(folder / L"Accounts", ec) ? (folder / L"Accounts") : std::filesystem::path(Win32Utils::Utf8ToWide(account_folder));
+    if (!std::filesystem::exists(scan_root, ec)) {
+        scan_root = std::filesystem::path(Win32Utils::Utf8ToWide(account_folder));
+        if (!std::filesystem::exists(scan_root, ec)) return;
+    }
+
+    for (auto it = std::filesystem::recursive_directory_iterator(scan_root, std::filesystem::directory_options::skip_permission_denied, ec);
+         it != std::filesystem::recursive_directory_iterator();
+         it.increment(ec)) {
+        if (ec) continue;
+        const auto& entry = *it;
+        if (entry.is_directory(ec)) {
+            std::string dname = entry.path().filename().string();
+            std::string path_str = entry.path().string();
+            int hyphens = 0;
+            for (char c : dname) if (c == '-') hyphens++;
+            if (hyphens >= 3 &&
+                path_str.find("Banks") == std::string::npos &&
+                path_str.find("Crash") == std::string::npos &&
+                path_str.find("Desync") == std::string::npos &&
+                path_str.find("Error") == std::string::npos) {
+                user_handles.insert(dname);
+            }
+        }
+    }
 }
 
 void AppState::StopScan() {

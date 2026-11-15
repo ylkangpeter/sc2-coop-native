@@ -2,6 +2,7 @@
 
 #include <string>
 #include <vector>
+#include <unordered_set>
 #include <atomic>
 #include <thread>
 #include <mutex>
@@ -73,6 +74,9 @@ public:
     void Init();
     void LoadSettings();
     void SaveSettings();
+    void RefreshUserHandles();
+    std::unordered_set<std::string> user_handles;
+
     void StartScanAsync(bool force_reparse);
     void StartScanAsync() { StartScanAsync(false); }
     void AutoRepairCorruptedReplaysAsync();

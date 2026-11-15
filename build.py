@@ -107,7 +107,7 @@ def compile_file(src_path: Path, obj_path: Path):
         res = subprocess.run(cmd, cwd=PROJECT_ROOT, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         if res.returncode == 0:
             break
-        if "UtilAcceptVsock" in res.stderr or "vsock" in res.stderr or res.returncode == 1:
+        if "UtilAcceptVsock" in res.stderr or "vsock" in res.stderr:
             import time
             time.sleep(1.0)
             continue

@@ -177,6 +177,7 @@ public:
     WeeklyRecord QueryWeeklyRecord(const std::string& map_name, const std::vector<std::string>& mutators);
     std::unordered_map<int, WeeklyRecord> QueryAllWeeklyRecords();
     void RepairWeeklyMutationsIfNeeded();
+    void AlignPlayerSlotsWithUserAccount();
 
     // Export
     bool DumpAllToJson(const std::string& output_path);

@@ -108,6 +108,7 @@ bool Database::Open(const std::string& db_path) {
     sqlite3_exec(m_db, "ALTER TABLE replays ADD COLUMN details_json TEXT;", nullptr, nullptr, nullptr);
 
     RepairWeeklyMutationsIfNeeded();
+    AlignPlayerSlotsWithUserAccount();
 
     // Sanitize corrupted historical commander names
     sqlite3_exec(m_db,
@@ -401,7 +402,7 @@ std::vector<PlayerRecord> Database::QueryPlayers(const std::string& search_filte
         filter_clause = " WHERE p.p2_name LIKE ? OR n.note LIKE ? ";
     }
 
-    std::string count_sql = "SELECT COUNT(DISTINCT p2_name) FROM replays WHERE p2_name IS NOT NULL AND p2_name != '' AND p2_name NOT LIKE '%埃蒙%';" ;
+    std::string count_sql = "SELECT COUNT(DISTINCT p2_name) FROM replays WHERE p2_name IS NOT NULL AND p2_name != '' AND p2_name NOT IN ('莫比斯军团', '埃蒙的部队', \"Amon's Forces\", 'Moebius Forces') AND p2_name != '埃蒙' AND p2_name != p1_name;" ;
     sqlite3_stmt* count_stmt = nullptr;
     if (sqlite3_prepare_v2(m_db, count_sql.c_str(), -1, &count_stmt, nullptr) == SQLITE_OK) {
         if (sqlite3_step(count_stmt) == SQLITE_ROW) {
@@ -428,7 +429,7 @@ std::vector<PlayerRecord> Database::QueryPlayers(const std::string& search_filte
                COALESCE(n.note, '') as note
         FROM replays p
         LEFT JOIN player_notes n ON p.p2_name = n.player_name
-        WHERE p.p2_name IS NOT NULL AND p.p2_name != '' AND p.p2_name NOT LIKE '%埃蒙%'
+        WHERE p.p2_name IS NOT NULL AND p.p2_name != '' AND p.p2_name NOT IN ('莫比斯军团', '埃蒙的部队', "Amon's Forces", 'Moebius Forces') AND p.p2_name != '埃蒙' AND p.p2_name != p.p1_name
     )";
     if (!search_filter.empty()) {
         query_sql += " AND (p.p2_name LIKE ? OR n.note LIKE ?)";
@@ -1026,6 +1027,133 @@ void Database::RepairWeeklyMutationsIfNeeded() {
     }
     sqlite3_exec(m_db, "COMMIT;", nullptr, nullptr, nullptr);
     sqlite3_finalize(update_stmt);
+}
+
+void Database::AlignPlayerSlotsWithUserAccount() {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    if (!m_db) return;
+
+    const char* select_sql = R"(
+        SELECT file_path, p1_name, p1_handle, p1_commander, p1_prestige, p1_apm, p1_kills,
+                          p2_name, p2_handle, p2_commander, p2_prestige, p2_apm, p2_kills,
+                          details_json, chat_json
+        FROM replays
+        WHERE p2_handle != '' AND instr(file_path, p2_handle) > 0 AND (p1_handle = '' OR instr(file_path, p1_handle) = 0);
+    )";
+
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(m_db, select_sql, -1, &stmt, nullptr) != SQLITE_OK) return;
+
+    struct InvertedRow {
+        std::string file_path;
+        std::string p1_name, p1_handle, p1_commander;
+        int p1_prestige = 0, p1_apm = 0, p1_kills = 0;
+        std::string p2_name, p2_handle, p2_commander;
+        int p2_prestige = 0, p2_apm = 0, p2_kills = 0;
+        std::string details_json;
+        std::string chat_json;
+    };
+
+    std::vector<InvertedRow> rows;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        InvertedRow r;
+        r.file_path = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+        r.p1_name = sqlite3_column_text(stmt, 1) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1)) : "";
+        r.p1_handle = sqlite3_column_text(stmt, 2) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2)) : "";
+        r.p1_commander = sqlite3_column_text(stmt, 3) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3)) : "";
+        r.p1_prestige = sqlite3_column_int(stmt, 4);
+        r.p1_apm = sqlite3_column_int(stmt, 5);
+        r.p1_kills = sqlite3_column_int(stmt, 6);
+
+        r.p2_name = sqlite3_column_text(stmt, 7) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 7)) : "";
+        r.p2_handle = sqlite3_column_text(stmt, 8) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 8)) : "";
+        r.p2_commander = sqlite3_column_text(stmt, 9) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 9)) : "";
+        r.p2_prestige = sqlite3_column_int(stmt, 10);
+        r.p2_apm = sqlite3_column_int(stmt, 11);
+        r.p2_kills = sqlite3_column_int(stmt, 12);
+
+        r.details_json = sqlite3_column_text(stmt, 13) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 13)) : "";
+        r.chat_json = sqlite3_column_text(stmt, 14) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 14)) : "";
+        rows.push_back(std::move(r));
+    }
+    sqlite3_finalize(stmt);
+
+    if (rows.empty()) return;
+
+    sqlite3_exec(m_db, "BEGIN TRANSACTION;", nullptr, nullptr, nullptr);
+
+    const char* update_sql = R"(
+        UPDATE replays
+        SET p1_name = ?, p1_handle = ?, p1_commander = ?, p1_prestige = ?, p1_apm = ?, p1_kills = ?,
+            p2_name = ?, p2_handle = ?, p2_commander = ?, p2_prestige = ?, p2_apm = ?, p2_kills = ?,
+            details_json = ?, chat_json = ?
+        WHERE file_path = ?;
+    )";
+
+    sqlite3_stmt* ustmt = nullptr;
+    if (sqlite3_prepare_v2(m_db, update_sql, -1, &ustmt, nullptr) == SQLITE_OK) {
+        for (const auto& r : rows) {
+            std::string new_details = r.details_json;
+            if (!new_details.empty()) {
+                try {
+                    auto j = nlohmann::json::parse(new_details);
+                    if (j.contains("p1_prestige_name") && j.contains("p2_prestige_name")) {
+                        std::swap(j["p1_prestige_name"], j["p2_prestige_name"]);
+                    }
+                    if (j.contains("p1_masteries") && j.contains("p2_masteries")) {
+                        std::swap(j["p1_masteries"], j["p2_masteries"]);
+                    }
+                    if (j.contains("p1_units") && j.contains("p2_units")) {
+                        std::swap(j["p1_units"], j["p2_units"]);
+                    }
+                    if (j.contains("p1_series") && j.contains("p2_series")) {
+                        std::swap(j["p1_series"], j["p2_series"]);
+                    }
+                    new_details = j.dump();
+                } catch (...) {}
+            }
+
+            std::string new_chat = r.chat_json;
+            if (!new_chat.empty()) {
+                try {
+                    auto cj = nlohmann::json::parse(new_chat);
+                    if (cj.is_array()) {
+                        for (auto& item : cj) {
+                            if (item.contains("pid")) {
+                                int pid = item["pid"].get<int>();
+                                if (pid == 1) item["pid"] = 2;
+                                else if (pid == 2) item["pid"] = 1;
+                            }
+                        }
+                        new_chat = cj.dump();
+                    }
+                } catch (...) {}
+            }
+
+            sqlite3_bind_text(ustmt, 1, r.p2_name.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(ustmt, 2, r.p2_handle.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(ustmt, 3, r.p2_commander.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_int(ustmt, 4, r.p2_prestige);
+            sqlite3_bind_int(ustmt, 5, r.p2_apm);
+            sqlite3_bind_int(ustmt, 6, r.p2_kills);
+
+            sqlite3_bind_text(ustmt, 7, r.p1_name.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(ustmt, 8, r.p1_handle.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(ustmt, 9, r.p1_commander.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_int(ustmt, 10, r.p1_prestige);
+            sqlite3_bind_int(ustmt, 11, r.p1_apm);
+            sqlite3_bind_int(ustmt, 12, r.p1_kills);
+
+            sqlite3_bind_text(ustmt, 13, new_details.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(ustmt, 14, new_chat.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(ustmt, 15, r.file_path.c_str(), -1, SQLITE_TRANSIENT);
+
+            sqlite3_step(ustmt);
+            sqlite3_reset(ustmt);
+        }
+        sqlite3_finalize(ustmt);
+    }
+    sqlite3_exec(m_db, "COMMIT;", nullptr, nullptr, nullptr);
 }
 
 bool Database::DumpAllToJson(const std::string& output_path) {

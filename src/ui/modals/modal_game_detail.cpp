@@ -39,7 +39,7 @@ void ModalGameDetail::Render(AppState& state) {
 
         // Left Player 1 Card
         ImGui::BeginChild("P1Pane", ImVec2(310, 200), true);
-        ImGui::TextColored(ImVec4(0.3f, 0.7f, 1.0f, 1.0f), "%s", TR("Player 1"));
+        ImGui::TextColored(ImVec4(0.3f, 0.7f, 1.0f, 1.0f), "%s", TR("Player 1 (Me)"));
         std::string p1_clean = Win32Utils::CleanPlayerName(r.p1.name);
         ImGui::Text("%s", p1_clean.c_str());
         ImGui::Spacing();
