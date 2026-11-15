@@ -160,8 +160,8 @@ void TabSettings::Render(AppState& state) {
     ImGui::Spacing();
 
     if (ImGui::BeginTable("HotkeysTable", 2, ImGuiTableFlags_SizingStretchProp)) {
-        ImGui::TableSetupColumn("Action", ImGuiTableColumnFlags_WidthStretch, 0.45f);
-        ImGui::TableSetupColumn("Hotkey", ImGuiTableColumnFlags_WidthStretch, 0.55f);
+        ImGui::TableSetupColumn(TR("Action"), ImGuiTableColumnFlags_WidthStretch, 0.45f);
+        ImGui::TableSetupColumn(TR("Hotkey"), ImGuiTableColumnFlags_WidthStretch, 0.55f);
 
         auto RenderHotkeyRow = [&](const char* label_key, bool& enabled, UINT mod, UINT vk, int action_id) {
             ImGui::TableNextRow();

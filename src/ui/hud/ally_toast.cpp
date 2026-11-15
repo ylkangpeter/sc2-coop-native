@@ -245,11 +245,10 @@ void AllyToastWindow::Render() {
     SelectObject(hdcMem, hFontBold);
     std::wostringstream oss;
     if (m_total_games > 0) {
-        if (is_zh) {
-            oss << std::fixed << std::setprecision(1) << m_total_games << L" 场比赛  |  胜率 " << m_winrate << L"%  |  APM: " << m_apm;
-        } else {
-            oss << std::fixed << std::setprecision(1) << m_total_games << L" Games  |  " << m_winrate << L"% Win  |  APM: " << m_apm;
-        }
+        wchar_t stats_buf[128];
+        const wchar_t* fmt = ToWide(TR("Ally_Toast_Stats_Format")).c_str();
+        swprintf_s(stats_buf, fmt, m_total_games, m_winrate, m_apm);
+        oss << stats_buf;
     } else {
         oss << ToWide(TR("New Ally (0 previous matches)"));
     }

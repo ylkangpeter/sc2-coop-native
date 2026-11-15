@@ -13,6 +13,7 @@
 #include "hud/summary_overlay.h"
 #include "hud/ally_toast.h"
 #include "../utils/hotkey_manager.h"
+#include "../utils/win32_utils.h"
 #include "../replay/replay_watcher.h"
 
 #include <imgui.h>
@@ -320,10 +321,10 @@ void UIManager::ShowTrayMenu() {
     POINT pt;
     GetCursorPos(&pt);
     HMENU hMenu = CreatePopupMenu();
-    InsertMenuW(hMenu, 0, MF_BYPOSITION | MF_STRING, ID_TRAY_SHOW, L"Open SC2 Co-op Native");
-    InsertMenuW(hMenu, 1, MF_BYPOSITION | MF_STRING, ID_TRAY_SCAN, L"Rescan Replays Now");
+    InsertMenuW(hMenu, 0, MF_BYPOSITION | MF_STRING, ID_TRAY_SHOW, Win32Utils::Utf8ToWide(TR("Open SC2 Co-op Native")).c_str());
+    InsertMenuW(hMenu, 1, MF_BYPOSITION | MF_STRING, ID_TRAY_SCAN, Win32Utils::Utf8ToWide(TR("Rescan Replays Now")).c_str());
     InsertMenuW(hMenu, 2, MF_BYPOSITION | MF_SEPARATOR, 0, nullptr);
-    InsertMenuW(hMenu, 3, MF_BYPOSITION | MF_STRING, ID_TRAY_EXIT, L"Exit");
+    InsertMenuW(hMenu, 3, MF_BYPOSITION | MF_STRING, ID_TRAY_EXIT, Win32Utils::Utf8ToWide(TR("Exit")).c_str());
 
     SetForegroundWindow(m_hwnd);
     TrackPopupMenu(hMenu, TPM_BOTTOMALIGN | TPM_LEFTALIGN, pt.x, pt.y, 0, m_hwnd, nullptr);

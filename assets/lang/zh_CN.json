@@ -221,7 +221,7 @@
   "Heroes from the Storm": "风暴英雄",
   "Hostile Takeover": "敌方占领",
   "Just Die!": "给我死吧！",
-  "Just Die": "给我死吧！",
+  "Just Die": "刚毅不屈!",
   "Laser Drill": "激光钻机",
   "Lava Burst": "熔岩爆发",
   "Mag-nificent": "磁轨地雷",
@@ -922,5 +922,15 @@
   "Nux": "纳克斯",
   "Lt. Layna Nikara": "莱娜·尼卡拉中尉",
   "Odin": "奥丁",
-  "Standard Force": "常规部队"
+  "Standard Force": "常规部队",
+  "Replay Library & Database": "对局录像库与数据库",
+  "Hotkey": "快捷键",
+  "Record_WinLoss_Format": "(%d胜 %d负)",
+  "Defeat_Count_Format": "失败 (%d负)",
+  "Ally_Toast_Stats_Format": "%d 场比赛  |  胜率 %.1f%%  |  APM: %d",
+  "Open SC2 Co-op Native": "打开星际争霸II战报浮窗",
+  "Rescan Replays Now": "立即重新扫描战报",
+  "Exit": "退出",
+  "Default": "默认 (初始威望)",
+  "Player": "玩家"
 }

@@ -61,7 +61,7 @@ static void RenderMutatorBadge(const char* mut, bool show_points = true) {
             if (desc_it != kMutators.end()) {
                 ImGui::TextUnformatted(desc_it->second.c_str());
             } else {
-                ImGui::TextDisabled("Special event mutator");
+                ImGui::TextDisabled("%s", TR("Special event mutator"));
             }
         }
         ImGui::PopTextWrapPos();
@@ -283,9 +283,9 @@ void TabWeeklies::Render(AppState& state) {
                         ImGui::TextColored(ImVec4(0.9f, 0.9f, 0.9f, 1.0f), "%s", time_buf);
                     }
                     ImGui::SameLine();
-                    ImGui::TextDisabled("(%dW %dL)", rec.wins, rec.losses);
+                    ImGui::TextDisabled(TR("Record_WinLoss_Format"), rec.wins, rec.losses);
                 } else {
-                    ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Defeat (%dL)", rec.losses);
+                    ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), TR("Defeat_Count_Format"), rec.losses);
                 }
             } else {
                 ImGui::TextDisabled("%s", TR("Unplayed"));

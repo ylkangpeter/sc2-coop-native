@@ -922,5 +922,15 @@
   "Nux": "Nux",
   "Lt. Layna Nikara": "Lt. Layna Nikara",
   "Odin": "Odin",
-  "Standard Force": "Standard Force"
+  "Standard Force": "Standard Force",
+  "Replay Library & Database": "Replay Library & Database",
+  "Hotkey": "Hotkey",
+  "Record_WinLoss_Format": "(%dW %dL)",
+  "Defeat_Count_Format": "Defeat (%dL)",
+  "Ally_Toast_Stats_Format": "%d Games  |  %.1f%% Win  |  APM: %d",
+  "Open SC2 Co-op Native": "Open SC2 Co-op Native",
+  "Rescan Replays Now": "Rescan Replays Now",
+  "Exit": "Exit",
+  "Default": "Default",
+  "Player": "Player"
 }

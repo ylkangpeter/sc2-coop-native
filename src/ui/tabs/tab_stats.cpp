@@ -44,7 +44,7 @@ void TabStats::Render(AppState& state) {
     ImGui::Checkbox("CN", &state.stats_filter.region_cn);
 
     ImGui::SameLine(0, 20.0f);
-    if (ImGui::SmallButton(TR("Refresh##Stats"))) {
+    if (ImGui::SmallButton((std::string(TR("Refresh")) + "##Stats").c_str())) {
         s_cache_valid = false;
     }
 

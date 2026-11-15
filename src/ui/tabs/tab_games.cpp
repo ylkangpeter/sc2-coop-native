@@ -195,7 +195,7 @@ void TabGames::Render(AppState& state) {
                                 } else if (m.player_id == 2 && !state.chat_replay.p2.name.empty()) {
                                     cr.player_name = state.chat_replay.p2.name;
                                 } else {
-                                    cr.player_name = "Player " + std::to_string(m.player_id);
+                                    cr.player_name = std::string(TR("Player")) + " " + std::to_string(m.player_id);
                                 }
                                 cr.text = m.text;
                                 state.chat_replay.chat.push_back(cr);
