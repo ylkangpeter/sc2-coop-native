@@ -131,6 +131,10 @@ def build_resources(rc_path: Path, res_obj: Path):
         sys.exit(1)
 
 def main():
+    if "--package-only" in sys.argv:
+        package_release()
+        return
+
     BUILD_DIR.mkdir(parents=True, exist_ok=True)
     DIST_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -206,13 +210,21 @@ def main():
         res = subprocess.run(link_cmd, cwd=PROJECT_ROOT, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         if res.returncode == 0:
             break
-        if "UtilAcceptVsock" in res.stderr or "vsock" in res.stderr or res.returncode == 1:
+        if "UtilAcceptVsock" in res.stderr or "vsock" in res.stderr:
             import time
             time.sleep(1.0)
             continue
+        if "Permission denied" in res.stderr:
+            print(f"\n[ERROR] Cannot overwrite {target_exe} because it is currently running in Windows!")
+            print("Please close sc2_coop.exe on Windows before rebuilding.\n")
+            sys.exit(1)
         print(f"FAILED to link executable:\n{res.stderr}")
         sys.exit(1)
     if res and res.returncode != 0:
+        if "Permission denied" in res.stderr:
+            print(f"\n[ERROR] Cannot overwrite {target_exe} because it is currently running in Windows!")
+            print("Please close sc2_coop.exe on Windows before rebuilding.\n")
+            sys.exit(1)
         print(f"FAILED to link executable:\n{res.stderr}")
         sys.exit(1)
     print(f"Successfully linked {target_exe} ({target_exe.stat().st_size // 1024} KB)")
@@ -227,6 +239,50 @@ def main():
         print(f"Copied assets to {dist_assets}")
 
     print("BUILD COMPLETE!")
+
+    # 6. Automatic packaging if requested via --package or -p
+    if "--package" in sys.argv or "-p" in sys.argv:
+        package_release()
+
+def package_release(version: str = "v1.0.0"):
+    import zipfile
+    zip_name = f"sc2-coop-native-{version}-windows-x64.zip"
+    zip_dest = PROJECT_ROOT / "dist" / zip_name
+    print(f"\n========================================================")
+    print(f" Packaging clean release archive: {zip_name}")
+    print(f"========================================================")
+
+    # Strict exclusions to prevent personal data, local settings, or temp files from leaking into releases
+    EXCLUDE_EXTS = {".db", ".db-wal", ".db-shm", ".db-journal", ".ini", ".log", ".txt", ".tmp", ".bak"}
+    EXCLUDE_PATTERNS = {"*old.exe", "crash_log*"}
+
+    temp_zip = PROJECT_ROOT / "dist" / f"temp_{zip_name}"
+    archived_count = 0
+    excluded_count = 0
+
+    with zipfile.ZipFile(temp_zip, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
+        for root, _, files in os.walk(DIST_DIR):
+            for f in sorted(files):
+                p = Path(root) / f
+                
+                # Check exclusions
+                if p.suffix.lower() in EXCLUDE_EXTS or any(p.match(pat) for pat in EXCLUDE_PATTERNS):
+                    print(f"  [SHIELDED/EXCLUDED] {p.name}")
+                    excluded_count += 1
+                    continue
+                
+                rel_path = p.relative_to(PROJECT_ROOT / "dist")
+                zf.write(p, rel_path.as_posix())
+                archived_count += 1
+
+    if zip_dest.exists():
+        zip_dest.unlink()
+    temp_zip.rename(zip_dest)
+
+    print(f"\n[PACKAGE SUCCESS] {archived_count} files archived ({zip_dest.stat().st_size / (1024 * 1024):.2f} MB)")
+    if excluded_count > 0:
+        print(f"[SECURITY SHIELD] Blocked {excluded_count} sensitive/temporary runtime files from release.")
+    print(f"Archive created at: {zip_dest}")
 
 if __name__ == "__main__":
     main()

@@ -4,7 +4,7 @@ echo ========================================================
 echo Building StarCraft II Co-op Native (Windows Native)...
 echo ========================================================
 
-python build.py
+python build.py %*
 if %ERRORLEVEL% NEQ 0 (
     echo [ERROR] Build failed!
     pause

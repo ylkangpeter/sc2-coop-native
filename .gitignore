@@ -25,6 +25,10 @@ __pycache__/
 # ImGui settings
 imgui.ini
 
+# Logs & crash reports
+*.log
+crash_log.txt
+
 # IDE & Editor files
 .vscode/
 .vs/
