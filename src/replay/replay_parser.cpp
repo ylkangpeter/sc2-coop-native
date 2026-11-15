@@ -281,32 +281,6 @@ std::optional<ReplayRecord> ReplayParser::ParseFile(const std::wstring& replay_p
         }
     }
 
-    // 6. Slot Normalization: Ensure p1 is ALWAYS the local user and p2 is ALWAYS the ally
-    const std::string& path_u8 = record.file_path;
-    bool p1_is_user = (!record.p1.handle.empty() && path_u8.find(record.p1.handle) != std::string::npos);
-    bool p2_is_user = (!record.p2.handle.empty() && path_u8.find(record.p2.handle) != std::string::npos);
-
-    if (!p1_is_user && !p2_is_user) {
-        if (!record.p1.handle.empty() && AppState::Instance().HasUserHandle(record.p1.handle)) p1_is_user = true;
-        if (!record.p2.handle.empty() && AppState::Instance().HasUserHandle(record.p2.handle)) p2_is_user = true;
-    }
-
-    if (p2_is_user && !p1_is_user) {
-        std::swap(record.p1, record.p2);
-        std::swap(record.p1_series, record.p2_series);
-        record.p1.player_id = 1;
-        record.p2.player_id = 2;
-        for (auto& msg : record.chat) {
-            if (msg.player_id == 1) {
-                msg.player_id = 2;
-                msg.player_name = record.p2.name;
-            } else if (msg.player_id == 2) {
-                msg.player_id = 1;
-                msg.player_name = record.p1.name;
-            }
-        }
-    }
-
     return record;
 }
 

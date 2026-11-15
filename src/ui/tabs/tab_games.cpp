@@ -89,8 +89,8 @@ void TabGames::Render(AppState& state) {
         ImGui::TableSetupColumn(TR("Map"), ImGuiTableColumnFlags_WidthFixed, 130.0f);
         ImGui::TableSetupColumn(TR("Mode"), ImGuiTableColumnFlags_WidthFixed, 70.0f);
         ImGui::TableSetupColumn(TR("Result"), ImGuiTableColumnFlags_WidthFixed, 60.0f);
-        ImGui::TableSetupColumn(TR("Player 1 (Me)"), ImGuiTableColumnFlags_WidthStretch, 1.0f);
-        ImGui::TableSetupColumn(TR("Player 2 (Ally)"), ImGuiTableColumnFlags_WidthStretch, 1.0f);
+        ImGui::TableSetupColumn(TR("Player 1"), ImGuiTableColumnFlags_WidthStretch, 1.0f);
+        ImGui::TableSetupColumn(TR("Player 2"), ImGuiTableColumnFlags_WidthStretch, 1.0f);
         ImGui::TableSetupColumn(TR("Enemy"), ImGuiTableColumnFlags_WidthFixed, 55.0f);
         ImGui::TableSetupColumn(TR("Length"), ImGuiTableColumnFlags_WidthFixed, 55.0f);
         ImGui::TableSetupColumn(TR("Difficulty"), ImGuiTableColumnFlags_WidthFixed, 75.0f);
@@ -101,6 +101,14 @@ void TabGames::Render(AppState& state) {
         for (size_t i = 0; i < replays.size(); ++i) {
             auto& r = replays[i];
             ImGui::TableNextRow();
+
+            bool p2_is_me = (!r.p2.handle.empty() && r.file_path.find(r.p2.handle) != std::string::npos) ||
+                            (!r.p2.handle.empty() && AppState::Instance().HasUserHandle(r.p2.handle));
+            bool p1_is_me = (!r.p1.handle.empty() && r.file_path.find(r.p1.handle) != std::string::npos) ||
+                            (!r.p1.handle.empty() && AppState::Instance().HasUserHandle(r.p1.handle));
+            if (!p1_is_me && !p2_is_me) {
+                p1_is_me = true; // default fallback
+            }
 
             // Col 0: Map
             ImGui::TableSetColumnIndex(0);
@@ -131,7 +139,11 @@ void TabGames::Render(AppState& state) {
             // Col 3: Player 1
             ImGui::TableSetColumnIndex(3);
             std::string p1_clean = Win32Utils::CleanPlayerName(r.p1.name);
-            ImGui::Text("%s", p1_clean.c_str());
+            if (p1_is_me) {
+                ImGui::TextColored(ImVec4(0.3f, 0.85f, 1.0f, 1.0f), "%s (Me)", p1_clean.c_str());
+            } else {
+                ImGui::Text("%s", p1_clean.c_str());
+            }
             ImGui::SameLine();
             if (r.p1.prestige >= 0 && r.p1.prestige <= 3) {
                 ImGui::TextDisabled("(%s P%d)", TR(r.p1.commander.c_str()), r.p1.prestige);
@@ -139,11 +151,15 @@ void TabGames::Render(AppState& state) {
                 ImGui::TextDisabled("(%s)", TR(r.p1.commander.c_str()));
             }
 
-            // Col 4: Player 2 (Ally)
+            // Col 4: Player 2
             ImGui::TableSetColumnIndex(4);
             if (!r.p2.name.empty()) {
                 std::string p2_clean = Win32Utils::CleanPlayerName(r.p2.name);
-                ImGui::Text("%s", p2_clean.c_str());
+                if (p2_is_me) {
+                    ImGui::TextColored(ImVec4(0.3f, 0.85f, 1.0f, 1.0f), "%s (Me)", p2_clean.c_str());
+                } else {
+                    ImGui::Text("%s", p2_clean.c_str());
+                }
                 ImGui::SameLine();
                 if (r.p2.prestige >= 0 && r.p2.prestige <= 3) {
                     ImGui::TextDisabled("(%s P%d)", TR(r.p2.commander.c_str()), r.p2.prestige);
@@ -232,7 +248,8 @@ void TabGames::Render(AppState& state) {
             }
             ImGui::SameLine();
             if (ImGui::SmallButton(TR("Notes"))) {
-                state.OpenPlayerNoteModal(r.p2.name);
+                std::string ally_name = p1_is_me ? r.p2.name : r.p1.name;
+                state.OpenPlayerNoteModal(ally_name);
             }
             ImGui::SameLine();
             if (ImGui::SmallButton(TR("File"))) {

@@ -255,7 +255,16 @@ def main():
         try:
             target_exe.unlink()
         except OSError:
-            pass
+            try:
+                old_exe = target_exe.with_name(f"{target_exe.stem}_old{target_exe.suffix}")
+                if old_exe.exists():
+                    try:
+                        old_exe.unlink()
+                    except OSError:
+                        pass
+                target_exe.rename(old_exe)
+            except OSError:
+                pass
 
     link_cmd = [str(CLANG_PP), f"@{rsp_file.relative_to(PROJECT_ROOT)}"]
 

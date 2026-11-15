@@ -38,9 +38,17 @@ void ModalGameDetail::Render(AppState& state) {
         ImGui::Separator();
         ImGui::Spacing();
 
+        bool p2_is_me = (!r.p2.handle.empty() && r.file_path.find(r.p2.handle) != std::string::npos) ||
+                        (!r.p2.handle.empty() && AppState::Instance().HasUserHandle(r.p2.handle));
+        bool p1_is_me = (!r.p1.handle.empty() && r.file_path.find(r.p1.handle) != std::string::npos) ||
+                        (!r.p1.handle.empty() && AppState::Instance().HasUserHandle(r.p1.handle));
+        if (!p1_is_me && !p2_is_me) p1_is_me = true;
+
         // Left Player 1 Card
         ImGui::BeginChild("P1Pane", ImVec2(310, 200), true);
-        ImGui::TextColored(ImVec4(0.3f, 0.7f, 1.0f, 1.0f), "%s", TR("Player 1 (Me)"));
+        std::string p1_tag = p1_is_me ? std::string(" (") + TR("Me") + ")" : std::string(" (") + TR("Ally") + ")";
+        ImGui::TextColored(p1_is_me ? ImVec4(0.3f, 0.7f, 1.0f, 1.0f) : ImVec4(0.3f, 1.0f, 0.4f, 1.0f),
+                           "%s%s", TR("Player 1"), p1_tag.c_str());
         std::string p1_clean = Win32Utils::CleanPlayerName(r.p1.name);
         ImGui::Text("%s", p1_clean.c_str());
         ImGui::Spacing();
@@ -73,7 +81,9 @@ void ModalGameDetail::Render(AppState& state) {
         // Right Player 2 Card
         ImGui::SameLine();
         ImGui::BeginChild("P2Pane", ImVec2(310, 200), true);
-        ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.4f, 1.0f), "%s", TR("Player 2 (Ally)"));
+        std::string p2_tag = p2_is_me ? std::string(" (") + TR("Me") + ")" : std::string(" (") + TR("Ally") + ")";
+        ImGui::TextColored(p2_is_me ? ImVec4(0.3f, 0.7f, 1.0f, 1.0f) : ImVec4(0.3f, 1.0f, 0.4f, 1.0f),
+                           "%s%s", TR("Player 2"), p2_tag.c_str());
         std::string p2_clean = Win32Utils::CleanPlayerName(r.p2.name);
         ImGui::Text("%s", p2_clean.c_str());
         ImGui::Spacing();

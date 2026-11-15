@@ -108,7 +108,6 @@ bool Database::Open(const std::string& db_path) {
     sqlite3_exec(m_db, "ALTER TABLE replays ADD COLUMN details_json TEXT;", nullptr, nullptr, nullptr);
 
     RepairWeeklyMutationsIfNeeded();
-    AlignPlayerSlotsWithUserAccount();
 
     // Sanitize corrupted historical commander names
     sqlite3_exec(m_db,
@@ -401,15 +400,20 @@ std::vector<PlayerRecord> Database::QueryPlayers(const std::string& search_filte
     if (!m_db) return players;
 
     std::string count_sql = R"(
-        SELECT COUNT(DISTINCT p.p2_name)
-        FROM replays p
-        LEFT JOIN player_notes n ON p.p2_name = n.player_name
-        WHERE p.p2_name IS NOT NULL AND p.p2_name != ''
-          AND p.p2_name NOT IN ('莫比斯军团', '埃蒙的部队', "Amon's Forces", 'Moebius Forces')
-          AND p.p2_name != '埃蒙' AND p.p2_name != p.p1_name
+        WITH ally_replays AS (
+            SELECT
+                CASE WHEN p.p2_handle != '' AND instr(p.file_path, p.p2_handle) > 0 THEN p.p1_name ELSE p.p2_name END as player_name
+            FROM replays p
+        )
+        SELECT COUNT(DISTINCT a.player_name)
+        FROM ally_replays a
+        LEFT JOIN player_notes n ON a.player_name = n.player_name
+        WHERE a.player_name IS NOT NULL AND a.player_name != ''
+          AND a.player_name NOT IN ('莫比斯军团', '埃蒙的部队', "Amon's Forces", 'Moebius Forces')
+          AND a.player_name != '埃蒙'
     )";
     if (!search_filter.empty()) {
-        count_sql += " AND (p.p2_name LIKE ? OR n.note LIKE ?)";
+        count_sql += " AND (a.player_name LIKE ? OR n.note LIKE ?)";
     }
     count_sql += ";";
 
@@ -435,22 +439,32 @@ std::vector<PlayerRecord> Database::QueryPlayers(const std::string& search_filte
     else if (sort_column == "total_games") order_sql = sort_ascending ? "total_games ASC" : "total_games DESC";
 
     std::string query_sql = R"(
-        SELECT p.p2_name as player_name,
+        WITH ally_replays AS (
+            SELECT
+                CASE WHEN p.p2_handle != '' AND instr(p.file_path, p.p2_handle) > 0 THEN p.p1_name ELSE p.p2_name END as player_name,
+                CASE WHEN p.p2_handle != '' AND instr(p.file_path, p.p2_handle) > 0 THEN p.p1_apm ELSE p.p2_apm END as player_apm,
+                p.result,
+                p.file_mtime
+            FROM replays p
+        )
+        SELECT a.player_name,
                COUNT(*) as total_games,
-               SUM(CASE WHEN p.result = 'Victory' THEN 1 ELSE 0 END) as wins,
-               SUM(CASE WHEN p.result = 'Defeat' THEN 1 ELSE 0 END) as losses,
-               ROUND(100.0 * SUM(CASE WHEN p.result = 'Victory' THEN 1 ELSE 0 END) / COUNT(*), 1) as winrate,
-               ROUND(AVG(p.p2_apm)) as median_apm,
-               MAX(p.file_mtime) as last_played,
+               SUM(CASE WHEN a.result = 'Victory' THEN 1 ELSE 0 END) as wins,
+               SUM(CASE WHEN a.result = 'Defeat' THEN 1 ELSE 0 END) as losses,
+               ROUND(100.0 * SUM(CASE WHEN a.result = 'Victory' THEN 1 ELSE 0 END) / COUNT(*), 1) as winrate,
+               ROUND(AVG(a.player_apm)) as median_apm,
+               MAX(a.file_mtime) as last_played,
                COALESCE(n.note, '') as note
-        FROM replays p
-        LEFT JOIN player_notes n ON p.p2_name = n.player_name
-        WHERE p.p2_name IS NOT NULL AND p.p2_name != '' AND p.p2_name NOT IN ('莫比斯军团', '埃蒙的部队', "Amon's Forces", 'Moebius Forces') AND p.p2_name != '埃蒙' AND p.p2_name != p.p1_name
+        FROM ally_replays a
+        LEFT JOIN player_notes n ON a.player_name = n.player_name
+        WHERE a.player_name IS NOT NULL AND a.player_name != ''
+          AND a.player_name NOT IN ('莫比斯军团', '埃蒙的部队', "Amon's Forces", 'Moebius Forces')
+          AND a.player_name != '埃蒙'
     )";
     if (!search_filter.empty()) {
-        query_sql += " AND (p.p2_name LIKE ? OR n.note LIKE ?)";
+        query_sql += " AND (a.player_name LIKE ? OR n.note LIKE ?)";
     }
-    query_sql += " GROUP BY p.p2_name ORDER BY " + order_sql + " LIMIT ? OFFSET ?;";
+    query_sql += " GROUP BY a.player_name ORDER BY " + order_sql + " LIMIT ? OFFSET ?;";
 
     sqlite3_stmt* stmt = nullptr;
     if (sqlite3_prepare_v2(m_db, query_sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
@@ -647,12 +661,12 @@ StatsSummary Database::CalculateStats(const StatsFilter& filter) {
         where_clause += " AND duration_seconds <= " + std::to_string(filter.max_length_minutes * 60);
     }
     if (!filter.ally_name_filter.empty()) {
-        where_clause += " AND p2_name LIKE ?";
+        where_clause += " AND (CASE WHEN p2_handle != '' AND instr(file_path, p2_handle) > 0 THEN p1_name ELSE p2_name END) LIKE ?";
         ally_pattern = "%" + filter.ally_name_filter + "%";
     }
 
     // Unified Single-Pass Query across the filtered dataset
-    std::string sql = "SELECT map_name, result, duration_seconds, p1_commander, p1_apm, p2_commander, p2_apm, difficulty, brutal_plus, region FROM replays" + where_clause + ";";
+    std::string sql = "SELECT map_name, result, duration_seconds, p1_commander, p1_apm, p2_commander, p2_apm, difficulty, brutal_plus, region, file_path, p2_handle FROM replays" + where_clause + ";";
 
     sqlite3_stmt* stmt = nullptr;
     if (sqlite3_prepare_v2(m_db, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
@@ -718,6 +732,15 @@ StatsSummary Database::CalculateStats(const StatsFilter& filter) {
         const char* diff_str = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 7));
         int bp = sqlite3_column_int(stmt, 8);
         const char* reg_str = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 9));
+        const char* path_str = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 10));
+        const char* p2h_str = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 11));
+
+        bool p2_is_me = (p2h_str && p2h_str[0] != '\0' && path_str && strstr(path_str, p2h_str) != nullptr);
+
+        const char* my_cmdr_str = p2_is_me ? p2c_str : p1c_str;
+        int my_apm = p2_is_me ? p2_apm : p1_apm;
+        const char* ally_cmdr_str = p2_is_me ? p1c_str : p2c_str;
+        int ally_apm = p2_is_me ? p1_apm : p2_apm;
 
         std::string map_name = m_str ? m_str : "Unknown";
         std::string result = r_str ? r_str : "Defeat";
@@ -735,25 +758,25 @@ StatsSummary Database::CalculateStats(const StatsFilter& filter) {
             ma.fastest_seconds = dur;
         }
 
-        // P1 Commander
-        if (p1c_str && p1c_str[0] != '\0' && strcmp(p1c_str, "Unknown") != 0) {
-            std::string cmdr = (strcmp(p1c_str, "Horner") == 0) ? "HanHorner" : p1c_str;
+        // My Commander
+        if (my_cmdr_str && my_cmdr_str[0] != '\0' && strcmp(my_cmdr_str, "Unknown") != 0) {
+            std::string cmdr = (strcmp(my_cmdr_str, "Horner") == 0) ? "HanHorner" : my_cmdr_str;
             if (kKnownCommanders.count(cmdr)) {
                 auto& c = p1_map[cmdr];
                 c.total_games++;
                 if (is_victory) c.wins++; else c.losses++;
-                c.total_apm += p1_apm;
+                c.total_apm += my_apm;
             }
         }
 
-        // P2 Commander
-        if (p2c_str && p2c_str[0] != '\0' && strcmp(p2c_str, "Unknown") != 0) {
-            std::string cmdr = (strcmp(p2c_str, "Horner") == 0) ? "HanHorner" : p2c_str;
+        // Ally Commander
+        if (ally_cmdr_str && ally_cmdr_str[0] != '\0' && strcmp(ally_cmdr_str, "Unknown") != 0) {
+            std::string cmdr = (strcmp(ally_cmdr_str, "Horner") == 0) ? "HanHorner" : ally_cmdr_str;
             if (kKnownCommanders.count(cmdr)) {
                 auto& c = p2_map[cmdr];
                 c.total_games++;
                 if (is_victory) c.wins++; else c.losses++;
-                c.total_apm += p2_apm;
+                c.total_apm += ally_apm;
             }
         }
 
@@ -1070,6 +1093,7 @@ void Database::RepairWeeklyMutationsIfNeeded() {
 }
 
 void Database::AlignPlayerSlotsWithUserAccount() {
+    return;
     std::lock_guard<std::recursive_mutex> lock(m_mutex);
     if (!m_db) return;
 
