@@ -203,6 +203,24 @@ def main():
     with open(rsp_file, "w") as rf:
         rf.write("\n".join(rsp_args))
 
+    # Pre-link: handle running executable on Windows
+    old_backup = None
+    if target_exe.exists():
+        try:
+            target_exe.unlink()
+        except OSError:
+            # Target is locked by running Windows process; rename it out of the way
+            old_backup = target_exe.with_name(f"{target_exe.stem}_running.tmp")
+            try:
+                if old_backup.exists():
+                    old_backup.unlink()
+            except Exception:
+                pass
+            try:
+                target_exe.rename(old_backup)
+            except Exception:
+                pass
+
     link_cmd = [str(CLANG_PP), f"@{rsp_file.relative_to(PROJECT_ROOT)}"]
 
     res = None
@@ -227,6 +245,13 @@ def main():
             sys.exit(1)
         print(f"FAILED to link executable:\n{res.stderr}")
         sys.exit(1)
+
+    # Clean up old backup if it was unlocked
+    if old_backup and old_backup.exists():
+        try:
+            old_backup.unlink()
+        except Exception:
+            pass
     print(f"Successfully linked {target_exe} ({target_exe.stat().st_size // 1024} KB)")
 
     # 5. Copy assets
@@ -244,7 +269,7 @@ def main():
     if "--package" in sys.argv or "-p" in sys.argv:
         package_release()
 
-def package_release(version: str = "v1.0.0"):
+def package_release(version: str = "v1.0.1"):
     import zipfile
     zip_name = f"sc2-coop-native-{version}-windows-x64.zip"
     zip_dest = PROJECT_ROOT / "dist" / zip_name
