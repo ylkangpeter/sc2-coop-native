@@ -48,50 +48,61 @@ std::string ReplayParser::FormatTimestamp(int64_t mtime) {
 }
 
 std::optional<ReplayRecord> ReplayParser::ParseFile(const std::wstring& replay_path) {
-    ReplayRecord record;
+    try {
+        ReplayRecord record;
 
-    // Convert wide path to UTF-8
-    record.file_path = Win32Utils::WideToUtf8(replay_path);
+        // Convert wide path to UTF-8
+        record.file_path = Win32Utils::WideToUtf8(replay_path);
 
-    // Get file modification time
-    struct _stat64 st;
-    if (_wstat64(replay_path.c_str(), &st) == 0) {
-        record.file_mtime = st.st_mtime;
-        record.game_date = FormatTimestamp(st.st_mtime);
-    }
-
-    // 1. Read replay.gamemetadata.json
-    nlohmann::json meta_json;
-    if (!MpqReader::ReadJson(replay_path, "replay.gamemetadata.json", meta_json)) {
-        return std::nullopt; // Not a valid SC2 replay with metadata
-    }
-
-    record.raw_map_name = meta_json.value("Title", "Unknown Map");
-    record.map_name = NormalizeMapName(record.raw_map_name);
-    record.duration_seconds = meta_json.value("Duration", 0);
-    record.form_length = FormatDuration(record.duration_seconds);
-
-    // Parse players from metadata
-    if (meta_json.contains("Players") && meta_json["Players"].is_array() && !meta_json["Players"].empty()) {
-        const auto& players_arr = meta_json["Players"];
-        if (players_arr.size() >= 1) {
-            record.p1.player_id = 1;
-            record.p1.apm = players_arr[0].value("APM", 0);
-            record.p1.result = players_arr[0].value("Result", "Loss");
+        // Get file modification time
+        struct _stat64 st;
+        if (_wstat64(replay_path.c_str(), &st) == 0) {
+            record.file_mtime = st.st_mtime;
+            record.game_date = FormatTimestamp(st.st_mtime);
         }
-        if (players_arr.size() >= 2) {
-            record.p2.player_id = 2;
-            record.p2.apm = players_arr[1].value("APM", 0);
-            record.p2.result = players_arr[1].value("Result", "Loss");
+
+        // 1. Read replay.gamemetadata.json
+        nlohmann::json meta_json;
+        if (!MpqReader::ReadJson(replay_path, "replay.gamemetadata.json", meta_json)) {
+            return std::nullopt; // Not a valid SC2 replay with metadata
         }
-        if ((record.p1.result == "Win") || (record.p2.result == "Win")) {
-            record.result = "Victory";
+
+        if (meta_json.is_object()) {
+            if (meta_json.contains("Title") && meta_json["Title"].is_string()) {
+                record.raw_map_name = meta_json["Title"].get<std::string>();
+            } else {
+                record.raw_map_name = "Unknown Map";
+            }
+            record.map_name = NormalizeMapName(record.raw_map_name);
+            if (meta_json.contains("Duration") && meta_json["Duration"].is_number()) {
+                record.duration_seconds = meta_json["Duration"].get<int>();
+            }
+            record.form_length = FormatDuration(record.duration_seconds);
+
+            // Parse players from metadata
+            if (meta_json.contains("Players") && meta_json["Players"].is_array() && !meta_json["Players"].empty()) {
+                const auto& players_arr = meta_json["Players"];
+                if (players_arr.size() >= 1 && players_arr[0].is_object()) {
+                    record.p1.player_id = 1;
+                    record.p1.apm = players_arr[0].value("APM", 0);
+                    record.p1.result = players_arr[0].value("Result", "Loss");
+                }
+                if (players_arr.size() >= 2 && players_arr[1].is_object()) {
+                    record.p2.player_id = 2;
+                    record.p2.apm = players_arr[1].value("APM", 0);
+                    record.p2.result = players_arr[1].value("Result", "Loss");
+                }
+                if ((record.p1.result == "Win") || (record.p2.result == "Win")) {
+                    record.result = "Victory";
+                } else {
+                    record.result = "Defeat";
+                }
+            } else {
+                record.result = "Unknown";
+            }
         } else {
-            record.result = "Defeat";
+            return std::nullopt;
         }
-    } else {
-        record.result = "Unknown";
-    }
 
     // 2. Read replay.details
     std::vector<DecodedPlayer> players;
@@ -296,6 +307,11 @@ std::optional<ReplayRecord> ReplayParser::ParseFile(const std::wstring& replay_p
     }
 
     return record;
+    } catch (const std::exception&) {
+        return std::nullopt;
+    } catch (...) {
+        return std::nullopt;
+    }
 }
 
 } // namespace sc2
