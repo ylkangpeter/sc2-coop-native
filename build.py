@@ -70,7 +70,12 @@ SOURCES = [
     PROJECT_ROOT / "src" / "main.cpp",
     PROJECT_ROOT / "src" / "app_state.cpp",
     PROJECT_ROOT / "src" / "i18n" / "i18n.cpp",
-    PROJECT_ROOT / "src" / "db" / "database.cpp",
+    PROJECT_ROOT / "src" / "db" / "database_schema.cpp",
+    PROJECT_ROOT / "src" / "db" / "replay_repository.cpp",
+    PROJECT_ROOT / "src" / "db" / "player_repository.cpp",
+    PROJECT_ROOT / "src" / "db" / "stats_repository.cpp",
+    PROJECT_ROOT / "src" / "db" / "weekly_repository.cpp",
+    PROJECT_ROOT / "src" / "db" / "export_repository.cpp",
     PROJECT_ROOT / "src" / "replay" / "mpq_reader.cpp",
     PROJECT_ROOT / "src" / "replay" / "s2_decoder.cpp",
     PROJECT_ROOT / "src" / "replay" / "replay_parser.cpp",
@@ -99,23 +104,34 @@ SOURCES = [
     PROJECT_ROOT / "vendor" / "implot" / "implot_items.cpp",
 ]
 
-def get_max_header_mtime():
+def get_max_mtime_in_dir(directory: Path):
     mtime = 0.0
-    for root in (PROJECT_ROOT / "src", PROJECT_ROOT / "vendor", PROJECT_ROOT / "tests"):
-        for pattern in ("*.h", "*.hpp"):
-            for p in root.rglob(pattern):
-                mtime = max(mtime, p.stat().st_mtime)
+    if not directory.exists():
+        return mtime
+    for pattern in ("*.h", "*.hpp"):
+        for p in directory.rglob(pattern):
+            mtime = max(mtime, p.stat().st_mtime)
     return mtime
 
-MAX_HEADER_MTIME = get_max_header_mtime()
+SRC_HEADER_MTIME = get_max_mtime_in_dir(PROJECT_ROOT / "src")
+VENDOR_HEADER_MTIME = get_max_mtime_in_dir(PROJECT_ROOT / "vendor")
+TEST_HEADER_MTIME = get_max_mtime_in_dir(PROJECT_ROOT / "tests")
 
 def compile_file(src_path: Path, obj_path: Path):
     is_src = (PROJECT_ROOT / "src") in src_path.parents or src_path.parent == PROJECT_ROOT / "src"
     is_tests = (PROJECT_ROOT / "tests") in src_path.parents or src_path.parent == PROJECT_ROOT / "tests"
-    # Every translation unit depends on headers, including vendored code.
-    is_checked_source = True
+    is_vendor = (PROJECT_ROOT / "vendor") in src_path.parents or src_path.parent == PROJECT_ROOT / "vendor"
+
+    # Select appropriate header mtime threshold
+    if is_vendor:
+        required_header_mtime = VENDOR_HEADER_MTIME
+    elif is_tests:
+        required_header_mtime = max(SRC_HEADER_MTIME, VENDOR_HEADER_MTIME, TEST_HEADER_MTIME)
+    else:
+        required_header_mtime = max(SRC_HEADER_MTIME, VENDOR_HEADER_MTIME)
+
     if obj_path.exists() and obj_path.stat().st_mtime >= src_path.stat().st_mtime:
-        if not is_checked_source or obj_path.stat().st_mtime >= MAX_HEADER_MTIME:
+        if obj_path.stat().st_mtime >= required_header_mtime:
             return
     obj_path.parent.mkdir(parents=True, exist_ok=True)
     rel_src = src_path.relative_to(PROJECT_ROOT)

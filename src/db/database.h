@@ -147,6 +147,7 @@ public:
     bool HasValidReplay(const std::string& file_path);
     std::unordered_set<std::string> GetAllReplayPaths();
     std::unordered_set<std::string> GetValidReplayPaths();
+    std::unordered_map<std::string, int64_t> GetValidReplayMtimes();
     std::vector<std::string> GetCorruptedReplayPaths();
     std::unordered_set<std::string> GetDifficultyRepairPaths();
     void SanitizeInvalidPrestiges();
