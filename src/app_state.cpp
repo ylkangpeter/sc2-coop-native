@@ -32,14 +32,15 @@ void AppState::Init() {
         RefreshUserHandles();
     }
 
-    // Auto-repair any corrupted replays in background
-    AutoRepairCorruptedReplaysAsync();
-
     // Auto-start initial background scan if replays directory is configured
     cur_folder = GetAccountFolder();
     if (!cur_folder.empty() && std::filesystem::exists(Win32Utils::Utf8ToWide(cur_folder))) {
         StartScanAsync(false);
     }
+
+    // Auto-repair any corrupted replays in background. Start this after the
+    // initial scan because StartScanAsync stops an existing repair thread.
+    AutoRepairCorruptedReplaysAsync();
 }
 
 std::string AppState::GetAccountFolder() const {
@@ -328,30 +329,55 @@ void AppState::AutoRepairCorruptedReplaysAsync() {
         auto corrupted = Database::Instance().GetCorruptedReplayPaths();
         if (corrupted.empty() || m_stop_repair_flag) return;
 
+        const auto difficulty_paths = Database::Instance().GetDifficultyRepairPaths();
+        std::unordered_set<std::string> failed_difficulty_paths;
         std::vector<ReplayRecord> batch;
         for (const auto& u8path : corrupted) {
             if (m_stop_repair_flag) break;
+            const bool is_difficulty_candidate = difficulty_paths.find(u8path) != difficulty_paths.end();
             std::wstring wpath = Win32Utils::Utf8ToWide(u8path);
             if (std::filesystem::exists(wpath)) {
                 auto parsed = ReplayParser::ParseFile(wpath);
                 if (parsed.has_value() && parsed->result != "Unknown") {
                     batch.push_back(parsed.value());
                     if (batch.size() >= 30) {
-                        Database::Instance().BatchSaveReplays(batch);
+                        if (!Database::Instance().BatchSaveReplays(batch)) {
+                            for (const auto& replay : batch) {
+                                if (difficulty_paths.find(replay.file_path) != difficulty_paths.end()) {
+                                    failed_difficulty_paths.insert(replay.file_path);
+                                }
+                            }
+                        }
                         batch.clear();
                     }
+                } else if (is_difficulty_candidate) {
+                    failed_difficulty_paths.insert(u8path);
                 }
+            } else if (is_difficulty_candidate) {
+                failed_difficulty_paths.insert(u8path);
             }
         }
         if (!batch.empty() && !m_stop_repair_flag) {
-            Database::Instance().BatchSaveReplays(batch);
+            if (!Database::Instance().BatchSaveReplays(batch)) {
+                for (const auto& replay : batch) {
+                    if (difficulty_paths.find(replay.file_path) != difficulty_paths.end()) {
+                        failed_difficulty_paths.insert(replay.file_path);
+                    }
+                }
+            }
             batch.clear();
         }
 
         if (!m_stop_repair_flag) {
             // Clamp any remaining invalid values in DB (e.g. deleted files)
             Database::Instance().SanitizeInvalidPrestiges();
-            Database::Instance().MarkDifficultyFixComplete();
+
+            // A successfully parsed Casual replay is allowed to remain
+            // Casual; only files that could not be processed must keep the
+            // one-time migration pending for a later run.
+            if (failed_difficulty_paths.empty()) {
+                Database::Instance().MarkDifficultyFixComplete();
+            }
         }
     });
 }

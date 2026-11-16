@@ -494,6 +494,22 @@ std::vector<std::string> Database::GetCorruptedReplayPaths() {
     return paths;
 }
 
+std::unordered_set<std::string> Database::GetDifficultyRepairPaths() {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    std::unordered_set<std::string> paths;
+    if (!m_db) return paths;
+
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(m_db, "SELECT file_path FROM replays WHERE difficulty = 'Casual';", -1, &stmt, nullptr) == SQLITE_OK) {
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            const unsigned char* p = sqlite3_column_text(stmt, 0);
+            if (p) paths.emplace(reinterpret_cast<const char*>(p));
+        }
+        sqlite3_finalize(stmt);
+    }
+    return paths;
+}
+
 void Database::SanitizeInvalidPrestiges() {
     std::lock_guard<std::recursive_mutex> lock(m_mutex);
     if (!m_db) return;

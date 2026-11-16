@@ -148,6 +148,7 @@ public:
     std::unordered_set<std::string> GetAllReplayPaths();
     std::unordered_set<std::string> GetValidReplayPaths();
     std::vector<std::string> GetCorruptedReplayPaths();
+    std::unordered_set<std::string> GetDifficultyRepairPaths();
     void SanitizeInvalidPrestiges();
     void MarkDifficultyFixComplete();
     int GetTotalReplayCount();
