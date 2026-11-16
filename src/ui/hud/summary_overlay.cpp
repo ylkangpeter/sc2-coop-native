@@ -435,7 +435,7 @@ void SummaryOverlay::Render() {
     fonts.hFontPlayerName = CreateFontW((int)(height * 0.025f), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
                                         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                                         CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, kFontFamily);
-    fonts.hFontTimestamp = CreateFontW((int)(height * 0.0115f), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+    fonts.hFontTimestamp = CreateFontW((int)(height * 0.0145f), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                                        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                                        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, kFontFamily);
     fonts.hFontPrestige = CreateFontW((int)(height * 0.016f), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,

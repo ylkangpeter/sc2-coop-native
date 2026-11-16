@@ -50,7 +50,7 @@ void FrameRenderer::RenderFrame() {
     // Header Navigation Bar
     ImGui::TextColored(ImVec4(0.0f, 0.75f, 1.0f, 1.0f), "SC2 CO-OP NATIVE");
     ImGui::SameLine();
-    ImGui::TextDisabled("v1.0.10");
+    ImGui::TextDisabled("v1.0.11");
     ImGui::SameLine(0, 16.0f);
 
     // Tab Buttons
