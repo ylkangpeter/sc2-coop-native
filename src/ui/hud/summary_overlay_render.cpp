@@ -116,51 +116,39 @@ void DrawSummaryBanner(HDC hdc, uint32_t* pixels, int width, int height,
     int row1_bot = (int)(height * 0.072f);
     int name_top = (int)(height * 0.038f);
 
-    int gap = (int)(height * 0.010f);
-    if (gap < 8) gap = 8;
-
-    int total_mid_w = szRes.cx;
-    if (has_timestamp) {
-        total_mid_w += gap + timestamp_width;
-    }
-
-    int mid_start = (rx + rw / 2) - total_mid_w / 2;
-    int min_left = rx + szName1.cx + 10;
-    int max_right = rx + rw - szName2.cx - 10;
-
-    if (mid_start < min_left) {
-        mid_start = min_left;
-    }
-    if (mid_start + total_mid_w > max_right) {
-        mid_start = max_right - total_mid_w;
-        if (mid_start < min_left) {
-            mid_start = min_left;
-        }
-    }
+    const int center_x = rx + rw / 2;
+    const int center_width = std::max((int)szRes.cx, timestamp_width);
+    const int center_left = center_x - center_width / 2;
+    const int center_right = center_left + center_width;
 
     // P1 Name (Blue, left-aligned)
     SelectObject(hdc, fonts.hFontPlayerName);
     SetTextColor(hdc, RGB(0, 128, 248));
-    int p1_r = std::max(rx + rw / 4, mid_start - 6);
+    int p1_r = center_left - 8;
     RECT rcName1 = { rx, name_top, p1_r, row1_bot };
     DrawTextW(hdc, p1_name_w.c_str(), -1, &rcName1, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
 
     // Result Text (Victory! / Defeat! / Weekly Victory!)
     SelectObject(hdc, fonts.hFontTitle);
     SetTextColor(hdc, color_result);
-    RECT rcRes = { mid_start, row1_top, mid_start + szRes.cx, row1_bot };
+    const int result_top = row1_top;
+    const int result_bottom = has_timestamp ? row1_top + (int)(height * 0.023f) : row1_bot;
+    RECT rcRes = { center_x - szRes.cx / 2, result_top,
+                   center_x + (szRes.cx + 1) / 2, result_bottom };
     DrawTextW(hdc, result_w.c_str(), -1, &rcRes, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
 
     // Match date/time directly to the right of Result, using a compact
     // two-line gray timestamp so it does not compete with player names.
     if (has_timestamp) {
-        int time_x = mid_start + szRes.cx + gap;
         SelectObject(hdc, fonts.hFontTimestamp);
         SetTextColor(hdc, RGB(165, 175, 190));
         const int timestamp_line_h = std::max(12, (int)(height * 0.014f));
-        RECT rcDate = { time_x, row1_top, time_x + timestamp_width, row1_top + timestamp_line_h };
-        RECT rcClock = { time_x, row1_top + timestamp_line_h, time_x + timestamp_width,
-                         row1_top + timestamp_line_h * 2 };
+        const int timestamp_top = result_bottom - 2;
+        RECT rcDate = { center_x - timestamp_width / 2, timestamp_top,
+                        center_x + (timestamp_width + 1) / 2, timestamp_top + timestamp_line_h };
+        RECT rcClock = { center_x - timestamp_width / 2, timestamp_top + timestamp_line_h,
+                         center_x + (timestamp_width + 1) / 2,
+                         timestamp_top + timestamp_line_h * 2 };
         if (!date_text.empty()) {
             DrawTextW(hdc, date_text.c_str(), -1, &rcDate, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
         }
@@ -172,7 +160,7 @@ void DrawSummaryBanner(HDC hdc, uint32_t* pixels, int width, int height,
     // P2 Name (Green, right-aligned)
     SelectObject(hdc, fonts.hFontPlayerName);
     SetTextColor(hdc, RGB(0, 213, 50));
-    int p2_l = has_timestamp ? std::min(rx + rw * 3 / 4, mid_start + total_mid_w + 6) : (rx + rw * 2 / 3);
+    int p2_l = center_right + 8;
     RECT rcName2 = { p2_l, name_top, rx + rw, row1_bot };
     DrawTextW(hdc, p2_name_w.c_str(), -1, &rcName2, DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
 
