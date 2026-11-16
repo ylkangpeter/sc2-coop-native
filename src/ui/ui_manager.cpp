@@ -361,7 +361,7 @@ bool UIManager::Init(HINSTANCE hInstance, int nCmdShow) {
     int win_x = mi.rcWork.left + (mon_w - win_w) / 2;
     int win_y = mi.rcWork.top + (mon_h - win_h) / 2;
 
-    m_hwnd = CreateWindowW(m_wc.lpszClassName, L"StarCraft II Co-op Native v1.0.7",
+    m_hwnd = CreateWindowW(m_wc.lpszClassName, L"StarCraft II Co-op Native v1.0.8",
                            WS_OVERLAPPEDWINDOW, win_x, win_y, win_w, win_h,
                            nullptr, nullptr, m_wc.hInstance, nullptr);
 

@@ -45,7 +45,7 @@ public:
     bool toast_show_border = true;
     int toast_opacity_percent = 88;
     float font_scale = 1.0f;
-    int scan_interval_seconds = 3;
+    int scan_interval_seconds = 1;
 
     // UI state
     int active_tab = 1; // Default to Games tab

@@ -59,7 +59,7 @@ void ReplayWatcher::WatchLoop() {
 
     while (m_running.load()) {
         int interval_sec = AppState::Instance().scan_interval_seconds;
-        if (interval_sec < 2) interval_sec = 2;
+        if (interval_sec < 1) interval_sec = 1;
         if (interval_sec > 10) interval_sec = 10;
         if (!InterruptibleSleep(std::chrono::seconds(interval_sec))) break;
 
