@@ -466,9 +466,25 @@ std::vector<std::string> Database::GetCorruptedReplayPaths() {
     std::vector<std::string> paths;
     if (!m_db) return paths;
 
-    const char* sql = "SELECT file_path FROM replays WHERE p1_prestige < 0 OR p1_prestige > 3 OR p2_prestige < 0 OR p2_prestige > 3 OR brutal_plus < 0 OR brutal_plus > 6;";
+    // Check if one-time difficulty repair is needed
+    bool need_diff_fix = true;
+    sqlite3_stmt* vstmt = nullptr;
+    if (sqlite3_prepare_v2(m_db, "SELECT value FROM settings WHERE key = 'difficulty_fix_version' LIMIT 1;", -1, &vstmt, nullptr) == SQLITE_OK) {
+        if (sqlite3_step(vstmt) == SQLITE_ROW) {
+            need_diff_fix = sqlite3_column_int(vstmt, 0) < 1;
+        }
+        sqlite3_finalize(vstmt);
+    }
+
+    std::string sql;
+    if (need_diff_fix) {
+        sql = "SELECT file_path FROM replays WHERE (p1_prestige < 0 OR p1_prestige > 3 OR p2_prestige < 0 OR p2_prestige > 3 OR brutal_plus < 0 OR brutal_plus > 6) OR (difficulty = 'Casual');";
+    } else {
+        sql = "SELECT file_path FROM replays WHERE p1_prestige < 0 OR p1_prestige > 3 OR p2_prestige < 0 OR p2_prestige > 3 OR brutal_plus < 0 OR brutal_plus > 6;";
+    }
+
     sqlite3_stmt* stmt = nullptr;
-    if (sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+    if (sqlite3_prepare_v2(m_db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
         while (sqlite3_step(stmt) == SQLITE_ROW) {
             const unsigned char* p = sqlite3_column_text(stmt, 0);
             if (p) paths.push_back(reinterpret_cast<const char*>(p));
@@ -484,6 +500,14 @@ void Database::SanitizeInvalidPrestiges() {
     const char* sql = "UPDATE replays SET p1_prestige = 0 WHERE p1_prestige < 0 OR p1_prestige > 3;"
                       "UPDATE replays SET p2_prestige = 0 WHERE p2_prestige < 0 OR p2_prestige > 3;"
                       "UPDATE replays SET brutal_plus = 0 WHERE brutal_plus < 0 OR brutal_plus > 6;";
+    sqlite3_exec(m_db, sql, nullptr, nullptr, nullptr);
+    BumpRevision();
+}
+
+void Database::MarkDifficultyFixComplete() {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    if (!m_db) return;
+    const char* sql = "INSERT OR REPLACE INTO settings (key, value) VALUES ('difficulty_fix_version', '1');";
     sqlite3_exec(m_db, sql, nullptr, nullptr, nullptr);
     BumpRevision();
 }

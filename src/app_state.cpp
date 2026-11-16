@@ -351,6 +351,7 @@ void AppState::AutoRepairCorruptedReplaysAsync() {
         if (!m_stop_repair_flag) {
             // Clamp any remaining invalid values in DB (e.g. deleted files)
             Database::Instance().SanitizeInvalidPrestiges();
+            Database::Instance().MarkDifficultyFixComplete();
         }
     });
 }

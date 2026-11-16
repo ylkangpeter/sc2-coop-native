@@ -162,24 +162,42 @@ std::optional<ReplayRecord> ReplayParser::ParseFile(const std::wstring& replay_p
         }
     };
 
-    std::string d1, d2;
-    if (slots.size() > 0 && slots[0].difficulty > 0) d1 = DifficultyFromInt(slots[0].difficulty);
-    if (slots.size() > 1 && slots[1].difficulty > 0) d2 = DifficultyFromInt(slots[1].difficulty);
-    if (d1.empty() && slots.size() > 2) d1 = DifficultyFromInt(slots[2].difficulty);
-    if (d2.empty() && slots.size() > 3) d2 = DifficultyFromInt(slots[3].difficulty);
-
     if (record.brutal_plus >= 1 && record.brutal_plus <= 6) {
         record.difficulty = "Brutal+" + std::to_string(record.brutal_plus);
-    } else if (!d1.empty() && d1 == d2) {
-        record.difficulty = d1;
-    } else if (!d1.empty() && !d2.empty()) {
-        record.difficulty = d1 + "/" + d2;
-    } else if (!d1.empty()) {
-        record.difficulty = d1;
-    } else if (!d2.empty()) {
-        record.difficulty = d2;
     } else {
-        record.difficulty = "Brutal"; // Standard fallback
+        // In SC2 Co-op, human players occupy slots 0 and 1, whose lobby difficulty
+        // field is set to a dummy default 1 (VyEy / Casual). The actual mission difficulty
+        // is set on the computer enemy AI slots (control == 3, typically slot 2+).
+        int chosen_diff = 0;
+        for (size_t i = 2; i < slots.size(); ++i) {
+            if (slots[i].control == 3 && slots[i].difficulty > 0) {
+                chosen_diff = slots[i].difficulty;
+                break;
+            }
+        }
+        // Fallback: slot 2 if present
+        if (chosen_diff == 0 && slots.size() > 2 && slots[2].difficulty > 0) {
+            chosen_diff = slots[2].difficulty;
+        }
+        // Fallback: if human slots have explicit non-default difficulty > 1 (e.g. custom maps)
+        if (chosen_diff == 0) {
+            if (slots.size() > 0 && slots[0].difficulty > 1) {
+                chosen_diff = slots[0].difficulty;
+            } else if (slots.size() > 1 && slots[1].difficulty > 1) {
+                chosen_diff = slots[1].difficulty;
+            }
+        }
+        // Fallback: slot 0 difficulty
+        if (chosen_diff == 0 && slots.size() > 0 && slots[0].difficulty > 0) {
+            chosen_diff = slots[0].difficulty;
+        }
+
+        std::string diff_str = (chosen_diff > 0) ? DifficultyFromInt(chosen_diff) : "";
+        if (!diff_str.empty()) {
+            record.difficulty = diff_str;
+        } else {
+            record.difficulty = "Brutal"; // Standard fallback
+        }
     }
 
     // Map bonus objectives count

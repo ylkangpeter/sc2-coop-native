@@ -20,6 +20,7 @@ struct DecodedPlayer {
 };
 
 struct DecodedSlot {
+    int control = 0; // 2=Human, 3=Computer
     std::string commander;
     int commander_level = 15;
     int prestige = 0;

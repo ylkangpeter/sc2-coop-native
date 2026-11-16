@@ -186,6 +186,7 @@ std::vector<DecodedSlot> S2Decoder::DecodeInitDataSlots(const std::vector<uint8_
     if (S2InitDataDecoder::Decode(initdata_bytes, raw_slots, out_mutators, out_is_weekly) && !raw_slots.empty()) {
         for (const auto& rs : raw_slots) {
             DecodedSlot s;
+            s.control = rs.control;
             s.commander = rs.commander;
             s.commander_level = rs.commander_level;
             s.prestige = rs.prestige;

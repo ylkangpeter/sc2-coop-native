@@ -149,6 +149,7 @@ public:
     std::unordered_set<std::string> GetValidReplayPaths();
     std::vector<std::string> GetCorruptedReplayPaths();
     void SanitizeInvalidPrestiges();
+    void MarkDifficultyFixComplete();
     int GetTotalReplayCount();
 
     // Query games for Games Tab

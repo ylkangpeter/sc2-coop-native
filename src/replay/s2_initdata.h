@@ -10,6 +10,7 @@
 namespace sc2 {
 
 struct DecodedInitSlot {
+    int control = 0; // 2=Human, 3=Computer
     std::string commander;
     int commander_level = 0;
     int commander_mastery_level = 0;
@@ -467,7 +468,7 @@ private:
     static void DecodeSlot(S2BitPackedBuffer& buf, DecodedInitSlot& slot) {
         // Slot struct (type 69):
         // 0: m_control (type 10: int 8 bits)
-        DecodeInt(0, 8, buf);
+        slot.control = static_cast<int>(DecodeInt(0, 8, buf));
         // 1: m_userId (type 60: optional 1)
         if (buf.read_bits(1) != 0) DecodeInt(0, 4, buf);
         // 2: m_teamId (type 1: int 4 bits)
