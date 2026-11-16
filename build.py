@@ -87,6 +87,7 @@ SOURCES = [
     PROJECT_ROOT / "src" / "utils" / "hotkey_manager.cpp",
     PROJECT_ROOT / "src" / "ui" / "texture_loader.cpp",
     PROJECT_ROOT / "src" / "ui" / "ui_manager.cpp",
+    PROJECT_ROOT / "src" / "ui" / "frame_renderer.cpp",
     PROJECT_ROOT / "src" / "ui" / "hud" / "summary_overlay.cpp",
     PROJECT_ROOT / "src" / "ui" / "hud" / "summary_overlay_chart.cpp",
     PROJECT_ROOT / "src" / "ui" / "hud" / "summary_overlay_render.cpp",
