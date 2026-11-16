@@ -16,6 +16,7 @@ public:
     void ShowTestToast();
     void Hide();
     void Toggle(const std::string& ally_name = "");
+    void Refresh();
     void Update(float delta_time);
 
     bool IsActive() const { return m_active; }

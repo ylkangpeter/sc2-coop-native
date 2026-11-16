@@ -154,6 +154,8 @@
   "Toggle Summary Preview": "Toggle Summary Preview",
   "Show in-game Ally Winrate & Notes Toast on match start": "Show in-game Ally Winrate & Notes Toast on match start",
   "Toggle Ally Toast Preview": "Toggle Ally Toast Preview",
+  "Show Toast Border": "Show Toast Border",
+  "Toast Opacity (%)": "Toast Opacity (%)",
   "Overlay Display Duration (seconds)": "Overlay Display Duration (seconds)",
   "Global System Hotkeys (In-Game & Desktop)": "Global System Hotkeys (In-Game & Desktop)",
   "Hotkey_Description": "These global hotkeys work both inside StarCraft II and on desktop. Click key bind button to press new combo:",

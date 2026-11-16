@@ -7,6 +7,7 @@
 
 #include <windows.h>
 #include <filesystem>
+#include <algorithm>
 #include <iostream>
 
 namespace sc2 {
@@ -109,6 +110,14 @@ void AppState::LoadSettings() {
 
     std::string hd = db.GetSetting("hud_duration", "15");
     try { hud_duration_seconds = std::stoi(hd); } catch (...) { hud_duration_seconds = 15; }
+
+    toast_show_border = (db.GetSetting("toast_show_border", "1") == "1");
+    std::string toast_opacity = db.GetSetting("toast_opacity_percent", "88");
+    try {
+        toast_opacity_percent = std::clamp(std::stoi(toast_opacity), 0, 100);
+    } catch (...) {
+        toast_opacity_percent = 88;
+    }
 }
 
 void AppState::SaveSettings() {
@@ -143,6 +152,8 @@ void AppState::SaveSettings() {
 
     db.SetSetting("font_scale", std::to_string(font_scale));
     db.SetSetting("hud_duration", std::to_string(hud_duration_seconds));
+    db.SetSetting("toast_show_border", toast_show_border ? "1" : "0");
+    db.SetSetting("toast_opacity_percent", std::to_string(std::clamp(toast_opacity_percent, 0, 100)));
 
     // Update Windows run key
     wchar_t exe_buf[MAX_PATH];

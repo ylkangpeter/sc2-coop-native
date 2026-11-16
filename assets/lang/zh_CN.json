@@ -154,6 +154,8 @@
   "Toggle Summary Preview": "呼出/隐藏战报预览",
   "Show in-game Ally Winrate & Notes Toast on match start": "进游戏或开始时显示盟友胜率与备注信息",
   "Toggle Ally Toast Preview": "呼出/隐藏盟友浮窗",
+  "Show Toast Border": "显示 Toast 边框",
+  "Toast Opacity (%)": "Toast 透明度 (%)",
   "Overlay Display Duration (seconds)": "浮窗自动驻留时长 (秒)",
   "Global System Hotkeys (In-Game & Desktop)": "全局系统快捷键 (游戏内与桌面均有效)",
   "Hotkey_Description": "这些快捷键在星际争霸II运行中或桌面上全局生效。点击右侧按键可直接按下新键进行自定义修改：",

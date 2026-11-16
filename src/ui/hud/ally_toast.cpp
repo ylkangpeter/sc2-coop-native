@@ -150,6 +150,10 @@ void AllyToastWindow::Toggle(const std::string& ally_name) {
     }
 }
 
+void AllyToastWindow::Refresh() {
+    if (m_active) Render();
+}
+
 void AllyToastWindow::Update(float delta_time) {
     if (!m_active) return;
     m_remaining_time -= delta_time;
@@ -208,14 +212,16 @@ void AllyToastWindow::Render() {
 
     // 1. Dark Glass Background
     uint32_t* pixels = (uint32_t*)pBits;
-    uint8_t alpha = 225;
+    const auto& state = AppState::Instance();
+    const int opacity_percent = std::clamp(state.toast_opacity_percent, 0, 100);
+    const uint8_t alpha = static_cast<uint8_t>((255 * opacity_percent + 50) / 100);
     uint8_t r_bg = 12, g_bg = 16, b_bg = 24;
     uint32_t premul_bg = (alpha << 24) |
                          ((uint8_t)((r_bg * alpha) / 255) << 16) |
                          ((uint8_t)((g_bg * alpha) / 255) << 8) |
                          ((uint8_t)((b_bg * alpha) / 255));
 
-    uint8_t border_alpha = 245;
+    const uint8_t border_alpha = state.toast_show_border ? alpha : 0;
     uint8_t br = 46, bg = 204, bb = 113; // Emerald Glow border
     uint32_t premul_border = (border_alpha << 24) |
                              ((uint8_t)((br * border_alpha) / 255) << 16) |
@@ -224,7 +230,8 @@ void AllyToastWindow::Render() {
 
     for (int y = 0; y < height; ++y) {
         for (int x = 0; x < width; ++x) {
-            bool is_border = (x <= 1 || x >= width - 2 || y <= 1 || y >= height - 2);
+            bool is_border = state.toast_show_border &&
+                             (x <= 1 || x >= width - 2 || y <= 1 || y >= height - 2);
             pixels[y * width + x] = is_border ? premul_border : premul_bg;
         }
     }
@@ -245,7 +252,7 @@ void AllyToastWindow::Render() {
     int bot_y1 = (int)(38 * dpi_scale);
     int bot_y2 = height - (int)(10 * dpi_scale);
 
-    bool is_zh = (AppState::Instance().language == 0 || AppState::Instance().language_code == "zh_CN");
+    bool is_zh = (state.language == 0 || state.language_code == "zh_CN");
 
     // Line 1: Ally Name & Stats
     HGDIOBJ hOldFont = nullptr;
@@ -284,12 +291,18 @@ void AllyToastWindow::Render() {
     RECT rcNote = { pad_x, bot_y1, width - pad_x, bot_y2 };
     DrawTextW(hdcMem, note_w.c_str(), -1, &rcNote, DT_SINGLELINE | DT_VCENTER);
 
-    // Fix non-zero alpha on text pixels
+    // Restore alpha on GDI text pixels and apply the user-selected toast opacity.
     for (int y = 0; y < height; ++y) {
         for (int x = 0; x < width; ++x) {
             uint32_t val = pixels[y * width + x];
             if ((val & 0xFF000000) == 0 && (val & 0x00FFFFFF) != 0) {
-                pixels[y * width + x] = 0xFF000000 | val;
+                const uint8_t r = static_cast<uint8_t>((val >> 16) & 0xFF);
+                const uint8_t g = static_cast<uint8_t>((val >> 8) & 0xFF);
+                const uint8_t b = static_cast<uint8_t>(val & 0xFF);
+                pixels[y * width + x] = (static_cast<uint32_t>(alpha) << 24) |
+                                         (static_cast<uint32_t>((r * alpha + 127) / 255) << 16) |
+                                         (static_cast<uint32_t>((g * alpha + 127) / 255) << 8) |
+                                         static_cast<uint32_t>((b * alpha + 127) / 255);
             }
         }
     }

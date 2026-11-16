@@ -153,6 +153,18 @@ void TabSettings::Render(AppState& state) {
     ImGui::Unindent(24.0f);
     ImGui::Spacing();
 
+    if (ImGui::Checkbox(TR("Show Toast Border"), &state.toast_show_border)) {
+        state.SaveSettings();
+        AllyToastWindow::Instance().Refresh();
+    }
+
+    ImGui::SetNextItemWidth(220);
+    if (ImGui::SliderInt(TR("Toast Opacity (%)"), &state.toast_opacity_percent, 0, 100)) {
+        state.SaveSettings();
+        AllyToastWindow::Instance().Refresh();
+    }
+    ImGui::Spacing();
+
     ImGui::SetNextItemWidth(200);
     if (ImGui::SliderInt(TR("Overlay Display Duration (seconds)"), &state.hud_duration_seconds, 5, 60)) {
         state.SaveSettings();
@@ -255,7 +267,7 @@ void TabSettings::Render(AppState& state) {
     ImGui::Spacing();
 
     // 6. About & Version Info
-    ImGui::TextDisabled("StarCraft II Co-op Native v1.0.6 (DirectX 11 + Dear ImGui + SQLite3)");
+    ImGui::TextDisabled("StarCraft II Co-op Native v1.0.7 (DirectX 11 + Dear ImGui + SQLite3)");
     ImGui::TextDisabled("%s", TR("About_Description"));
 }
 

@@ -42,6 +42,8 @@ public:
     unsigned int hotkey_ally_vk = 'W';                 // 'W'
 
     int hud_duration_seconds = 15;
+    bool toast_show_border = true;
+    int toast_opacity_percent = 88;
     float font_scale = 1.0f;
     int scan_interval_seconds = 3;
 
