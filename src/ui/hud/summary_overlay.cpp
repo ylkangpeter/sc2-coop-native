@@ -137,11 +137,17 @@ void SummaryOverlay::ShowMatch(const ReplayRecord& rec, bool is_best_time, float
         details_loaded = Database::Instance().LoadReplayDetails(m_current_record);
     }
     if (!details_loaded && m_current_record.p1.units.empty() && !m_current_record.file_path.empty()) {
-        std::wstring wpath = ToWide(m_current_record.file_path);
-        auto full_rec = ReplayParser::ParseFile(wpath);
-        if (full_rec.has_value()) {
-            m_current_record = full_rec.value();
-            Database::Instance().SaveReplay(m_current_record);
+        std::wstring wpath = Win32Utils::Utf8ToWide(m_current_record.file_path);
+        try {
+            auto full_rec = ReplayParser::ParseFile(wpath);
+            if (full_rec.has_value()) {
+                m_current_record = full_rec.value();
+                Database::Instance().SaveReplay(m_current_record);
+            }
+        } catch (const std::exception& e) {
+            std::cerr << "SummaryOverlay fallback parse error: " << e.what() << std::endl;
+        } catch (...) {
+            std::cerr << "SummaryOverlay fallback parse unknown error" << std::endl;
         }
     }
 

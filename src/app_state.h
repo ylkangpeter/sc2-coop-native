@@ -107,19 +107,13 @@ public:
     std::unordered_set<std::string> user_handles;
     std::mutex user_handles_mutex;
 
-    void StartScanAsync(bool force_reparse);
-    void StartScanAsync() { StartScanAsync(false); }
+    void StartScanAsync(bool force_reparse = false);
     void AutoRepairCorruptedReplaysAsync();
     void StopScan();
 
 private:
     AppState() = default;
     ~AppState();
-
-    std::thread m_scan_thread;
-    std::atomic<bool> m_stop_scan_flag{false};
-    std::thread m_repair_thread;
-    std::atomic<bool> m_stop_repair_flag{false};
 };
 
 } // namespace sc2

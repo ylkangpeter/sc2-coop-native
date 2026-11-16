@@ -82,6 +82,7 @@ SOURCES = [
     PROJECT_ROOT / "src" / "replay" / "tracker_decoder.cpp",
     PROJECT_ROOT / "src" / "replay" / "chat_decoder.cpp",
     PROJECT_ROOT / "src" / "replay" / "replay_parser.cpp",
+    PROJECT_ROOT / "src" / "replay" / "replay_scanner.cpp",
     PROJECT_ROOT / "src" / "replay" / "replay_watcher.cpp",
     PROJECT_ROOT / "src" / "utils" / "win32_utils.cpp",
     PROJECT_ROOT / "src" / "utils" / "hotkey_manager.cpp",

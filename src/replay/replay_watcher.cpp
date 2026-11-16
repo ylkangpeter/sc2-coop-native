@@ -9,6 +9,8 @@
 #include <iostream>
 #include <algorithm>
 #include <unordered_set>
+#include <unordered_map>
+#include <sys/stat.h>
 
 namespace sc2 {
 
@@ -84,9 +86,10 @@ void ReplayWatcher::WatchLoop() {
                 last_dir_refresh = now_time;
             }
 
-            // Collect all unindexed .sc2replay files across watched replay folders
+            // Collect all unindexed or modified .sc2replay files across watched replay folders
             std::vector<std::pair<std::filesystem::file_time_type, std::filesystem::path>> unindexed_replays;
             std::unordered_set<std::string> seen_paths;
+            auto valid_mtimes = Database::Instance().GetValidReplayMtimes();
 
             for (const auto& dir : watched_dirs) {
                 if (!m_running.load()) break;
@@ -103,7 +106,13 @@ void ReplayWatcher::WatchLoop() {
                         if (ext == ".sc2replay") {
                             std::string u8path = Win32Utils::WideToUtf8(entry.path().wstring());
                             if (seen_paths.insert(u8path).second) {
-                                if (!Database::Instance().HasReplay(u8path)) {
+                                auto it_mtime = valid_mtimes.find(u8path);
+                                struct _stat64 st;
+                                int64_t disk_mtime = 0;
+                                if (_wstat64(entry.path().c_str(), &st) == 0) {
+                                    disk_mtime = st.st_mtime;
+                                }
+                                if (it_mtime == valid_mtimes.end() || disk_mtime > it_mtime->second) {
                                     auto cur_time = entry.last_write_time(entry_ec);
                                     if (!entry_ec) {
                                         unindexed_replays.push_back({cur_time, entry.path()});
@@ -126,13 +135,26 @@ void ReplayWatcher::WatchLoop() {
                 const auto& replay_path = item.second;
                 std::string u8path = Win32Utils::WideToUtf8(replay_path.wstring());
 
-                if (Database::Instance().HasReplay(u8path)) continue;
+                struct _stat64 st;
+                int64_t disk_mtime = 0;
+                if (_wstat64(replay_path.c_str(), &st) == 0) {
+                    disk_mtime = st.st_mtime;
+                }
+                if (Database::Instance().GetReplayMtime(u8path) >= disk_mtime &&
+                    Database::Instance().HasValidReplay(u8path)) {
+                    continue;
+                }
 
                 // Sleep to ensure SC2 finished flushing and closing the file
                 std::this_thread::sleep_for(std::chrono::milliseconds(600));
                 if (!m_running.load()) break;
 
-                auto parsed = ReplayParser::ParseFile(replay_path.wstring());
+                std::optional<ReplayRecord> parsed;
+                try {
+                    parsed = ReplayParser::ParseFile(replay_path.wstring());
+                } catch (...) {
+                    parsed = std::nullopt;
+                }
                 if (parsed.has_value() && parsed->result != "Unknown") {
                     auto rec = parsed.value();
 

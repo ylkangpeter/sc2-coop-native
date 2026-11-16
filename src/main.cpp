@@ -73,6 +73,26 @@ static LONG WINAPI CrashHandler(EXCEPTION_POINTERS* pException) {
     return EXCEPTION_EXECUTE_HANDLER;
 }
 
+static void CleanAppShutdown() {
+    static std::atomic<bool> s_cleaned{false};
+    bool expected = false;
+    if (!s_cleaned.compare_exchange_strong(expected, true)) {
+        return;
+    }
+    try {
+        sc2::UIManager::Instance().Shutdown();
+    } catch (...) {}
+    try {
+        sc2::AppState::Instance().StopScan();
+    } catch (...) {}
+    try {
+        sc2::AppState::Instance().SaveSettings();
+    } catch (...) {}
+    try {
+        sc2::Database::Instance().Close();
+    } catch (...) {}
+}
+
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLine, int nCmdShow) {
     SetUnhandledExceptionFilter(CrashHandler);
 
@@ -122,6 +142,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
         // Initialize UI and graphics pipeline
         if (!sc2::UIManager::Instance().Init(hInstance, nCmdShow)) {
             MessageBoxW(nullptr, L"Failed to initialize DirectX 11 graphics device or window.", L"SC2 Co-op Native Error", MB_ICONERROR | MB_OK);
+            CleanAppShutdown();
             if (hMutex) {
                 ReleaseMutex(hMutex);
                 CloseHandle(hMutex);
@@ -134,10 +155,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
         sc2::UIManager::Instance().Run();
 
         // Clean shutdown
-        sc2::UIManager::Instance().Shutdown();
-        sc2::AppState::Instance().StopScan();
-        sc2::AppState::Instance().SaveSettings();
-        sc2::Database::Instance().Close();
+        CleanAppShutdown();
     } catch (const std::exception& e) {
         std::ofstream f("crash_log.txt", std::ios::app);
         if (f.is_open()) {
@@ -146,6 +164,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
         }
         std::wstring wmsg = sc2::Win32Utils::Utf8ToWide(e.what());
         MessageBoxW(nullptr, wmsg.c_str(), L"SC2 Co-op Native Exception", MB_ICONERROR | MB_OK);
+        CleanAppShutdown();
         if (hMutex) {
             ReleaseMutex(hMutex);
             CloseHandle(hMutex);
@@ -154,6 +173,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
         return 1;
     } catch (...) {
         MessageBoxW(nullptr, L"An unknown fatal exception occurred.", L"SC2 Co-op Native Error", MB_ICONERROR | MB_OK);
+        CleanAppShutdown();
         if (hMutex) {
             ReleaseMutex(hMutex);
             CloseHandle(hMutex);

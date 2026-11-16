@@ -2,6 +2,7 @@
 #include "i18n/i18n.h"
 #include "db/database.h"
 #include "replay/replay_parser.h"
+#include "replay/replay_scanner.h"
 #include "utils/win32_utils.h"
 
 #include <windows.h>
@@ -32,15 +33,13 @@ void AppState::Init() {
         RefreshUserHandles();
     }
 
-    // Auto-start initial background scan if replays directory is configured
+    // Auto-start initial background scan (which also sequences auto-repair) if replays directory is configured
     cur_folder = GetAccountFolder();
     if (!cur_folder.empty() && std::filesystem::exists(Win32Utils::Utf8ToWide(cur_folder))) {
         StartScanAsync(false);
+    } else {
+        AutoRepairCorruptedReplaysAsync();
     }
-
-    // Auto-repair any corrupted replays in background. Start this after the
-    // initial scan because StartScanAsync stops an existing repair thread.
-    AutoRepairCorruptedReplaysAsync();
 }
 
 std::string AppState::GetAccountFolder() const {
@@ -201,185 +200,15 @@ bool AppState::HasUserHandle(const std::string& handle) {
 }
 
 void AppState::StopScan() {
-    m_stop_scan_flag = true;
-    m_stop_repair_flag = true;
-    if (m_scan_thread.joinable()) {
-        m_scan_thread.join();
-    }
-    if (m_repair_thread.joinable()) {
-        m_repair_thread.join();
-    }
-    is_scanning = false;
+    ReplayScanner::Instance().Stop();
 }
 
 void AppState::StartScanAsync(bool force_reparse) {
-    if (is_scanning) return;
-    StopScan();
-
-    m_stop_scan_flag = false;
-    is_scanning = true;
-    scan_progress = 0;
-    scan_total = 0;
-
-    m_scan_thread = std::thread([this, force_reparse]() {
-        std::wstring root_w = Win32Utils::Utf8ToWide(GetAccountFolder());
-        if (!std::filesystem::exists(root_w)) {
-            is_scanning = false;
-            return;
-        }
-
-        {
-            std::lock_guard<std::mutex> lock(scan_status_mutex);
-            scan_status_message = "Finding replay files...";
-        }
-
-        std::vector<std::filesystem::path> replay_paths;
-        try {
-            for (const auto& entry : std::filesystem::recursive_directory_iterator(root_w, std::filesystem::directory_options::skip_permission_denied)) {
-                if (m_stop_scan_flag) break;
-                if (entry.is_regular_file()) {
-                    auto ext = entry.path().extension().string();
-                    for (auto& c : ext) c = tolower(c);
-                    if (ext == ".sc2replay") {
-                        replay_paths.push_back(entry.path());
-                    }
-                }
-            }
-        } catch (const std::exception& e) {
-            std::cerr << "Directory scan exception: " << e.what() << std::endl;
-        }
-
-        scan_total = 0;
-        scan_progress = 0;
-
-        if (m_stop_scan_flag) {
-            is_scanning = false;
-            return;
-        }
-
-        // Identify which replays actually need parsing
-        std::vector<std::filesystem::path> to_parse;
-        if (force_reparse) {
-            to_parse = std::move(replay_paths);
-        } else {
-            auto valid_paths = Database::Instance().GetValidReplayPaths();
-            for (auto& p : replay_paths) {
-                if (m_stop_scan_flag) break;
-                std::string u8path = Win32Utils::WideToUtf8(p.wstring());
-                if (valid_paths.find(u8path) == valid_paths.end()) {
-                    to_parse.push_back(std::move(p));
-                }
-            }
-        }
-
-        if (m_stop_scan_flag || to_parse.empty()) {
-            {
-                std::lock_guard<std::mutex> lock(scan_status_mutex);
-                scan_status_message = "All replays up to date (" + std::to_string(replay_paths.size()) + " total)";
-            }
-            is_scanning = false;
-            return;
-        }
-
-        scan_total = static_cast<int>(to_parse.size());
-        int processed = 0;
-        std::vector<ReplayRecord> batch;
-
-        for (const auto& p : to_parse) {
-            if (m_stop_scan_flag) break;
-
-            auto parsed = ReplayParser::ParseFile(p.wstring());
-            if (parsed.has_value() && parsed->result != "Unknown") {
-                batch.push_back(parsed.value());
-                if (batch.size() >= 30) {
-                    Database::Instance().BatchSaveReplays(batch);
-                    batch.clear();
-                }
-            }
-
-            processed++;
-            scan_progress = processed;
-
-            if (processed % 10 == 0 || processed == scan_total.load()) {
-                std::lock_guard<std::mutex> lock(scan_status_mutex);
-                scan_status_message = "Parsed " + std::to_string(processed) + " / " + std::to_string(scan_total.load()) + " replays";
-            }
-        }
-
-        if (!batch.empty() && !m_stop_scan_flag) {
-            Database::Instance().BatchSaveReplays(batch);
-            batch.clear();
-        }
-
-        {
-            std::lock_guard<std::mutex> lock(scan_status_mutex);
-            scan_status_message = "Scan complete (" + std::to_string(processed) + " new replays parsed)";
-        }
-        is_scanning = false;
-    });
+    ReplayScanner::Instance().StartScan(force_reparse, true);
 }
 
 void AppState::AutoRepairCorruptedReplaysAsync() {
-    if (m_repair_thread.joinable()) {
-        m_stop_repair_flag = true;
-        m_repair_thread.join();
-    }
-    m_stop_repair_flag = false;
-    m_repair_thread = std::thread([this]() {
-        auto corrupted = Database::Instance().GetCorruptedReplayPaths();
-        if (corrupted.empty() || m_stop_repair_flag) return;
-
-        const auto difficulty_paths = Database::Instance().GetDifficultyRepairPaths();
-        std::unordered_set<std::string> failed_difficulty_paths;
-        std::vector<ReplayRecord> batch;
-        for (const auto& u8path : corrupted) {
-            if (m_stop_repair_flag) break;
-            const bool is_difficulty_candidate = difficulty_paths.find(u8path) != difficulty_paths.end();
-            std::wstring wpath = Win32Utils::Utf8ToWide(u8path);
-            if (std::filesystem::exists(wpath)) {
-                auto parsed = ReplayParser::ParseFile(wpath);
-                if (parsed.has_value() && parsed->result != "Unknown") {
-                    batch.push_back(parsed.value());
-                    if (batch.size() >= 30) {
-                        if (!Database::Instance().BatchSaveReplays(batch)) {
-                            for (const auto& replay : batch) {
-                                if (difficulty_paths.find(replay.file_path) != difficulty_paths.end()) {
-                                    failed_difficulty_paths.insert(replay.file_path);
-                                }
-                            }
-                        }
-                        batch.clear();
-                    }
-                } else if (is_difficulty_candidate) {
-                    failed_difficulty_paths.insert(u8path);
-                }
-            } else if (is_difficulty_candidate) {
-                failed_difficulty_paths.insert(u8path);
-            }
-        }
-        if (!batch.empty() && !m_stop_repair_flag) {
-            if (!Database::Instance().BatchSaveReplays(batch)) {
-                for (const auto& replay : batch) {
-                    if (difficulty_paths.find(replay.file_path) != difficulty_paths.end()) {
-                        failed_difficulty_paths.insert(replay.file_path);
-                    }
-                }
-            }
-            batch.clear();
-        }
-
-        if (!m_stop_repair_flag) {
-            // Clamp any remaining invalid values in DB (e.g. deleted files)
-            Database::Instance().SanitizeInvalidPrestiges();
-
-            // A successfully parsed Casual replay is allowed to remain
-            // Casual; only files that could not be processed must keep the
-            // one-time migration pending for a later run.
-            if (failed_difficulty_paths.empty()) {
-                Database::Instance().MarkDifficultyFixComplete();
-            }
-        }
-    });
+    ReplayScanner::Instance().StartRepair();
 }
 
 void AppState::OpenPlayerNoteModal(const std::string& player_name) {

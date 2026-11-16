@@ -135,6 +135,18 @@ bool Database::HasReplay(const std::string& file_path) {
     return stmt.Step() == SQLITE_ROW;
 }
 
+int64_t Database::GetReplayMtime(const std::string& file_path) {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    if (!m_db) return -1;
+    SqliteStmt stmt(m_db, "SELECT file_mtime FROM replays WHERE file_path = ? LIMIT 1;");
+    if (!stmt.IsValid()) return -1;
+    stmt.BindText(1, file_path);
+    if (stmt.Step() == SQLITE_ROW) {
+        return stmt.ColumnInt64(0);
+    }
+    return -1;
+}
+
 bool Database::HasValidReplay(const std::string& file_path) {
     std::lock_guard<std::recursive_mutex> lock(m_mutex);
     if (!m_db) return false;
