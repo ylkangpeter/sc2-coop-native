@@ -200,6 +200,8 @@ void ReplayScanner::RunScan(bool force_reparse, bool auto_repair_after) {
 
 void ReplayScanner::RunRepairInternal() {
     try {
+        Database::Instance().RepairWeeklyMutationsIfNeeded();
+
         auto corrupted = Database::Instance().GetCorruptedReplayPaths();
         if (corrupted.empty() || m_stop_flag.load()) return;
 

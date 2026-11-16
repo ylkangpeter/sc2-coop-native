@@ -39,7 +39,11 @@ Database::~Database() {
 void Database::Close() {
     std::lock_guard<std::recursive_mutex> lock(m_mutex);
     if (m_db) {
-        sqlite3_close(m_db);
+        sqlite3_stmt* pStmt = nullptr;
+        while ((pStmt = sqlite3_next_stmt(m_db, nullptr)) != nullptr) {
+            sqlite3_finalize(pStmt);
+        }
+        sqlite3_close_v2(m_db);
         m_db = nullptr;
     }
 }
@@ -47,7 +51,11 @@ void Database::Close() {
 bool Database::Open(const std::string& db_path) {
     std::lock_guard<std::recursive_mutex> lock(m_mutex);
     if (m_db) {
-        sqlite3_close(m_db);
+        sqlite3_stmt* pStmt = nullptr;
+        while ((pStmt = sqlite3_next_stmt(m_db, nullptr)) != nullptr) {
+            sqlite3_finalize(pStmt);
+        }
+        sqlite3_close_v2(m_db);
         m_db = nullptr;
     }
 
@@ -57,16 +65,14 @@ bool Database::Open(const std::string& db_path) {
     if (rc != SQLITE_OK) {
         const char* message = m_db ? sqlite3_errmsg(m_db) : "unknown SQLite open error";
         std::cerr << "Failed to open SQLite database: " << message << std::endl;
-        if (m_db) sqlite3_close(m_db);
-        m_db = nullptr;
+        Close();
         return false;
     }
 
     // Register custom SQLite scalar functions
     if (sqlite3_create_function(m_db, "is_user_handle", 1, SQLITE_UTF8, nullptr, SqliteIsUserHandle, nullptr, nullptr) != SQLITE_OK) {
         std::cerr << "Failed to register SQLite user-handle function: " << sqlite3_errmsg(m_db) << std::endl;
-        sqlite3_close(m_db);
-        m_db = nullptr;
+        Close();
         return false;
     }
 
@@ -126,8 +132,7 @@ bool Database::Open(const std::string& db_path) {
     if (rc != SQLITE_OK) {
         std::cerr << "Failed to initialize database schema: " << (errmsg ? errmsg : "") << std::endl;
         sqlite3_free(errmsg);
-        sqlite3_close(m_db);
-        m_db = nullptr;
+        Close();
         return false;
     }
 
@@ -161,19 +166,15 @@ bool Database::Open(const std::string& db_path) {
     if (!ensure_column("details_json", "details_json TEXT") ||
         !ensure_column("details_blob", "details_blob BLOB") ||
         !ensure_column("details_format", "details_format INTEGER DEFAULT 1")) {
-        sqlite3_close(m_db);
-        m_db = nullptr;
+        Close();
         return false;
     }
 
     if (!MigrateDetailsStorage()) {
         std::cerr << "Failed to migrate replay details storage." << std::endl;
-        sqlite3_close(m_db);
-        m_db = nullptr;
+        Close();
         return false;
     }
-
-    RepairWeeklyMutationsIfNeeded();
 
     // Sanitize corrupted historical commander names
     sqlite3_exec(m_db,

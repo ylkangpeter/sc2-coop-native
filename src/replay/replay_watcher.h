@@ -4,7 +4,11 @@
 #include <thread>
 #include <atomic>
 #include <unordered_set>
+#include <unordered_map>
 #include <functional>
+#include <condition_variable>
+#include <mutex>
+#include <chrono>
 #include "replay_types.h"
 
 namespace sc2 {
@@ -24,9 +28,13 @@ private:
     ~ReplayWatcher();
 
     void WatchLoop();
+    bool InterruptibleSleep(std::chrono::milliseconds ms);
 
     std::thread m_thread;
     std::atomic<bool> m_running{false};
+    std::condition_variable m_cv;
+    std::mutex m_cv_mutex;
+    std::unordered_map<std::string, int64_t> m_failed_replays;
     std::function<void(const ReplayRecord&, bool is_best_time)> m_on_new_match;
 };
 

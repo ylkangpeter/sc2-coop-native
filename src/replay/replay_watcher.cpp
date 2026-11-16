@@ -32,9 +32,15 @@ void ReplayWatcher::Start() {
 void ReplayWatcher::Stop() {
     if (!m_running.load()) return;
     m_running = false;
+    m_cv.notify_all();
     if (m_thread.joinable()) {
         m_thread.join();
     }
+}
+
+bool ReplayWatcher::InterruptibleSleep(std::chrono::milliseconds ms) {
+    std::unique_lock<std::mutex> lock(m_cv_mutex);
+    return !m_cv.wait_for(lock, ms, [this]() { return !m_running.load(); });
 }
 
 void ReplayWatcher::SetOnNewMatchCallback(std::function<void(const ReplayRecord&, bool is_best_time)> callback) {
@@ -43,7 +49,7 @@ void ReplayWatcher::SetOnNewMatchCallback(std::function<void(const ReplayRecord&
 
 void ReplayWatcher::WatchLoop() {
     // Initial cool-down
-    std::this_thread::sleep_for(std::chrono::seconds(2));
+    if (!InterruptibleSleep(std::chrono::seconds(2))) return;
 
     auto watcher_start = std::chrono::system_clock::now();
     int64_t watcher_start_epoch = std::chrono::duration_cast<std::chrono::seconds>(watcher_start.time_since_epoch()).count();
@@ -52,8 +58,10 @@ void ReplayWatcher::WatchLoop() {
     auto last_dir_refresh = std::chrono::steady_clock::time_point{};
 
     while (m_running.load()) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1500));
-        if (!m_running.load()) break;
+        int interval_sec = AppState::Instance().scan_interval_seconds;
+        if (interval_sec < 2) interval_sec = 2;
+        if (interval_sec > 10) interval_sec = 10;
+        if (!InterruptibleSleep(std::chrono::seconds(interval_sec))) break;
 
         const auto& state = AppState::Instance();
         std::string acct_folder = state.GetAccountFolder();
@@ -112,6 +120,13 @@ void ReplayWatcher::WatchLoop() {
                                 if (_wstat64(entry.path().c_str(), &st) == 0) {
                                     disk_mtime = st.st_mtime;
                                 }
+
+                                auto it_failed = m_failed_replays.find(u8path);
+                                if (it_failed != m_failed_replays.end() && disk_mtime <= it_failed->second) {
+                                    // File previously failed to parse and hasn't changed on disk. Skip it.
+                                    continue;
+                                }
+
                                 if (it_mtime == valid_mtimes.end() || disk_mtime > it_mtime->second) {
                                     auto cur_time = entry.last_write_time(entry_ec);
                                     if (!entry_ec) {
@@ -140,14 +155,20 @@ void ReplayWatcher::WatchLoop() {
                 if (_wstat64(replay_path.c_str(), &st) == 0) {
                     disk_mtime = st.st_mtime;
                 }
+
+                auto it_failed = m_failed_replays.find(u8path);
+                if (it_failed != m_failed_replays.end() && disk_mtime <= it_failed->second) {
+                    // File previously failed to parse and hasn't changed on disk. Skip it.
+                    continue;
+                }
+
                 if (Database::Instance().GetReplayMtime(u8path) >= disk_mtime &&
                     Database::Instance().HasValidReplay(u8path)) {
                     continue;
                 }
 
                 // Sleep to ensure SC2 finished flushing and closing the file
-                std::this_thread::sleep_for(std::chrono::milliseconds(600));
-                if (!m_running.load()) break;
+                if (!InterruptibleSleep(std::chrono::milliseconds(600))) break;
 
                 std::optional<ReplayRecord> parsed;
                 try {
@@ -155,21 +176,17 @@ void ReplayWatcher::WatchLoop() {
                 } catch (...) {
                     parsed = std::nullopt;
                 }
-                if (parsed.has_value() && parsed->result != "Unknown") {
+
+                if (!parsed.has_value() || parsed->result == "Unknown") {
+                    m_failed_replays[u8path] = disk_mtime;
+                } else {
+                    m_failed_replays.erase(u8path);
                     auto rec = parsed.value();
 
                     // Check if this was the fastest time on this map
-                    StatsFilter f;
-                    auto stats = Database::Instance().CalculateStats(f);
-                    bool is_best = false;
-                    for (const auto& ms : stats.maps) {
-                        if (ms.map_name == rec.map_name) {
-                            if (rec.result == "Victory" && (ms.fastest_seconds <= 0 || rec.duration_seconds < ms.fastest_seconds)) {
-                                is_best = true;
-                            }
-                            break;
-                        }
-                    }
+                    int best_time = Database::Instance().GetFastestSecondsForMap(rec.map_name);
+                    bool is_best = (rec.result == "Victory" && rec.duration_seconds > 0 &&
+                                    (best_time <= 0 || rec.duration_seconds < best_time));
 
                     // Save new match to database
                     Database::Instance().SaveReplay(rec);

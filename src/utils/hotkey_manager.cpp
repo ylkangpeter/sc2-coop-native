@@ -3,6 +3,7 @@
 #include "win32_utils.h"
 #include "../ui/hud/summary_overlay.h"
 #include "../ui/hud/ally_toast.h"
+#include "../ui/ui_manager.h"
 #include <iostream>
 
 #define HOTKEY_SUMMARY_ID      2001
@@ -155,23 +156,13 @@ bool HotkeyManager::HandleLowLevelKey(DWORD vk, bool is_sys_key, bool is_down) {
 
         UINT mod = (ctrl ? MOD_CONTROL : 0) | (alt ? MOD_ALT : 0) | (shift ? MOD_SHIFT : 0) | (win ? MOD_WIN : 0);
 
-        auto& state = AppState::Instance();
-        if (m_recording_action == 1) {
-            state.hotkey_summary_mod = mod;
-            state.hotkey_summary_vk = vk;
-        } else if (m_recording_action == 2) {
-            state.hotkey_ally_mod = mod;
-            state.hotkey_ally_vk = vk;
-        } else if (m_recording_action == 3) {
-            state.hotkey_prev_mod = mod;
-            state.hotkey_prev_vk = vk;
-        } else if (m_recording_action == 4) {
-            state.hotkey_next_mod = mod;
-            state.hotkey_next_vk = vk;
-        }
-        state.SaveSettings();
-        RegisterAll();
+        int action = m_recording_action;
         StopRecording();
+        if (m_hwnd) {
+            PostMessageW(m_hwnd, WM_USER_HOTKEY_RECORDED, (WPARAM)action, MAKELPARAM(mod, vk));
+        } else {
+            ApplyRecordedHotkey(action, mod, vk);
+        }
         return true;
     }
 
@@ -199,7 +190,11 @@ bool HotkeyManager::HandleLowLevelKey(DWORD vk, bool is_sys_key, bool is_down) {
     // Hotkey 1: Toggle Match Summary Overlay
     if (state.hotkey_summary_enabled && state.hotkey_summary_vk != 0) {
         if (vk == state.hotkey_summary_vk && current_mod == state.hotkey_summary_mod) {
-            TriggerAction(HotkeyAction::ToggleSummary);
+            if (m_hwnd) {
+                PostMessageW(m_hwnd, WM_USER_HOTKEY_ACTION, static_cast<WPARAM>(HotkeyAction::ToggleSummary), 0);
+            } else {
+                TriggerAction(HotkeyAction::ToggleSummary);
+            }
             return true;
         }
     }
@@ -207,7 +202,11 @@ bool HotkeyManager::HandleLowLevelKey(DWORD vk, bool is_sys_key, bool is_down) {
     // Hotkey 2: Toggle Ally Info & Winrates
     if (state.hotkey_ally_enabled && state.hotkey_ally_vk != 0) {
         if (vk == state.hotkey_ally_vk && current_mod == state.hotkey_ally_mod) {
-            TriggerAction(HotkeyAction::AllyInfo);
+            if (m_hwnd) {
+                PostMessageW(m_hwnd, WM_USER_HOTKEY_ACTION, static_cast<WPARAM>(HotkeyAction::AllyInfo), 0);
+            } else {
+                TriggerAction(HotkeyAction::AllyInfo);
+            }
             return true;
         }
     }
@@ -215,24 +214,63 @@ bool HotkeyManager::HandleLowLevelKey(DWORD vk, bool is_sys_key, bool is_down) {
     // Hotkeys 3 & 4: Browse Previous / Next Match (only consume if Summary Overlay is visible)
     if (state.hotkey_nav_enabled && SummaryOverlay::Instance().IsActive()) {
         if (state.hotkey_prev_vk != 0 && vk == state.hotkey_prev_vk && current_mod == state.hotkey_prev_mod) {
-            TriggerAction(HotkeyAction::PrevMatch);
+            if (m_hwnd) {
+                PostMessageW(m_hwnd, WM_USER_HOTKEY_ACTION, static_cast<WPARAM>(HotkeyAction::PrevMatch), 0);
+            } else {
+                TriggerAction(HotkeyAction::PrevMatch);
+            }
             return true;
         }
         if (vk == VK_NEXT && current_mod == 0) { // Page Down
-            TriggerAction(HotkeyAction::PrevMatch);
+            if (m_hwnd) {
+                PostMessageW(m_hwnd, WM_USER_HOTKEY_ACTION, static_cast<WPARAM>(HotkeyAction::PrevMatch), 0);
+            } else {
+                TriggerAction(HotkeyAction::PrevMatch);
+            }
             return true;
         }
         if (state.hotkey_next_vk != 0 && vk == state.hotkey_next_vk && current_mod == state.hotkey_next_mod) {
-            TriggerAction(HotkeyAction::NextMatch);
+            if (m_hwnd) {
+                PostMessageW(m_hwnd, WM_USER_HOTKEY_ACTION, static_cast<WPARAM>(HotkeyAction::NextMatch), 0);
+            } else {
+                TriggerAction(HotkeyAction::NextMatch);
+            }
             return true;
         }
         if (vk == VK_PRIOR && current_mod == 0) { // Page Up
-            TriggerAction(HotkeyAction::NextMatch);
+            if (m_hwnd) {
+                PostMessageW(m_hwnd, WM_USER_HOTKEY_ACTION, static_cast<WPARAM>(HotkeyAction::NextMatch), 0);
+            } else {
+                TriggerAction(HotkeyAction::NextMatch);
+            }
             return true;
         }
     }
 
     return false;
+}
+
+void HotkeyManager::ApplyRecordedHotkey(int action_id, UINT mod, UINT vk) {
+    auto& state = AppState::Instance();
+    if (action_id == 1) {
+        state.hotkey_summary_mod = mod;
+        state.hotkey_summary_vk = vk;
+    } else if (action_id == 2) {
+        state.hotkey_ally_mod = mod;
+        state.hotkey_ally_vk = vk;
+    } else if (action_id == 3) {
+        state.hotkey_prev_mod = mod;
+        state.hotkey_prev_vk = vk;
+    } else if (action_id == 4) {
+        state.hotkey_next_mod = mod;
+        state.hotkey_next_vk = vk;
+    }
+    state.SaveSettings();
+    RegisterAll();
+}
+
+void HotkeyManager::DispatchAction(HotkeyAction action) {
+    TriggerAction(action);
 }
 
 void HotkeyManager::StartRecording(int action_id) {

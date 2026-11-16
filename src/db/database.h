@@ -185,6 +185,7 @@ public:
 
     // Stats calculations
     StatsSummary CalculateStats(const StatsFilter& filter);
+    int GetFastestSecondsForMap(const std::string& map_name);
 
     // Weekly mutation history matching
     struct WeeklyRecord {

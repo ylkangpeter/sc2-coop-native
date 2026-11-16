@@ -32,6 +32,9 @@ public:
     // Low-level keyboard hook callback handler
     bool HandleLowLevelKey(DWORD vk, bool is_sys_key, bool is_down);
 
+    void ApplyRecordedHotkey(int action_id, UINT mod, UINT vk);
+    void DispatchAction(HotkeyAction action);
+
     // Recording mode management
     void StartRecording(int action_id);
     void StopRecording();

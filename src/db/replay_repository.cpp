@@ -64,57 +64,68 @@ bool Database::BatchSaveReplays(const std::vector<ReplayRecord>& recs) {
         return false;
     }
 
-    for (const auto& rec : recs) {
-        stmt.BindText(1, rec.file_path);
-        stmt.BindInt64(2, rec.file_mtime);
-        stmt.BindText(3, rec.game_date);
-        stmt.BindText(4, rec.map_name);
-        stmt.BindText(5, rec.raw_map_name);
-        stmt.BindInt(6, rec.duration_seconds);
-        stmt.BindText(7, rec.form_length);
-        stmt.BindText(8, rec.result);
-        stmt.BindText(9, rec.difficulty);
-        stmt.BindInt(10, (rec.brutal_plus >= 1 && rec.brutal_plus <= 6) ? rec.brutal_plus : 0);
-        stmt.BindText(11, rec.enemy_race);
-        stmt.BindText(12, rec.region);
-        stmt.BindInt(13, rec.is_weekly ? 1 : 0);
+    try {
+        for (const auto& rec : recs) {
+            stmt.BindText(1, rec.file_path);
+            stmt.BindInt64(2, rec.file_mtime);
+            stmt.BindText(3, rec.game_date);
+            stmt.BindText(4, rec.map_name);
+            stmt.BindText(5, rec.raw_map_name);
+            stmt.BindInt(6, rec.duration_seconds);
+            stmt.BindText(7, rec.form_length);
+            stmt.BindText(8, rec.result);
+            stmt.BindText(9, rec.difficulty);
+            stmt.BindInt(10, (rec.brutal_plus >= 1 && rec.brutal_plus <= 6) ? rec.brutal_plus : 0);
+            stmt.BindText(11, rec.enemy_race);
+            stmt.BindText(12, rec.region);
+            stmt.BindInt(13, rec.is_weekly ? 1 : 0);
 
-        std::string mut_json = rec.MutatorsToJson();
-        stmt.BindText(14, mut_json);
+            std::string mut_json = rec.MutatorsToJson();
+            stmt.BindText(14, mut_json);
 
-        stmt.BindText(15, rec.p1.name);
-        stmt.BindText(16, rec.p1.handle);
-        stmt.BindText(17, rec.p1.commander);
-        stmt.BindInt(18, rec.p1.prestige);
-        stmt.BindInt(19, rec.p1.apm);
-        stmt.BindInt(20, rec.p1.kills);
+            stmt.BindText(15, rec.p1.name);
+            stmt.BindText(16, rec.p1.handle);
+            stmt.BindText(17, rec.p1.commander);
+            stmt.BindInt(18, rec.p1.prestige);
+            stmt.BindInt(19, rec.p1.apm);
+            stmt.BindInt(20, rec.p1.kills);
 
-        stmt.BindText(21, rec.p2.name);
-        stmt.BindText(22, rec.p2.handle);
-        stmt.BindText(23, rec.p2.commander);
-        stmt.BindInt(24, rec.p2.prestige);
-        stmt.BindInt(25, rec.p2.apm);
-        stmt.BindInt(26, rec.p2.kills);
+            stmt.BindText(21, rec.p2.name);
+            stmt.BindText(22, rec.p2.handle);
+            stmt.BindText(23, rec.p2.commander);
+            stmt.BindInt(24, rec.p2.prestige);
+            stmt.BindInt(25, rec.p2.apm);
+            stmt.BindInt(26, rec.p2.kills);
 
-        std::string chat_json = rec.ChatToJson();
-        stmt.BindText(27, chat_json);
+            std::string chat_json = rec.ChatToJson();
+            stmt.BindText(27, chat_json);
 
-        // Details compressed blob
-        stmt.BindNull(28);
-        std::vector<uint8_t> details_blob = rec.DetailsToCompressedBlob();
-        if (details_blob.empty()) {
-            stmt.BindNull(29);
-        } else {
-            stmt.BindBlob(29, details_blob);
+            // Details compressed blob
+            stmt.BindNull(28);
+            std::vector<uint8_t> details_blob = rec.DetailsToCompressedBlob();
+            if (details_blob.empty()) {
+                stmt.BindNull(29);
+            } else {
+                stmt.BindBlob(29, details_blob);
+            }
+            stmt.BindInt(30, details_blob.empty() ? 0 : 1);
+
+            int step_res = stmt.Step();
+            if (step_res != SQLITE_DONE) {
+                std::cerr << "[DB ERROR] BatchSaveReplays step failed: " << sqlite3_errmsg(m_db) << "\n";
+                txn.Rollback();
+                return false;
+            }
+            stmt.Reset();
         }
-        stmt.BindInt(30, details_blob.empty() ? 0 : 1);
-
-        int step_res = stmt.Step();
-        if (step_res != SQLITE_DONE) {
-            std::cerr << "[DB ERROR] BatchSaveReplays step failed: " << sqlite3_errmsg(m_db) << "\n";
-            return false;
-        }
-        stmt.Reset();
+    } catch (const std::exception& e) {
+        std::cerr << "[DB ERROR] BatchSaveReplays exception: " << e.what() << "\n";
+        txn.Rollback();
+        return false;
+    } catch (...) {
+        std::cerr << "[DB ERROR] BatchSaveReplays unknown exception\n";
+        txn.Rollback();
+        return false;
     }
 
     if (!txn.Commit()) {

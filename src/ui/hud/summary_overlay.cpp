@@ -397,6 +397,7 @@ void SummaryOverlay::Render() {
         return;
     }
     HGDIOBJ hOldBmp = SelectObject(hdcMem, hBitmap);
+    HGDIOBJ hOldFont = (HGDIOBJ)GetCurrentObject(hdcMem, OBJ_FONT);
 
     // 1. Premultiplied Background Fill with Horizontal Gradient Mask
     // Matches original CSS: mask-image: linear-gradient(90deg, rgba(0,0,0,0), rgba(0,0,0,0.8)...)
@@ -556,6 +557,10 @@ void SummaryOverlay::Render() {
     UpdateLayeredWindow(m_hwnd, hdcScreen, &ptDst, &sz, hdcMem, &ptZero, RGB(0, 0, 0), &blend, ULW_ALPHA);
 
     // Cleanup GDI objects
+    if (hOldFont) {
+        SelectObject(hdcMem, hOldFont);
+    }
+
     DeleteObject(fonts.hFontTitle);
     DeleteObject(fonts.hFontPlayerName);
     DeleteObject(fonts.hFontPrestige);
@@ -565,11 +570,6 @@ void SummaryOverlay::Render() {
     DeleteObject(fonts.hFontUnitBold);
     DeleteObject(fonts.hFontChartTitle);
     DeleteObject(fonts.hFontAxis);
-
-    SelectObject(hdcMem, hOldBmp);
-    DeleteObject(hBitmap);
-    DeleteDC(hdcMem);
-    ReleaseDC(nullptr, hdcScreen);
 
     SelectObject(hdcMem, hOldBmp);
     DeleteObject(hBitmap);

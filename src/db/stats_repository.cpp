@@ -205,7 +205,7 @@ StatsSummary Database::CalculateStats(const StatsFilter& filter) {
         // Maps
         auto& ma = map_map[map_name];
         if (is_victory) ma.wins++; else ma.losses++;
-        ma.total_seconds += dur;
+        ma.total_seconds += valid_duration;
         if (dur > 0 && (ma.fastest_seconds == 0 || dur < ma.fastest_seconds)) {
             ma.fastest_seconds = dur;
         }
@@ -355,6 +355,18 @@ StatsSummary Database::CalculateStats(const StatsFilter& filter) {
     }
 
     return sum;
+}
+
+int Database::GetFastestSecondsForMap(const std::string& map_name) {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    if (!m_db || map_name.empty()) return 0;
+    SqliteStmt stmt(m_db, "SELECT MIN(duration_seconds) FROM replays WHERE map_name = ? AND result = 'Victory' AND duration_seconds > 0;");
+    if (!stmt.IsValid()) return 0;
+    stmt.BindText(1, map_name);
+    if (stmt.Step() == SQLITE_ROW) {
+        return stmt.ColumnInt(0);
+    }
+    return 0;
 }
 
 } // namespace sc2

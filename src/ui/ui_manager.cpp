@@ -81,6 +81,14 @@ LRESULT WINAPI UIManager::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPa
             UIManager::Instance().ProcessPendingMatches();
             return 0;
 
+        case WM_USER_HOTKEY_ACTION:
+            HotkeyManager::Instance().DispatchAction(static_cast<HotkeyAction>(wParam));
+            return 0;
+
+        case WM_USER_HOTKEY_RECORDED:
+            HotkeyManager::Instance().ApplyRecordedHotkey(static_cast<int>(wParam), (UINT)LOWORD(lParam), (UINT)HIWORD(lParam));
+            return 0;
+
         case WM_COMMAND:
             switch (LOWORD(wParam)) {
                 case ID_TRAY_SHOW:
