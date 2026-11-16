@@ -121,9 +121,10 @@ void ReplayWatcher::WatchLoop() {
                                     disk_mtime = st.st_mtime;
                                 }
 
-                                auto it_failed = m_failed_replays.find(u8path);
-                                if (it_failed != m_failed_replays.end() && disk_mtime <= it_failed->second) {
-                                    // File previously failed to parse and hasn't changed on disk. Skip it.
+                                auto retry_it = m_failed_retry_after.find(u8path);
+                                if (retry_it != m_failed_retry_after.end() &&
+                                    std::chrono::steady_clock::now() < retry_it->second) {
+                                    // Give a partially written replay a short retry backoff.
                                     continue;
                                 }
 
@@ -156,9 +157,10 @@ void ReplayWatcher::WatchLoop() {
                     disk_mtime = st.st_mtime;
                 }
 
-                auto it_failed = m_failed_replays.find(u8path);
-                if (it_failed != m_failed_replays.end() && disk_mtime <= it_failed->second) {
-                    // File previously failed to parse and hasn't changed on disk. Skip it.
+                auto retry_it = m_failed_retry_after.find(u8path);
+                if (retry_it != m_failed_retry_after.end() &&
+                    std::chrono::steady_clock::now() < retry_it->second) {
+                    // Give a partially written replay a short retry backoff.
                     continue;
                 }
 
@@ -178,9 +180,10 @@ void ReplayWatcher::WatchLoop() {
                 }
 
                 if (!parsed.has_value() || parsed->result == "Unknown") {
-                    m_failed_replays[u8path] = disk_mtime;
+                    m_failed_retry_after[u8path] =
+                        std::chrono::steady_clock::now() + std::chrono::seconds(1);
                 } else {
-                    m_failed_replays.erase(u8path);
+                    m_failed_retry_after.erase(u8path);
                     auto rec = parsed.value();
 
                     // Check if this was the fastest time on this map

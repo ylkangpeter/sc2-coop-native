@@ -87,7 +87,7 @@ However, running a full web runtime inside an overlay poses noticeable drawbacks
 
 ## 📥 Download & Usage
 
-1. Go to the [**Releases**](https://github.com/ylkangpeter/sc2-coop-native/releases) page and download `sc2-coop-native-v1.0.11-windows-x64.zip`.
+1. Go to the [**Releases**](https://github.com/ylkangpeter/sc2-coop-native/releases) page and download `sc2-coop-native-v1.0.12-windows-x64.zip`.
 2. Extract the archive anywhere on your PC (e.g. `D:\Tools\SC2_Coop_Native\`).
 3. Run `sc2_coop.exe`.
 4. Launch **StarCraft II** in **Windowed (Fullscreen)** or **Windowed** mode.

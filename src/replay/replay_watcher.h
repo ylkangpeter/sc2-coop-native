@@ -34,7 +34,7 @@ private:
     std::atomic<bool> m_running{false};
     std::condition_variable m_cv;
     std::mutex m_cv_mutex;
-    std::unordered_map<std::string, int64_t> m_failed_replays;
+    std::unordered_map<std::string, std::chrono::steady_clock::time_point> m_failed_retry_after;
     std::function<void(const ReplayRecord&, bool is_best_time)> m_on_new_match;
 };
 
