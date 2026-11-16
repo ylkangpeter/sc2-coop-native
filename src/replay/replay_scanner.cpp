@@ -163,9 +163,11 @@ void ReplayScanner::RunScan(bool force_reparse, bool auto_repair_after) {
                     }
                 }
             } catch (const std::exception& e) {
-                std::cerr << "Parse exception for " << p.string() << ": " << e.what() << std::endl;
+                std::cerr << "Parse exception for " << Win32Utils::WideToUtf8(p.wstring())
+                          << ": " << e.what() << std::endl;
             } catch (...) {
-                std::cerr << "Unknown parse exception for " << p.string() << std::endl;
+                std::cerr << "Unknown parse exception for "
+                          << Win32Utils::WideToUtf8(p.wstring()) << std::endl;
             }
 
             processed++;

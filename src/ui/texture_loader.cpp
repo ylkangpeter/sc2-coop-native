@@ -9,6 +9,18 @@
 
 namespace sc2 {
 
+namespace {
+
+static bool IsSafeAssetName(const std::string& name) {
+    if (name.empty() || name == "." || name == "..") return false;
+    if (name.find("..") != std::string::npos) return false;
+    if (name.find('/') != std::string::npos || name.find('\\') != std::string::npos) return false;
+    if (name.find(':') != std::string::npos) return false;
+    return true;
+}
+
+} // namespace
+
 TextureLoader& TextureLoader::Instance() {
     static TextureLoader instance;
     return instance;
@@ -114,13 +126,13 @@ ImTextureID TextureLoader::GetCommanderIcon(const std::string& commander_name) {
 }
 
 ImTextureID TextureLoader::GetMutatorIcon(const std::string& mutator_name) {
-    if (mutator_name.empty()) return (ImTextureID)0;
+    if (!IsSafeAssetName(mutator_name)) return (ImTextureID)0;
     std::string path = "assets/icons/mutators/" + mutator_name + ".png";
     return GetTexture(path);
 }
 
 ImTextureID TextureLoader::GetMapImage(const std::string& map_name) {
-    if (map_name.empty()) return (ImTextureID)0;
+    if (!IsSafeAssetName(map_name)) return (ImTextureID)0;
     std::string path = "assets/maps/" + map_name + ".jpg";
     return GetTexture(path);
 }

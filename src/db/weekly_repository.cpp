@@ -191,21 +191,39 @@ void Database::RepairWeeklyMutationsIfNeeded() {
             }
         }
 
+        bool migration_ok = true;
         if (!updates.empty()) {
             SqliteStmt update_stmt(m_db, "UPDATE replays SET is_weekly = 1, mutators_json = ? WHERE file_path = ?;");
-            if (update_stmt.IsValid()) {
-                SqliteTransaction txn(m_db);
+            SqliteTransaction txn(m_db);
+            migration_ok = update_stmt.IsValid() && txn.IsActive();
+
+            if (migration_ok) {
                 for (const auto& [mj, path] : updates) {
                     update_stmt.BindText(1, mj);
                     update_stmt.BindText(2, path);
-                    update_stmt.Step();
+                    if (update_stmt.Step() != SQLITE_DONE) {
+                        migration_ok = false;
+                        break;
+                    }
                     update_stmt.Reset();
                 }
-                if (txn.Commit()) {
-                    BumpRevision();
-                }
+            }
+
+            if (migration_ok && txn.Commit()) {
+                BumpRevision();
+            } else {
+                migration_ok = false;
+                txn.Rollback();
             }
         }
+
+        // Only mark the migration complete after all database writes succeeded.
+        // Otherwise a transient lock or statement error would permanently skip
+        // the repair on a later startup.
+        if (migration_ok) {
+            SetSetting("weekly_repair_version", "1");
+        }
+        return;
     }
 
     SetSetting("weekly_repair_version", "1");

@@ -2,11 +2,20 @@
 #include <iostream>
 #include <fstream>
 #include <sstream>
+#include <cstring>
 #include "app_state.h"
 #include "ui/ui_manager.h"
 #include "db/database.h"
 #include "utils/win32_utils.h"
 #include <backends/imgui_impl_win32.h>
+
+static const char* FileNameOnly(const char* path) {
+    if (!path) return "UnknownModule";
+    const char* slash = strrchr(path, '\\');
+    const char* forward_slash = strrchr(path, '/');
+    if (forward_slash && (!slash || forward_slash > slash)) slash = forward_slash;
+    return slash ? slash + 1 : path;
+}
 
 static LONG WINAPI CrashHandler(EXCEPTION_POINTERS* pException) {
     HANDLE hFile = CreateFileA("crash_log.txt", FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -22,6 +31,7 @@ static LONG WINAPI CrashHandler(EXCEPTION_POINTERS* pException) {
                                (LPCSTR)pException->ExceptionRecord->ExceptionAddress, &hMod) && hMod) {
             GetModuleFileNameA(hMod, modName, MAX_PATH);
         }
+        const char* modFileName = FileNameOnly(modName);
         uintptr_t offset = (uintptr_t)pException->ExceptionRecord->ExceptionAddress - (uintptr_t)hMod;
 
         int len = snprintf(log_buf, sizeof(log_buf),
@@ -33,7 +43,7 @@ static LONG WINAPI CrashHandler(EXCEPTION_POINTERS* pException) {
             st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond, st.wMilliseconds,
             (unsigned int)pException->ExceptionRecord->ExceptionCode,
             pException->ExceptionRecord->ExceptionAddress,
-            modName, offset);
+            modFileName, offset);
         if (len > 0) WriteFile(hFile, log_buf, len, &bytesWritten, nullptr);
 
         if (pException->ExceptionRecord->ExceptionCode == 0xC0000005 && pException->ExceptionRecord->NumberParameters >= 2) {
@@ -56,8 +66,9 @@ static LONG WINAPI CrashHandler(EXCEPTION_POINTERS* pException) {
                                    (LPCSTR)stack[i], &frameMod) && frameMod) {
                 GetModuleFileNameA(frameMod, frameModName, MAX_PATH);
             }
+            const char* frameFileName = FileNameOnly(frameModName);
             uintptr_t frameOffset = (uintptr_t)stack[i] - (uintptr_t)frameMod;
-            len = snprintf(log_buf, sizeof(log_buf), "  #%u %p (%s + 0x%zx)\n", (unsigned int)i, stack[i], frameModName, frameOffset);
+            len = snprintf(log_buf, sizeof(log_buf), "  #%u %p (%s + 0x%zx)\n", (unsigned int)i, stack[i], frameFileName, frameOffset);
             if (len > 0) WriteFile(hFile, log_buf, len, &bytesWritten, nullptr);
         }
 
