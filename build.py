@@ -88,6 +88,8 @@ SOURCES = [
     PROJECT_ROOT / "src" / "ui" / "texture_loader.cpp",
     PROJECT_ROOT / "src" / "ui" / "ui_manager.cpp",
     PROJECT_ROOT / "src" / "ui" / "hud" / "summary_overlay.cpp",
+    PROJECT_ROOT / "src" / "ui" / "hud" / "summary_overlay_chart.cpp",
+    PROJECT_ROOT / "src" / "ui" / "hud" / "summary_overlay_render.cpp",
     PROJECT_ROOT / "src" / "ui" / "hud" / "ally_toast.cpp",
     PROJECT_ROOT / "src" / "ui" / "tabs" / "tab_settings.cpp",
     PROJECT_ROOT / "src" / "ui" / "tabs" / "tab_games.cpp",

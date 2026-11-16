@@ -11,14 +11,8 @@
 
 namespace sc2 {
 
-static std::wstring ToWide(const std::string& str) {
-    if (str.empty()) return L"";
-    int len = MultiByteToWideChar(CP_UTF8, 0, str.c_str(), -1, nullptr, 0);
-    if (len <= 0) return L"";
-    std::wstring w(len, 0);
-    MultiByteToWideChar(CP_UTF8, 0, str.c_str(), -1, &w[0], len);
-    if (!w.empty() && w.back() == L'\0') w.pop_back();
-    return w;
+static inline std::wstring ToWide(const std::string& str) {
+    return Win32Utils::Utf8ToWide(str);
 }
 
 LRESULT CALLBACK AllyToastWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {

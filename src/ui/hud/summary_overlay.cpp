@@ -1,4 +1,6 @@
 #include "summary_overlay.h"
+#include "summary_overlay_types.h"
+#include "summary_overlay_render.h"
 #include "../../db/database.h"
 #include "../../app_state.h"
 #include "../../utils/win32_utils.h"
@@ -16,35 +18,8 @@
 
 namespace sc2 {
 
-static std::wstring ToWide(const std::string& str) {
-    if (str.empty()) return L"";
-    int len = MultiByteToWideChar(CP_UTF8, 0, str.c_str(), -1, nullptr, 0);
-    if (len <= 0) return L"";
-    std::wstring w(len, 0);
-    MultiByteToWideChar(CP_UTF8, 0, str.c_str(), -1, &w[0], len);
-    if (!w.empty() && w.back() == L'\0') w.pop_back();
-    return w;
-}
-
-static std::wstring FormatSeconds(float sec) {
-    int total_s = static_cast<int>(sec + 0.5f);
-    int m = total_s / 60;
-    int s = total_s % 60;
-    wchar_t buf[16];
-    wsprintfW(buf, L"%02d:%02d", m, s);
-    return buf;
-}
-
-static std::wstring FormatChartValue(float val) {
-    wchar_t buf[32];
-    if (val >= 1000.0f) {
-        int thousands = (int)(val / 1000.0f);
-        int rem = ((int)val) % 1000;
-        wsprintfW(buf, L"%d,%03d", thousands, rem);
-    } else {
-        wsprintfW(buf, L"%d", (int)(val + 0.5f));
-    }
-    return buf;
+static inline std::wstring ToWide(const std::string& str) {
+    return Win32Utils::Utf8ToWide(str);
 }
 
 LRESULT CALLBACK SummaryOverlay::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
@@ -446,151 +421,39 @@ void SummaryOverlay::Render() {
     // Dynamic font sizes matching original CSS vh units (Eurostile / Microsoft YaHei)
     bool is_zh = (AppState::Instance().language == 0 || AppState::Instance().language_code == "zh_CN");
     const wchar_t* kFontFamily = is_zh ? L"Microsoft YaHei" : L"Eurostile";
-    HFONT hFontTitle = CreateFontW((int)(height * 0.026f), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+    SummaryOverlayFonts fonts;
+    fonts.hFontTitle = CreateFontW((int)(height * 0.026f), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
                                    DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                                    CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, kFontFamily);
-    HFONT hFontPlayerName = CreateFontW((int)(height * 0.025f), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+    fonts.hFontPlayerName = CreateFontW((int)(height * 0.025f), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
                                         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                                         CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, kFontFamily);
-    HFONT hFontPrestige = CreateFontW((int)(height * 0.016f), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+    fonts.hFontPrestige = CreateFontW((int)(height * 0.016f), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
                                       DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                                       CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, kFontFamily);
-    HFONT hFontMap = CreateFontW((int)(height * 0.017f), 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
+    fonts.hFontMap = CreateFontW((int)(height * 0.017f), 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
                                  DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                                  CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, kFontFamily);
-    HFONT hFontMastery = CreateFontW((int)(height * 0.015f), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+    fonts.hFontMastery = CreateFontW((int)(height * 0.015f), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                                      DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                                      CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, kFontFamily);
-    HFONT hFontUnit = CreateFontW((int)(height * 0.016f), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+    fonts.hFontUnit = CreateFontW((int)(height * 0.016f), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                                   DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                                   CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, kFontFamily);
-    HFONT hFontUnitBold = CreateFontW((int)(height * 0.016f), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+    fonts.hFontUnitBold = CreateFontW((int)(height * 0.016f), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
                                       DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                                       CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, kFontFamily);
-    HFONT hFontChartTitle = CreateFontW((int)(height * 0.018f), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
-                                       DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                                       CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, kFontFamily);
-    HFONT hFontAxis = CreateFontW((int)(height * 0.013f), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+    fonts.hFontChartTitle = CreateFontW((int)(height * 0.018f), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+                                        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                                        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, kFontFamily);
+    fonts.hFontAxis = CreateFontW((int)(height * 0.013f), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                                   DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                                   CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, kFontFamily);
+    fonts.hFontRotated = m_hFontRotated;
 
     const auto& r = m_current_record;
 
-    // Helper: Draw Left Chart with Grid Lines, Angled X Timestamps, and Dual Curves
-    auto DrawChart = [&](int cx, int cy, int cw, int ch,
-                        const std::wstring& title,
-                        const std::vector<float>& times1, const std::vector<float>& vals1,
-                        const std::vector<float>& times2, const std::vector<float>& vals2,
-                        COLORREF color1, COLORREF color2) {
-        // Plot drawing region inside chart
-        int px = cx + 55;
-        int py = cy + 28;
-        int pw = cw - 70;
-        int ph = ch - 58;
-
-        // Chart Title (Centered above plot, Eurostile bold #DDDDDD)
-        SelectObject(hdcMem, hFontChartTitle);
-        SetTextColor(hdcMem, RGB(225, 230, 240));
-        RECT rcTitle = { px, cy, px + pw, cy + 24 };
-        DrawTextW(hdcMem, title.c_str(), -1, &rcTitle, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-
-        float max_time = r.duration_seconds > 0 ? (float)r.duration_seconds : 900.0f;
-        if (max_time < 60.0f) max_time = 60.0f;
-
-        float max_val = 10.0f;
-        for (float v : vals1) if (v > max_val) max_val = v;
-        for (float v : vals2) if (v > max_val) max_val = v;
-
-        // Clean round Y intervals matching reference screenshot
-        if (max_val > 10000.0f) max_val = std::ceil(max_val / 4000.0f) * 4000.0f;
-        else if (max_val > 4000.0f) max_val = std::ceil(max_val / 2000.0f) * 2000.0f;
-        else if (max_val > 1000.0f) max_val = std::ceil(max_val / 1000.0f) * 1000.0f;
-        else if (max_val > 400.0f) max_val = std::ceil(max_val / 200.0f) * 200.0f;
-        else if (max_val > 100.0f) max_val = std::ceil(max_val / 50.0f) * 50.0f;
-        else max_val = std::ceil(max_val / 20.0f) * 20.0f;
-        if (max_val < 40.0f) max_val = 40.0f;
-
-        // Draw horizontal grid lines & Y labels (4 intervals, color #333333)
-        SelectObject(hdcMem, hFontAxis);
-        SetTextColor(hdcMem, RGB(170, 170, 170));
-        HPEN hPenGrid = CreatePen(PS_SOLID, 1, RGB(55, 55, 55));
-        HGDIOBJ hOldPen = SelectObject(hdcMem, hPenGrid);
-
-        for (int i = 0; i <= 4; ++i) {
-            float frac = (float)i / 4.0f;
-            int ly = py + ph - (int)(frac * ph);
-            float cur_val = frac * max_val;
-
-            MoveToEx(hdcMem, px, ly, nullptr);
-            LineTo(hdcMem, px + pw, ly);
-
-            std::wstring lbl = FormatChartValue(cur_val);
-            RECT rcLbl = { cx + 2, ly - 8, px - 6, ly + 8 };
-            DrawTextW(hdcMem, lbl.c_str(), -1, &rcLbl, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
-        }
-
-        // Draw vertical grid lines & X labels (every 100s, e.g. 00:00, 01:40, 03:20... matching original)
-        float time_step = 100.0f;
-        if (max_time > 2400.0f) time_step = 200.0f;
-        else if (max_time < 600.0f) time_step = 60.0f;
-
-        for (float cur_time = 0.0f; cur_time <= max_time + 0.1f; cur_time += time_step) {
-            int lx = px + (int)((cur_time / max_time) * pw);
-            if (lx > px + pw) break;
-
-            MoveToEx(hdcMem, lx, py, nullptr);
-            LineTo(hdcMem, lx, py + ph);
-
-            // 45-degree angled X timestamp text
-            std::wstring t_lbl = FormatSeconds(cur_time);
-            if (m_hFontRotated) {
-                SelectObject(hdcMem, m_hFontRotated);
-                SetTextColor(hdcMem, RGB(170, 170, 170));
-                TextOutW(hdcMem, lx - 8, py + ph + 24, t_lbl.c_str(), (int)t_lbl.length());
-            } else {
-                SelectObject(hdcMem, hFontAxis);
-                SetTextColor(hdcMem, RGB(170, 170, 170));
-                RECT rcTLbl = { lx - 20, py + ph + 4, lx + 20, py + ph + 18 };
-                DrawTextW(hdcMem, t_lbl.c_str(), -1, &rcTLbl, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-            }
-        }
-        SelectObject(hdcMem, hOldPen);
-        DeleteObject(hPenGrid);
-
-        // Draw Data Polylines
-        auto PlotSeries = [&](const std::vector<float>& times, const std::vector<float>& vals, COLORREF col) {
-            if (times.empty() || vals.empty()) return;
-            std::vector<POINT> pts;
-            pts.reserve(times.size());
-            for (size_t k = 0; k < times.size() && k < vals.size(); ++k) {
-                float t = times[k];
-                float v = vals[k];
-                int sx = px + (int)((t / max_time) * pw);
-                int sy = py + ph - (int)((v / max_val) * ph);
-                if (sx < px) sx = px;
-                if (sx > px + pw) sx = px + pw;
-                if (sy < py) sy = py;
-                if (sy > py + ph) sy = py + ph;
-                pts.push_back({ sx, sy });
-            }
-            if (pts.size() >= 2) {
-                HPEN hPen = CreatePen(PS_SOLID, 2, col);
-                HGDIOBJ hOldPen2 = SelectObject(hdcMem, hPen);
-                Polyline(hdcMem, pts.data(), static_cast<int>(pts.size()));
-                SelectObject(hdcMem, hOldPen2);
-                DeleteObject(hPen);
-            }
-        };
-
-        COLORREF c_p1 = RGB(0, 128, 248); // Original P1 Cyan/Blue #0080F8
-        COLORREF c_p2 = RGB(0, 213, 50);  // Original P2 Green #00D532
-        PlotSeries(times1, vals1, c_p1);
-        PlotSeries(times2, vals2, c_p2);
-    };
-
-    // ==========================================
-    // 2. RENDER LEFT COLUMN (4 LINE CHARTS)
-    // ==========================================
+    // 2. Render Left Column (4 Line Charts)
     const auto& s1 = r.p1_series;
     const auto& s2 = r.p2_series;
     int chart_w = (int)(height * 0.38f);
@@ -598,111 +461,26 @@ void SummaryOverlay::Render() {
     int chart_x = width - (int)(height * 0.88f);
     int top_margin = (int)(height * 0.045f);
 
-    DrawChart(chart_x, top_margin, chart_w, chart_h, ToWide(TR("Army value")),
-              s1.time_stamps, s1.army_value, s2.time_stamps, s2.army_value, RGB(0, 128, 248), RGB(0, 213, 50));
-    DrawChart(chart_x, top_margin + chart_h, chart_w, chart_h, ToWide(TR("Supply used")),
-              s1.time_stamps, s1.supply_used, s2.time_stamps, s2.supply_used, RGB(0, 128, 248), RGB(0, 213, 50));
-    DrawChart(chart_x, top_margin + chart_h * 2, chart_w, chart_h, ToWide(TR("Kill count")),
-              s1.time_stamps, s1.kill_count, s2.time_stamps, s2.kill_count, RGB(0, 128, 248), RGB(0, 213, 50));
-    DrawChart(chart_x, top_margin + chart_h * 3, chart_w, chart_h, ToWide(TR("Resource collection rate")),
-              s1.time_stamps, s1.collection_rate, s2.time_stamps, s2.collection_rate, RGB(0, 128, 248), RGB(0, 213, 50));
+    float dur = (float)r.duration_seconds;
+    DrawSummaryChart(hdcMem, fonts, chart_x, top_margin, chart_w, chart_h, ToWide(TR("Army value")),
+                     dur, s1.time_stamps, s1.army_value, s2.time_stamps, s2.army_value, RGB(0, 128, 248), RGB(0, 213, 50));
+    DrawSummaryChart(hdcMem, fonts, chart_x, top_margin + chart_h, chart_w, chart_h, ToWide(TR("Supply used")),
+                     dur, s1.time_stamps, s1.supply_used, s2.time_stamps, s2.supply_used, RGB(0, 128, 248), RGB(0, 213, 50));
+    DrawSummaryChart(hdcMem, fonts, chart_x, top_margin + chart_h * 2, chart_w, chart_h, ToWide(TR("Kill count")),
+                     dur, s1.time_stamps, s1.kill_count, s2.time_stamps, s2.kill_count, RGB(0, 128, 248), RGB(0, 213, 50));
+    DrawSummaryChart(hdcMem, fonts, chart_x, top_margin + chart_h * 3, chart_w, chart_h, ToWide(TR("Resource collection rate")),
+                     dur, s1.time_stamps, s1.collection_rate, s2.time_stamps, s2.collection_rate, RGB(0, 128, 248), RGB(0, 213, 50));
 
-    // ==========================================
-    // 3. RENDER RIGHT COLUMN (TOP BANNER & STATS)
-    // ==========================================
+    // 3. Render Right Column (Top Banner & Sections)
     int rw = (int)(height * 0.48f);
     int rx = width - rw - (int)(height * 0.015f);
 
-    // --- Row 1: Player Names, Victory Banner & Match Timestamp ---
-    bool is_win = (r.result == "Victory");
-    COLORREF color_result = is_win ? RGB(225, 225, 225) : RGB(231, 76, 60);
+    DrawSummaryBanner(hdcMem, pixels, width, height, fonts, r, rx, rw);
 
-    std::wstring p1_name_w = ToWide(Win32Utils::CleanPlayerName(r.p1.name));
-    std::wstring p2_name_w = ToWide(Win32Utils::CleanPlayerName(r.p2.name));
-
-    SelectObject(hdcMem, hFontPlayerName);
-    SIZE szName1 = { 0, 0 };
-    GetTextExtentPoint32W(hdcMem, p1_name_w.c_str(), (int)p1_name_w.length(), &szName1);
-    SIZE szName2 = { 0, 0 };
-    GetTextExtentPoint32W(hdcMem, p2_name_w.c_str(), (int)p2_name_w.length(), &szName2);
-
-    std::wstring result_w;
-    if (is_win) {
-        result_w = r.is_weekly ? ToWide(TR("Weekly Victory!")) : ToWide(TR("Victory!"));
-    } else if (r.result == "Tie") {
-        result_w = ToWide(TR("Tie!"));
-    } else {
-        result_w = ToWide(TR("Defeat!"));
-    }
-    SelectObject(hdcMem, hFontTitle);
-    SIZE szRes = { 0, 0 };
-    GetTextExtentPoint32W(hdcMem, result_w.c_str(), (int)result_w.length(), &szRes);
-
-    std::wstring time_text = ToWide(r.game_date);
-    SIZE szTime = { 0, 0 };
-    if (!time_text.empty()) {
-        SelectObject(hdcMem, hFontMap);
-        GetTextExtentPoint32W(hdcMem, time_text.c_str(), (int)time_text.length(), &szTime);
-    }
-
-    int row1_top = (int)(height * 0.035f);
-    int row1_bot = (int)(height * 0.072f);
-    int name_top = (int)(height * 0.038f);
-
-    int gap = (int)(height * 0.010f);
-    if (gap < 8) gap = 8;
-
-    int total_mid_w = szRes.cx;
-    if (!time_text.empty()) {
-        total_mid_w += gap + szTime.cx;
-    }
-
-    int mid_start = (rx + rw / 2) - total_mid_w / 2;
-    int min_left = rx + szName1.cx + 10;
-    int max_right = rx + rw - szName2.cx - 10;
-
-    if (mid_start < min_left) {
-        mid_start = min_left;
-    }
-    if (mid_start + total_mid_w > max_right) {
-        mid_start = max_right - total_mid_w;
-        if (mid_start < min_left) {
-            mid_start = min_left;
-        }
-    }
-
-    // P1 Name (Blue, left-aligned)
-    SelectObject(hdcMem, hFontPlayerName);
-    SetTextColor(hdcMem, RGB(0, 128, 248));
-    int p1_r = std::max(rx + rw / 4, mid_start - 6);
-    RECT rcName1 = { rx, name_top, p1_r, row1_bot };
-    DrawTextW(hdcMem, p1_name_w.c_str(), -1, &rcName1, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
-
-    // Result Text (Victory! / Defeat! / Weekly Victory!)
-    SelectObject(hdcMem, hFontTitle);
-    SetTextColor(hdcMem, color_result);
-    RECT rcRes = { mid_start, row1_top, mid_start + szRes.cx, row1_bot };
-    DrawTextW(hdcMem, result_w.c_str(), -1, &rcRes, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
-
-    // Match Timestamp directly to the right of Result (Font: hFontMap ~18px, bright readable RGB(220, 230, 245))
-    if (!time_text.empty()) {
-        int time_x = mid_start + szRes.cx + gap;
-        SelectObject(hdcMem, hFontMap);
-        SetTextColor(hdcMem, RGB(220, 230, 245));
-        RECT rcTime = { time_x, row1_top, time_x + szTime.cx + 16, row1_bot };
-        DrawTextW(hdcMem, time_text.c_str(), -1, &rcTime, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
-    }
-
-    // P2 Name (Green, right-aligned)
-    SelectObject(hdcMem, hFontPlayerName);
-    SetTextColor(hdcMem, RGB(0, 213, 50));
-    int p2_l = (!time_text.empty()) ? std::min(rx + rw * 3 / 4, mid_start + total_mid_w + 6) : (rx + rw * 2 / 3);
-    RECT rcName2 = { p2_l, name_top, rx + rw, row1_bot };
-    DrawTextW(hdcMem, p2_name_w.c_str(), -1, &rcName2, DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
-
-    // --- Row 2: Kill Share Bar ---
     int bar_y = (int)(height * 0.076f);
     int bar_h = (int)(height * 0.040f);
+    int sub_y = bar_y + bar_h + (int)(height * 0.008f);
+
     int p1_kills = r.p1.kills;
     int p2_kills = r.p2.kills;
     if (p1_kills <= 0 && p2_kills <= 0) {
@@ -710,315 +488,27 @@ void SummaryOverlay::Render() {
         for (const auto& u : r.p2.units) p2_kills += u.kills;
     }
     int total_kills = p1_kills + p2_kills;
-    float p1_frac = 0.5f;
-    if (total_kills > 0) p1_frac = (float)p1_kills / (float)total_kills;
-    else if (r.p1.apm + r.p2.apm > 0) p1_frac = (float)r.p1.apm / (float)(r.p1.apm + r.p2.apm);
 
-    int p1_bw = (int)(rw * p1_frac);
-    if (p1_bw < 12) p1_bw = 12;
-    if (p1_bw > rw - 12) p1_bw = rw - 12;
-
-    HBRUSH hBrushP1 = CreateSolidBrush(RGB(0, 128, 248));
-    HBRUSH hBrushP2 = CreateSolidBrush(RGB(0, 213, 50));
-    RECT rcBar1 = { rx, bar_y, rx + p1_bw, bar_y + bar_h };
-    FillRect(hdcMem, &rcBar1, hBrushP1);
-    RECT rcBar2 = { rx + p1_bw, bar_y, rx + rw, bar_y + bar_h };
-    FillRect(hdcMem, &rcBar2, hBrushP2);
-    DeleteObject(hBrushP1);
-    DeleteObject(hBrushP2);
-
-    // Alpha-blend commander portrait into kill share bar
-    auto BlendCommanderImage = [&](const std::string& cmdr, const RECT& rc, bool flip_h) {
-        if (cmdr.empty()) return;
-        std::string p1 = "assets/Commanders/" + cmdr + ".png";
-        std::string p2 = "dist/sc2_coop/assets/Commanders/" + cmdr + ".png";
-        int iw = 0, ih = 0, ich = 0;
-        unsigned char* img = stbi_load(p1.c_str(), &iw, &ih, &ich, 4);
-        if (!img) img = stbi_load(p2.c_str(), &iw, &ih, &ich, 4);
-        if (!img) return;
-
-        int dst_h = rc.bottom - rc.top;
-        int dst_w = (int)((float)iw * dst_h / ih);
-        if (dst_w > 0 && dst_h > 0) {
-            int x_start = flip_h ? (rc.right - dst_w) : rc.left;
-            for (int dy = 0; dy < dst_h; ++dy) {
-                int py = rc.top + dy;
-                if (py < 0 || py >= height) continue;
-                int sy = (dy * ih) / dst_h;
-                for (int dx = 0; dx < dst_w; ++dx) {
-                    int px = x_start + dx;
-                    if (px < rc.left || px >= rc.right || px < 0 || px >= width) continue;
-                    int sx = flip_h ? (iw - 1 - (dx * iw) / dst_w) : ((dx * iw) / dst_w);
-
-                    int s_idx = (sy * iw + sx) * 4;
-                    uint8_t sr = img[s_idx];
-                    uint8_t sg = img[s_idx + 1];
-                    uint8_t sb = img[s_idx + 2];
-                    uint8_t sa = img[s_idx + 3];
-                    if (sa == 0) continue;
-
-                    float fa = (sa / 255.0f) * 0.45f;
-                    uint32_t bg_col = pixels[py * width + px];
-                    uint8_t bgr = (bg_col >> 16) & 0xFF;
-                    uint8_t bgg = (bg_col >> 8) & 0xFF;
-                    uint8_t bgb = bg_col & 0xFF;
-
-                    uint8_t out_r = (uint8_t)(sr * fa + bgr * (1.0f - fa));
-                    uint8_t out_g = (uint8_t)(sg * fa + bgg * (1.0f - fa));
-                    uint8_t out_b = (uint8_t)(sb * fa + bgb * (1.0f - fa));
-                    pixels[py * width + px] = (0xFF << 24) | (out_r << 16) | (out_g << 8) | out_b;
-                }
-            }
-        }
-        stbi_image_free(img);
-    };
-
-    BlendCommanderImage(r.p1.commander, rcBar1, false);
-    BlendCommanderImage(r.p2.commander, rcBar2, true);
-
-    SelectObject(hdcMem, hFontPlayerName);
-    SetTextColor(hdcMem, RGB(255, 255, 255));
-    int pct1 = (int)(p1_frac * 100.0f + 0.5f);
-    int pct2 = 100 - pct1;
-    std::wstring pct1_str = std::to_wstring(pct1) + L"%";
-    std::wstring pct2_str = std::to_wstring(pct2) + L"%";
-
-    RECT rcPct1 = { rx + 12, bar_y, rx + p1_bw - 8, bar_y + bar_h };
-    DrawTextW(hdcMem, pct1_str.c_str(), -1, &rcPct1, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
-
-    RECT rcPct2 = { rx + p1_bw + 8, bar_y, rx + rw - 12, bar_y + bar_h };
-    DrawTextW(hdcMem, pct2_str.c_str(), -1, &rcPct2, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
-
-    SelectObject(hdcMem, hFontMap);
-    RECT rcKillsCenter = { rx, bar_y, rx + rw, bar_y + bar_h };
-    std::wstring kills_center = ToWide(TR("kills"));
-    DrawTextW(hdcMem, kills_center.c_str(), -1, &rcKillsCenter, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-
-    // --- Row 3: Subheader (Commanders, Map Name, Duration, Bonus, APM, Difficulty) ---
-    int sub_y = bar_y + bar_h + (int)(height * 0.008f);
-
-    SelectObject(hdcMem, hFontMap);
-    SetTextColor(hdcMem, RGB(220, 220, 220));
-
-    // Left: Commander & APM
-    std::wstring p1_cmdr_w = ToWide(TR(r.p1.commander.c_str()));
-    RECT rcCmdr1 = { rx, sub_y, rx + 160, sub_y + 20 };
-    DrawTextW(hdcMem, p1_cmdr_w.c_str(), -1, &rcCmdr1, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
-
-    std::wstring p1_apm_w = std::to_wstring(r.p1.apm) + L" APM";
-    RECT rcApm1 = { rx, sub_y + 22, rx + 160, sub_y + 42 };
-    DrawTextW(hdcMem, p1_apm_w.c_str(), -1, &rcApm1, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
-
-    // Right: Commander & APM
-    std::wstring p2_cmdr_w = ToWide(TR(r.p2.commander.c_str()));
-    RECT rcCmdr2 = { rx + rw - 160, sub_y, rx + rw, sub_y + 20 };
-    DrawTextW(hdcMem, p2_cmdr_w.c_str(), -1, &rcCmdr2, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
-
-    std::wstring p2_apm_w = std::to_wstring(r.p2.apm) + L" APM";
-    RECT rcApm2 = { rx + rw - 160, sub_y + 22, rx + rw, sub_y + 42 };
-    DrawTextW(hdcMem, p2_apm_w.c_str(), -1, &rcApm2, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
-
-    // Center: Map Name [MM:SS] [b_earned/b_total] & Difficulty
-    int b_earned = r.bonus_earned;
-    int b_total = r.bonus_total > 0 ? r.bonus_total : 3;
-    std::wstring map_str = ToWide(TR(r.map_name.c_str())) + L" [" + ToWide(r.form_length) + L"] [" +
-                           std::to_wstring(b_earned) + L"/" + std::to_wstring(b_total) + L"]";
-    RECT rcMapCenter = { rx + 140, sub_y, rx + rw - 140, sub_y + 20 };
-    DrawTextW(hdcMem, map_str.c_str(), -1, &rcMapCenter, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-
-    std::wstring diff_str = ToWide(TR(r.difficulty.c_str()));
-    RECT rcDiff = { rx + 140, sub_y + 22, rx + rw - 140, sub_y + 42 };
-    DrawTextW(hdcMem, diff_str.c_str(), -1, &rcDiff, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-
-    // --- Helper: Draw Section for P1, P2, and Amon ---
-    auto DrawSection = [&](int card_y, const std::string& cmdr_name, const std::string& player_name,
-                           int prestige_idx, const std::string& prestige_str,
-                           const std::vector<int>& masteries,
-                           const std::vector<UnitStat>& units,
-                           int p_kills,
-                           COLORREF theme_col, bool is_amon, const std::string& enemy_comp_name) {
-        // Name (Large, Bold)
-        SelectObject(hdcMem, hFontPlayerName);
-        SetTextColor(hdcMem, theme_col);
-        std::wstring title_str = is_amon ? ToWide(TR("Amon")) : ToWide(Win32Utils::CleanPlayerName(player_name));
-        RECT rcName = { rx, card_y, rx + rw, card_y + 26 };
-        DrawTextW(hdcMem, title_str.c_str(), -1, &rcName, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
-
-        // Prestige Title / Enemy Comp Name
-        SelectObject(hdcMem, hFontPrestige);
-        std::wstring sub_title;
-        if (is_amon) {
-            std::string comp_to_trans = enemy_comp_name.empty() ? "Ravaging Infestation" : enemy_comp_name;
-            sub_title = ToWide(TR(comp_to_trans.c_str()));
-        } else {
-            if (!prestige_str.empty()) {
-                sub_title = ToWide(TR(prestige_str.c_str()));
-            } else {
-                auto pit = kPrestiges.find(cmdr_name);
-                if (pit != kPrestiges.end()) {
-                    const char* p_raw = nullptr;
-                    if (prestige_idx == 1) p_raw = pit->second.p1;
-                    else if (prestige_idx == 2) p_raw = pit->second.p2;
-                    else if (prestige_idx == 3) p_raw = pit->second.p3;
-                    else p_raw = pit->second.p0;
-                    if (p_raw) sub_title = ToWide(TR(p_raw));
-                }
-            }
-        }
-        SetTextColor(hdcMem, theme_col);
-        RECT rcPres = { rx, card_y + 28, rx + rw, card_y + 48 };
-        DrawTextW(hdcMem, sub_title.c_str(), -1, &rcPres, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
-
-        int cur_y = card_y + 52;
-
-        // 6 Masteries (P1 and P2 only, 6 lines)
-        if (!is_amon) {
-            auto m_it = kCommanderMasteries.find(cmdr_name);
-            if (m_it != kCommanderMasteries.end()) {
-                SelectObject(hdcMem, hFontMastery);
-                for (int m_idx = 0; m_idx < 6; ++m_idx) {
-                    int pts = (m_idx < (int)masteries.size()) ? masteries[m_idx] : 0;
-                    std::wstring mname = ToWide(TR(m_it->second[m_idx]));
-
-                    COLORREF mcol = (pts > 0) ? RGB(255, 255, 255) : RGB(120, 130, 145);
-                    SetTextColor(hdcMem, mcol);
-
-                    RECT rcPts = { rx, cur_y + m_idx * 18, rx + 24, cur_y + (m_idx + 1) * 18 };
-                    std::wstring pts_str = std::to_wstring(pts);
-                    DrawTextW(hdcMem, pts_str.c_str(), -1, &rcPts, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
-
-                    RECT rcMName = { rx + 30, cur_y + m_idx * 18, rx + rw, cur_y + (m_idx + 1) * 18 };
-                    DrawTextW(hdcMem, mname.c_str(), -1, &rcMName, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
-                }
-                cur_y += 6 * 18 + 6;
-            }
-        }
-
-        // Units Breakdown Table
-        // Headers: Unit | kills | created | lost
-        SelectObject(hdcMem, hFontUnit);
-        SetTextColor(hdcMem, RGB(255, 255, 255));
-        RECT rcHKills = { rx + (int)(rw * 0.40f), cur_y, rx + (int)(rw * 0.65f), cur_y + 18 };
-        std::wstring kills_th = ToWide(TR("kills"));
-        DrawTextW(hdcMem, kills_th.c_str(), -1, &rcHKills, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-
-        SetTextColor(hdcMem, RGB(0, 213, 50)); // Green header
-        RECT rcHCreated = { rx + (int)(rw * 0.70f), cur_y, rx + (int)(rw * 0.84f), cur_y + 18 };
-        std::wstring created_th = ToWide(TR("created"));
-        DrawTextW(hdcMem, created_th.c_str(), -1, &rcHCreated, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-
-        SetTextColor(hdcMem, RGB(255, 51, 51)); // Red header
-        RECT rcHLost = { rx + (int)(rw * 0.86f), cur_y, rx + rw, cur_y + 18 };
-        std::wstring lost_th = ToWide(TR("lost"));
-        DrawTextW(hdcMem, lost_th.c_str(), -1, &rcHLost, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-
-        cur_y += 20;
-
-        // Preprocess units:
-        std::vector<UnitStat> proc_units = units;
-        for (auto& u : proc_units) {
-            u.name = FormatFriendlyUnitName(u.name);
-        }
-        UnitStat* dehaka_ptr = nullptr;
-        for (auto& u : proc_units) {
-            if (u.name == "Dehaka") {
-                dehaka_ptr = &u;
-                break;
-            }
-        }
-        if (dehaka_ptr) {
-            for (auto& u : proc_units) {
-                if (u.name == "Zweihaka") {
-                    u.created = dehaka_ptr->created;
-                    u.lost = dehaka_ptr->lost;
-                }
-            }
-        }
-        std::sort(proc_units.begin(), proc_units.end(), [](const UnitStat& a, const UnitStat& b) {
-            if (a.kills != b.kills) return a.kills > b.kills;
-            if (a.created != b.created) return a.created > b.created;
-            return a.lost > b.lost;
-        });
-
-        int p_tot = p_kills;
-        if (p_tot <= 0) {
-            for (const auto& u : proc_units) p_tot += u.kills;
-            if (p_tot <= 0) p_tot = 1;
-        }
-
-        int match_kills = (total_kills > 0) ? total_kills : p_tot;
-
-        // Render Unit Rows (up to 5 top units)
-        int max_rows = 5;
-        HBRUSH hBrushTheme = CreateSolidBrush(theme_col);
-        for (int i = 0; i < max_rows && i < (int)proc_units.size(); ++i) {
-            const auto& u = proc_units[i];
-            int row_y = cur_y + i * 22;
-
-            // Unit Name
-            SelectObject(hdcMem, hFontUnit);
-            SetTextColor(hdcMem, theme_col);
-            std::wstring uname = ToWide(TR(u.name.c_str()));
-            RECT rcUName = { rx, row_y, rx + (int)(rw * 0.38f), row_y + 20 };
-            DrawTextW(hdcMem, uname.c_str(), -1, &rcUName, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
-
-            // Proportional Kill Bar: bg_width = 50vh * u.kills / total_kills (matching original main.js:573)
-            int kbar_x = rx + (int)(rw * 0.38f);
-            int kbar_w = (int)(rw * 0.30f);
-            int kbar_h = 16;
-            int fill_w = (int)(height * 0.50f * ((float)u.kills / match_kills));
-            if (u.kills > 0 && fill_w < 6) fill_w = 6;
-            if (fill_w > kbar_w) fill_w = kbar_w;
-
-            RECT rcBarFill = { kbar_x, row_y + 2, kbar_x + fill_w, row_y + 2 + kbar_h };
-            FillRect(hdcMem, &rcBarFill, hBrushTheme);
-
-            // Kills Text: e.g. "37% | 307" (percentage relative to player total kills)
-            SelectObject(hdcMem, hFontUnitBold);
-            SetTextColor(hdcMem, RGB(255, 255, 255));
-            int pct = (int)(((float)u.kills / p_tot) * 100.0f + 0.5f);
-            std::wstring ktext = std::to_wstring(pct) + L"% | " + std::to_wstring(u.kills);
-            RECT rcKText = { kbar_x + 6, row_y, kbar_x + kbar_w - 6, row_y + 20 };
-            DrawTextW(hdcMem, ktext.c_str(), -1, &rcKText, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
-
-            // Created Count
-            SelectObject(hdcMem, hFontUnit);
-            SetTextColor(hdcMem, RGB(0, 213, 50));
-            bool hide_counts = (u.name.find("Top Bar") != std::string::npos || u.name.find("面板") != std::string::npos);
-            std::wstring ctext = (hide_counts || u.created <= 0) ? L"-" : std::to_wstring(u.created);
-            RECT rcCText = { rx + (int)(rw * 0.70f), row_y, rx + (int)(rw * 0.84f), row_y + 20 };
-            DrawTextW(hdcMem, ctext.c_str(), -1, &rcCText, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-
-            // Lost Count
-            SetTextColor(hdcMem, RGB(255, 51, 51));
-            std::wstring ltext = (hide_counts || u.lost <= 0) ? L"-" : std::to_wstring(u.lost);
-            RECT rcLText = { rx + (int)(rw * 0.86f), row_y, rx + rw, row_y + 20 };
-            DrawTextW(hdcMem, ltext.c_str(), -1, &rcLText, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-        }
-        DeleteObject(hBrushTheme);
-    };
-
-    // Calculate Y offsets dynamically for sections
     int p1_y = sub_y + 52;
     int p2_y = p1_y + (int)(height * 0.28f);
     int amon_y = p2_y + (int)(height * 0.28f);
 
     // Draw P1 (Blue #0080F8)
-    DrawSection(p1_y, r.p1.commander, r.p1.name, r.p1.prestige, r.p1.prestige_name,
-                r.p1.masteries, r.p1.units, p1_kills, RGB(0, 128, 248), false, "");
+    DrawSummarySection(hdcMem, fonts, rx, rw, height, total_kills,
+                       p1_y, r.p1.commander, r.p1.name, r.p1.prestige, r.p1.prestige_name,
+                       r.p1.masteries, r.p1.units, p1_kills, RGB(0, 128, 248), false, "");
 
     // Draw P2 (Green #00D532)
-    DrawSection(p2_y, r.p2.commander, r.p2.name, r.p2.prestige, r.p2.prestige_name,
-                r.p2.masteries, r.p2.units, p2_kills, RGB(0, 213, 50), false, "");
+    DrawSummarySection(hdcMem, fonts, rx, rw, height, total_kills,
+                       p2_y, r.p2.commander, r.p2.name, r.p2.prestige, r.p2.prestige_name,
+                       r.p2.masteries, r.p2.units, p2_kills, RGB(0, 213, 50), false, "");
 
     // Draw Amon (Red #FF3333)
-    DrawSection(amon_y, "", "", 0, "",
-                {}, r.amon_units, 0, RGB(255, 51, 51), true, r.enemy_comp);
+    DrawSummarySection(hdcMem, fonts, rx, rw, height, total_kills,
+                       amon_y, "", "", 0, "",
+                       {}, r.amon_units, 0, RGB(255, 51, 51), true, r.enemy_comp);
 
-    // 4. Alpha Post-Processing Pass:
-    // GDI DrawTextW/Polyline/MoveToEx/FillRect writes RGB with Alpha=0 into 32-bit DIBSection.
-    // For UpdateLayeredWindow(ULW_ALPHA), restore proper pre-multiplied alpha channel
-    // for all drawn foreground elements (text, grid lines, polylines, labels).
+    // 4. Alpha Post-Processing Pass
     for (int i = 0; i < width * height; ++i) {
         uint32_t px = pixels[i];
         uint8_t r_c = (px >> 16) & 0xFF;
@@ -1060,15 +550,20 @@ void SummaryOverlay::Render() {
     UpdateLayeredWindow(m_hwnd, hdcScreen, &ptDst, &sz, hdcMem, &ptZero, RGB(0, 0, 0), &blend, ULW_ALPHA);
 
     // Cleanup GDI objects
-    DeleteObject(hFontTitle);
-    DeleteObject(hFontPlayerName);
-    DeleteObject(hFontPrestige);
-    DeleteObject(hFontMap);
-    DeleteObject(hFontMastery);
-    DeleteObject(hFontUnit);
-    DeleteObject(hFontUnitBold);
-    DeleteObject(hFontChartTitle);
-    DeleteObject(hFontAxis);
+    DeleteObject(fonts.hFontTitle);
+    DeleteObject(fonts.hFontPlayerName);
+    DeleteObject(fonts.hFontPrestige);
+    DeleteObject(fonts.hFontMap);
+    DeleteObject(fonts.hFontMastery);
+    DeleteObject(fonts.hFontUnit);
+    DeleteObject(fonts.hFontUnitBold);
+    DeleteObject(fonts.hFontChartTitle);
+    DeleteObject(fonts.hFontAxis);
+
+    SelectObject(hdcMem, hOldBmp);
+    DeleteObject(hBitmap);
+    DeleteDC(hdcMem);
+    ReleaseDC(nullptr, hdcScreen);
 
     SelectObject(hdcMem, hOldBmp);
     DeleteObject(hBitmap);
