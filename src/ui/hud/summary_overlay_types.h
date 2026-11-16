@@ -9,6 +9,7 @@ namespace sc2 {
 struct SummaryOverlayFonts {
     HFONT hFontTitle = nullptr;
     HFONT hFontPlayerName = nullptr;
+    HFONT hFontTimestamp = nullptr;
     HFONT hFontPrestige = nullptr;
     HFONT hFontMap = nullptr;
     HFONT hFontMastery = nullptr;

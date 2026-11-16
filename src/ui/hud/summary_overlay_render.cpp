@@ -89,12 +89,28 @@ void DrawSummaryBanner(HDC hdc, uint32_t* pixels, int width, int height,
     SIZE szRes = { 0, 0 };
     GetTextExtentPoint32W(hdc, result_w.c_str(), (int)result_w.length(), &szRes);
 
-    std::wstring time_text = ToWide(r.game_date);
-    SIZE szTime = { 0, 0 };
-    if (!time_text.empty()) {
-        SelectObject(hdc, fonts.hFontMap);
-        GetTextExtentPoint32W(hdc, time_text.c_str(), (int)time_text.length(), &szTime);
+    std::wstring date_text;
+    std::wstring clock_text;
+    const size_t date_separator = r.game_date.find(' ');
+    if (date_separator == std::string::npos) {
+        date_text = ToWide(r.game_date);
+    } else {
+        date_text = ToWide(r.game_date.substr(0, date_separator));
+        clock_text = ToWide(r.game_date.substr(date_separator + 1));
     }
+    const bool has_timestamp = !date_text.empty() || !clock_text.empty();
+    SIZE szDate = { 0, 0 };
+    SIZE szClock = { 0, 0 };
+    if (has_timestamp) {
+        SelectObject(hdc, fonts.hFontTimestamp);
+        if (!date_text.empty()) {
+            GetTextExtentPoint32W(hdc, date_text.c_str(), (int)date_text.length(), &szDate);
+        }
+        if (!clock_text.empty()) {
+            GetTextExtentPoint32W(hdc, clock_text.c_str(), (int)clock_text.length(), &szClock);
+        }
+    }
+    const int timestamp_width = std::max(szDate.cx, szClock.cx) + 12;
 
     int row1_top = (int)(height * 0.035f);
     int row1_bot = (int)(height * 0.072f);
@@ -104,8 +120,8 @@ void DrawSummaryBanner(HDC hdc, uint32_t* pixels, int width, int height,
     if (gap < 8) gap = 8;
 
     int total_mid_w = szRes.cx;
-    if (!time_text.empty()) {
-        total_mid_w += gap + szTime.cx;
+    if (has_timestamp) {
+        total_mid_w += gap + timestamp_width;
     }
 
     int mid_start = (rx + rw / 2) - total_mid_w / 2;
@@ -135,19 +151,28 @@ void DrawSummaryBanner(HDC hdc, uint32_t* pixels, int width, int height,
     RECT rcRes = { mid_start, row1_top, mid_start + szRes.cx, row1_bot };
     DrawTextW(hdc, result_w.c_str(), -1, &rcRes, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
 
-    // Match Timestamp directly to the right of Result
-    if (!time_text.empty()) {
+    // Match date/time directly to the right of Result, using a compact
+    // two-line gray timestamp so it does not compete with player names.
+    if (has_timestamp) {
         int time_x = mid_start + szRes.cx + gap;
-        SelectObject(hdc, fonts.hFontMap);
-        SetTextColor(hdc, RGB(220, 230, 245));
-        RECT rcTime = { time_x, row1_top, time_x + szTime.cx + 16, row1_bot };
-        DrawTextW(hdc, time_text.c_str(), -1, &rcTime, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+        SelectObject(hdc, fonts.hFontTimestamp);
+        SetTextColor(hdc, RGB(165, 175, 190));
+        const int timestamp_line_h = std::max(12, (int)(height * 0.014f));
+        RECT rcDate = { time_x, row1_top, time_x + timestamp_width, row1_top + timestamp_line_h };
+        RECT rcClock = { time_x, row1_top + timestamp_line_h, time_x + timestamp_width,
+                         row1_top + timestamp_line_h * 2 };
+        if (!date_text.empty()) {
+            DrawTextW(hdc, date_text.c_str(), -1, &rcDate, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        }
+        if (!clock_text.empty()) {
+            DrawTextW(hdc, clock_text.c_str(), -1, &rcClock, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        }
     }
 
     // P2 Name (Green, right-aligned)
     SelectObject(hdc, fonts.hFontPlayerName);
     SetTextColor(hdc, RGB(0, 213, 50));
-    int p2_l = (!time_text.empty()) ? std::min(rx + rw * 3 / 4, mid_start + total_mid_w + 6) : (rx + rw * 2 / 3);
+    int p2_l = has_timestamp ? std::min(rx + rw * 3 / 4, mid_start + total_mid_w + 6) : (rx + rw * 2 / 3);
     RECT rcName2 = { p2_l, name_top, rx + rw, row1_bot };
     DrawTextW(hdc, p2_name_w.c_str(), -1, &rcName2, DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
 
