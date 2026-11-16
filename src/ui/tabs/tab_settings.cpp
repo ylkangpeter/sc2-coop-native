@@ -267,7 +267,7 @@ void TabSettings::Render(AppState& state) {
     ImGui::Spacing();
 
     // 6. About & Version Info
-    ImGui::TextDisabled("StarCraft II Co-op Native v1.0.12 (DirectX 11 + Dear ImGui + SQLite3)");
+    ImGui::TextDisabled("StarCraft II Co-op Native v1.0.13 (DirectX 11 + Dear ImGui + SQLite3)");
     ImGui::TextDisabled("%s", TR("About_Description"));
 }
 

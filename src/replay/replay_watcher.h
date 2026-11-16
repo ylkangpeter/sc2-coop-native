@@ -35,6 +35,10 @@ private:
     std::condition_variable m_cv;
     std::mutex m_cv_mutex;
     std::unordered_map<std::string, std::chrono::steady_clock::time_point> m_failed_retry_after;
+    // Tracks recent replays that have already generated a popup. The initial
+    // scanner can save a replay before this watcher sees it, so a valid DB row
+    // alone must not suppress the first notification.
+    std::unordered_map<std::string, int64_t> m_notified_recent_mtimes;
     std::function<void(const ReplayRecord&, bool is_best_time)> m_on_new_match;
 };
 

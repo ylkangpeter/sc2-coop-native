@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <unordered_set>
 #include <unordered_map>
+#include <cwctype>
 #include <sys/stat.h>
 
 namespace sc2 {
@@ -25,6 +26,8 @@ ReplayWatcher::~ReplayWatcher() {
 
 void ReplayWatcher::Start() {
     if (m_running.load()) return;
+    m_failed_retry_after.clear();
+    m_notified_recent_mtimes.clear();
     m_running = true;
     m_thread = std::thread(&ReplayWatcher::WatchLoop, this);
 }
@@ -82,8 +85,8 @@ void ReplayWatcher::WatchLoop() {
                      it.increment(dir_ec)) {
                     if (dir_ec || !m_running.load()) break;
                     if (it->is_directory(dir_ec)) {
-                        auto fname = it->path().filename().string();
-                        if (fname == "Multiplayer" || fname == "Recent" || fname == "Replays") {
+                        const auto fname = it->path().filename().wstring();
+                        if (fname == L"Multiplayer" || fname == L"Recent" || fname == L"Replays") {
                             watched_dirs.push_back(it->path());
                         }
                     }
@@ -109,9 +112,9 @@ void ReplayWatcher::WatchLoop() {
                     const auto& entry = *it;
                     std::error_code entry_ec;
                     if (entry.is_regular_file(entry_ec)) {
-                        auto ext = entry.path().extension().string();
-                        for (auto& c : ext) c = tolower(c);
-                        if (ext == ".sc2replay") {
+                        auto ext = entry.path().extension().wstring();
+                        for (auto& c : ext) c = static_cast<wchar_t>(std::towlower(c));
+                        if (ext == L".sc2replay") {
                             std::string u8path = Win32Utils::WideToUtf8(entry.path().wstring());
                             if (seen_paths.insert(u8path).second) {
                                 auto it_mtime = valid_mtimes.find(u8path);
@@ -121,6 +124,16 @@ void ReplayWatcher::WatchLoop() {
                                     disk_mtime = st.st_mtime;
                                 }
 
+                                const int64_t now_epoch = std::chrono::duration_cast<std::chrono::seconds>(
+                                    std::chrono::system_clock::now().time_since_epoch()).count();
+                                const bool is_recent = disk_mtime > 0 &&
+                                    (disk_mtime >= watcher_start_epoch - 60 ||
+                                     (now_epoch >= disk_mtime && now_epoch - disk_mtime <= 180));
+                                const auto notified_it = m_notified_recent_mtimes.find(u8path);
+                                const bool needs_recent_notification = is_recent &&
+                                    (notified_it == m_notified_recent_mtimes.end() ||
+                                     notified_it->second != disk_mtime);
+
                                 auto retry_it = m_failed_retry_after.find(u8path);
                                 if (retry_it != m_failed_retry_after.end() &&
                                     std::chrono::steady_clock::now() < retry_it->second) {
@@ -128,11 +141,20 @@ void ReplayWatcher::WatchLoop() {
                                     continue;
                                 }
 
-                                if (it_mtime == valid_mtimes.end() || disk_mtime > it_mtime->second) {
+                                // The startup scanner may have inserted a just-finished
+                                // replay before this loop reaches it. Keep recent files in
+                                // the queue until the watcher has delivered their popup.
+                                if (it_mtime == valid_mtimes.end() ||
+                                    disk_mtime > it_mtime->second ||
+                                    needs_recent_notification) {
                                     auto cur_time = entry.last_write_time(entry_ec);
-                                    if (!entry_ec) {
-                                        unindexed_replays.push_back({cur_time, entry.path()});
-                                    }
+                                    // A replay can still be held open by SC2, so a
+                                    // transient last_write_time error must not make
+                                    // us drop the candidate. Sorting is only an
+                                    // optimization; the disk mtime above remains
+                                    // the source of truth for change detection.
+                                    if (entry_ec) cur_time = std::filesystem::file_time_type::min();
+                                    unindexed_replays.push_back({cur_time, entry.path()});
                                 }
                             }
                         }
@@ -164,7 +186,18 @@ void ReplayWatcher::WatchLoop() {
                     continue;
                 }
 
-                if (Database::Instance().GetReplayMtime(u8path) >= disk_mtime &&
+                const int64_t now_epoch = std::chrono::duration_cast<std::chrono::seconds>(
+                    std::chrono::system_clock::now().time_since_epoch()).count();
+                const bool is_recent = disk_mtime > 0 &&
+                    (disk_mtime >= watcher_start_epoch - 60 ||
+                     (now_epoch >= disk_mtime && now_epoch - disk_mtime <= 180));
+                const auto notified_it = m_notified_recent_mtimes.find(u8path);
+                const bool needs_recent_notification = is_recent &&
+                    (notified_it == m_notified_recent_mtimes.end() ||
+                     notified_it->second != disk_mtime);
+
+                if (!needs_recent_notification &&
+                    Database::Instance().GetReplayMtime(u8path) >= disk_mtime &&
                     Database::Instance().HasValidReplay(u8path)) {
                     continue;
                 }
@@ -197,17 +230,27 @@ void ReplayWatcher::WatchLoop() {
                     // Only auto-popup if this match was completed recently:
                     // Either finished since the watcher started, or within the last 180 seconds.
                     // (Avoids popping up old replays on application startup)
-                    int64_t now_epoch = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-                    bool is_recently_finished = (rec.file_mtime >= (watcher_start_epoch - 60)) ||
-                                                ((now_epoch - rec.file_mtime) <= 180);
+                    int64_t callback_now_epoch = std::chrono::duration_cast<std::chrono::seconds>(
+                        std::chrono::system_clock::now().time_since_epoch()).count();
+                    bool is_recently_finished = rec.file_mtime > 0 &&
+                                                (rec.file_mtime >= (watcher_start_epoch - 60) ||
+                                                 (callback_now_epoch >= rec.file_mtime &&
+                                                  callback_now_epoch - rec.file_mtime <= 180));
 
                     if (is_recently_finished && m_on_new_match) {
+                        m_notified_recent_mtimes[u8path] = rec.file_mtime;
                         m_on_new_match(rec, is_best);
                     }
                 }
             }
-        } catch (const std::exception& e) {
-            // Directory watch exception swallowed safely
+        } catch (const std::exception&) {
+            // If a filesystem conversion or permission error interrupts the
+            // directory cache refresh, fall back to the account root. This
+            // preserves the Python watcher's full-tree behavior and avoids a
+            // permanently empty watch set.
+            if (watched_dirs.empty()) {
+                watched_dirs.push_back(root_w);
+            }
         }
     }
 }

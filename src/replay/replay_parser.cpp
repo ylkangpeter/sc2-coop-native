@@ -56,10 +56,13 @@ std::optional<ReplayRecord> ReplayParser::ParseFile(const std::wstring& replay_p
 
         // Get file modification time
         struct _stat64 st;
-        if (_wstat64(replay_path.c_str(), &st) == 0) {
-            record.file_mtime = st.st_mtime;
-            record.game_date = FormatTimestamp(st.st_mtime);
+        if (_wstat64(replay_path.c_str(), &st) != 0) {
+            // A replay without a reliable mtime cannot be correlated with the
+            // watcher event and must not be stored as epoch 0.
+            return std::nullopt;
         }
+        record.file_mtime = st.st_mtime;
+        record.game_date = FormatTimestamp(st.st_mtime);
 
         // 1. Read replay.gamemetadata.json
         nlohmann::json meta_json;
