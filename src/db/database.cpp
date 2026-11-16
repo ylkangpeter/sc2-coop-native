@@ -10,9 +10,48 @@
 #include "../replay/mpq_reader.h"
 #include "../replay/s2_decoder.h"
 #include "../data/weekly_mutations.h"
+#include "../app_state.h"
 #include <nlohmann/json.hpp>
 
 namespace sc2 {
+
+namespace {
+
+static inline std::string safe_text(sqlite3_stmt* s, int col) {
+    const unsigned char* p = sqlite3_column_text(s, col);
+    return p ? reinterpret_cast<const char*>(p) : "";
+}
+
+static int DiffRank(const std::string& d) {
+    if (d == "Brutal+6") return 10;
+    if (d == "Brutal+5") return 9;
+    if (d == "Brutal+4") return 8;
+    if (d == "Brutal+3") return 7;
+    if (d == "Brutal+2") return 6;
+    if (d == "Brutal+1") return 5;
+    if (d == "Brutal") return 4;
+    if (d.find("Hard") != std::string::npos) return 3;
+    if (d.find("Normal") != std::string::npos) return 2;
+    if (d.find("Casual") != std::string::npos) return 1;
+    return 0;
+}
+
+static void SqliteIsUserHandle(sqlite3_context* context, int argc, sqlite3_value** argv) {
+    if (argc < 1 || sqlite3_value_type(argv[0]) == SQLITE_NULL) {
+        sqlite3_result_int(context, 0);
+        return;
+    }
+    const unsigned char* text = sqlite3_value_text(argv[0]);
+    if (!text || text[0] == '\0') {
+        sqlite3_result_int(context, 0);
+        return;
+    }
+    std::string handle(reinterpret_cast<const char*>(text));
+    bool is_user = AppState::Instance().HasUserHandle(handle);
+    sqlite3_result_int(context, is_user ? 1 : 0);
+}
+
+} // namespace
 
 Database& Database::Instance() {
     static Database db;
@@ -42,7 +81,17 @@ bool Database::Open(const std::string& db_path) {
                              SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX,
                              nullptr);
     if (rc != SQLITE_OK) {
-        std::cerr << "Failed to open SQLite database: " << sqlite3_errmsg(m_db) << std::endl;
+        const char* message = m_db ? sqlite3_errmsg(m_db) : "unknown SQLite open error";
+        std::cerr << "Failed to open SQLite database: " << message << std::endl;
+        if (m_db) sqlite3_close(m_db);
+        m_db = nullptr;
+        return false;
+    }
+
+    // Register custom SQLite scalar functions
+    if (sqlite3_create_function(m_db, "is_user_handle", 1, SQLITE_UTF8, nullptr, SqliteIsUserHandle, nullptr, nullptr) != SQLITE_OK) {
+        std::cerr << "Failed to register SQLite user-handle function: " << sqlite3_errmsg(m_db) << std::endl;
+        sqlite3_close(m_db);
         m_db = nullptr;
         return false;
     }
@@ -72,7 +121,9 @@ bool Database::Open(const std::string& db_path) {
             p1_name TEXT, p1_handle TEXT, p1_commander TEXT, p1_prestige INTEGER, p1_apm INTEGER, p1_kills INTEGER,
             p2_name TEXT, p2_handle TEXT, p2_commander TEXT, p2_prestige INTEGER, p2_apm INTEGER, p2_kills INTEGER,
             chat_json TEXT,
-            details_json TEXT
+            details_json TEXT,
+            details_blob BLOB,
+            details_format INTEGER DEFAULT 1
         );
 
         CREATE TABLE IF NOT EXISTS player_notes (
@@ -101,11 +152,55 @@ bool Database::Open(const std::string& db_path) {
     if (rc != SQLITE_OK) {
         std::cerr << "Failed to initialize database schema: " << (errmsg ? errmsg : "") << std::endl;
         sqlite3_free(errmsg);
+        sqlite3_close(m_db);
+        m_db = nullptr;
         return false;
     }
 
-    // Auto-migrate schema: add details_json if older DB exists
-    sqlite3_exec(m_db, "ALTER TABLE replays ADD COLUMN details_json TEXT;", nullptr, nullptr, nullptr);
+    auto has_column = [&](const char* column_name) {
+        sqlite3_stmt* stmt = nullptr;
+        bool found = false;
+        if (sqlite3_prepare_v2(m_db, "PRAGMA table_info(replays);", -1, &stmt, nullptr) == SQLITE_OK) {
+            while (sqlite3_step(stmt) == SQLITE_ROW) {
+                const unsigned char* name = sqlite3_column_text(stmt, 1);
+                if (name && std::strcmp(reinterpret_cast<const char*>(name), column_name) == 0) {
+                    found = true;
+                    break;
+                }
+            }
+        }
+        sqlite3_finalize(stmt);
+        return found;
+    };
+    auto ensure_column = [&](const char* column_name, const char* definition) {
+        if (has_column(column_name)) return true;
+        std::string sql = "ALTER TABLE replays ADD COLUMN ";
+        sql += definition;
+        sql += ";";
+        char* alter_error = nullptr;
+        const int alter_rc = sqlite3_exec(m_db, sql.c_str(), nullptr, nullptr, &alter_error);
+        if (alter_rc != SQLITE_OK) {
+            std::cerr << "Failed to migrate database column " << column_name << ": "
+                      << (alter_error ? alter_error : sqlite3_errmsg(m_db)) << std::endl;
+            sqlite3_free(alter_error);
+            return false;
+        }
+        return true;
+    };
+    if (!ensure_column("details_json", "details_json TEXT") ||
+        !ensure_column("details_blob", "details_blob BLOB") ||
+        !ensure_column("details_format", "details_format INTEGER DEFAULT 1")) {
+        sqlite3_close(m_db);
+        m_db = nullptr;
+        return false;
+    }
+
+    if (!MigrateDetailsStorage()) {
+        std::cerr << "Failed to migrate replay details storage." << std::endl;
+        sqlite3_close(m_db);
+        m_db = nullptr;
+        return false;
+    }
 
     RepairWeeklyMutationsIfNeeded();
 
@@ -120,6 +215,82 @@ bool Database::Open(const std::string& db_path) {
     sqlite3_exec(m_db, "UPDATE replays SET p2_commander = 'HanHorner' WHERE p2_commander = 'Horner';", nullptr, nullptr, nullptr);
 
     BumpRevision();
+    return true;
+}
+
+bool Database::MigrateDetailsStorage() {
+    if (!m_db) return false;
+
+    bool already_migrated = false;
+    sqlite3_stmt* version_stmt = nullptr;
+    if (sqlite3_prepare_v2(m_db,
+            "SELECT value FROM settings WHERE key = 'details_storage_version' LIMIT 1;",
+            -1, &version_stmt, nullptr) == SQLITE_OK) {
+        already_migrated = sqlite3_step(version_stmt) == SQLITE_ROW &&
+            sqlite3_column_int(version_stmt, 0) >= 1;
+    }
+    sqlite3_finalize(version_stmt);
+    if (already_migrated) return true;
+
+    sqlite3_stmt* select_stmt = nullptr;
+    const char* select_sql =
+        "SELECT file_path, details_json FROM replays "
+        "WHERE (details_blob IS NULL OR length(details_blob) = 0) "
+        "AND details_json IS NOT NULL AND details_json != '';";
+    if (sqlite3_prepare_v2(m_db, select_sql, -1, &select_stmt, nullptr) != SQLITE_OK) {
+        return false;
+    }
+
+    struct LegacyDetails { std::string path; std::string json; };
+    std::vector<LegacyDetails> rows;
+    while (sqlite3_step(select_stmt) == SQLITE_ROW) {
+        const unsigned char* path = sqlite3_column_text(select_stmt, 0);
+        const unsigned char* json = sqlite3_column_text(select_stmt, 1);
+        if (path && json) rows.push_back({reinterpret_cast<const char*>(path), reinterpret_cast<const char*>(json)});
+    }
+    sqlite3_finalize(select_stmt);
+
+    bool ok = sqlite3_exec(m_db, "BEGIN TRANSACTION;", nullptr, nullptr, nullptr) == SQLITE_OK;
+    sqlite3_stmt* update_stmt = nullptr;
+    if (ok && sqlite3_prepare_v2(m_db,
+            "UPDATE replays SET details_blob = ?, details_format = 1 WHERE file_path = ?;",
+            -1, &update_stmt, nullptr) != SQLITE_OK) ok = false;
+
+    for (const auto& row : rows) {
+        if (!ok) break;
+        try {
+            nlohmann::json::parse(row.json);
+        } catch (...) {
+            // Keep malformed legacy payloads available for the fallback parser.
+            continue;
+        }
+        ReplayRecord details;
+        const auto blob = details.DetailsFromJson(row.json)
+            ? details.DetailsToCompressedBlob()
+            : ReplayRecord::CompressJson(row.json);
+        if (blob.empty()) continue;
+        sqlite3_bind_blob(update_stmt, 1, blob.data(), static_cast<int>(blob.size()), SQLITE_TRANSIENT);
+        sqlite3_bind_text(update_stmt, 2, row.path.c_str(), -1, SQLITE_TRANSIENT);
+        ok = sqlite3_step(update_stmt) == SQLITE_DONE;
+        sqlite3_reset(update_stmt);
+    }
+    if (update_stmt) sqlite3_finalize(update_stmt);
+    if (ok) {
+        // Drop the large legacy copy only after every row has been converted.
+        ok = sqlite3_exec(m_db, "UPDATE replays SET details_json = NULL WHERE details_blob IS NOT NULL;",
+                          nullptr, nullptr, nullptr) == SQLITE_OK;
+    }
+    if (ok) ok = sqlite3_exec(m_db, "COMMIT;", nullptr, nullptr, nullptr) == SQLITE_OK;
+    else sqlite3_exec(m_db, "ROLLBACK;", nullptr, nullptr, nullptr);
+    if (!ok) return false;
+
+    sqlite3_exec(m_db,
+        "INSERT INTO settings(key, value) VALUES('details_storage_version', '1') "
+        "ON CONFLICT(key) DO UPDATE SET value = '1';",
+        nullptr, nullptr, nullptr);
+
+    // Reclaim pages occupied by the old TEXT payload. This runs once per database.
+    if (!rows.empty()) sqlite3_exec(m_db, "VACUUM;", nullptr, nullptr, nullptr);
     return true;
 }
 
@@ -138,23 +309,28 @@ bool Database::BatchSaveReplays(const std::vector<ReplayRecord>& recs) {
             enemy_race, region, is_weekly, mutators_json,
             p1_name, p1_handle, p1_commander, p1_prestige, p1_apm, p1_kills,
             p2_name, p2_handle, p2_commander, p2_prestige, p2_apm, p2_kills,
-            chat_json, details_json
+            chat_json, details_json, details_blob, details_format
         ) VALUES (
             ?, ?, ?, ?, ?,
             ?, ?, ?, ?, ?,
             ?, ?, ?, ?,
             ?, ?, ?, ?, ?, ?,
             ?, ?, ?, ?, ?, ?,
-            ?, ?
+            ?, ?, ?, ?
         );
     )";
 
     sqlite3_stmt* stmt = nullptr;
     if (sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+        std::cerr << "[DB ERROR] BatchSaveReplays prepare failed: " << sqlite3_errmsg(m_db) << "\n";
         return false;
     }
 
-    sqlite3_exec(m_db, "BEGIN TRANSACTION;", nullptr, nullptr, nullptr);
+    if (sqlite3_exec(m_db, "BEGIN TRANSACTION;", nullptr, nullptr, nullptr) != SQLITE_OK) {
+        std::cerr << "[DB ERROR] BatchSaveReplays BEGIN TRANSACTION failed: " << sqlite3_errmsg(m_db) << "\n";
+        sqlite3_finalize(stmt);
+        return false;
+    }
 
     for (const auto& rec : recs) {
         sqlite3_bind_text(stmt, 1, rec.file_path.c_str(), -1, SQLITE_TRANSIENT);
@@ -191,14 +367,35 @@ bool Database::BatchSaveReplays(const std::vector<ReplayRecord>& recs) {
         std::string chat_json = rec.ChatToJson();
         sqlite3_bind_text(stmt, 27, chat_json.c_str(), -1, SQLITE_TRANSIENT);
 
-        std::string details_json = rec.DetailsToJson();
-        sqlite3_bind_text(stmt, 28, details_json.c_str(), -1, SQLITE_TRANSIENT);
+        // New rows use compacted, compressed details. Keep the legacy text column
+        // NULL so list queries and future migrations never retain a second copy.
+        sqlite3_bind_null(stmt, 28);
+        std::vector<uint8_t> details_blob = rec.DetailsToCompressedBlob();
+        if (details_blob.empty()) {
+            sqlite3_bind_null(stmt, 29);
+        } else {
+            sqlite3_bind_blob(stmt, 29, details_blob.data(), static_cast<int>(details_blob.size()), SQLITE_TRANSIENT);
+        }
+        sqlite3_bind_int(stmt, 30, details_blob.empty() ? 0 : 1);
 
-        sqlite3_step(stmt);
+        int step_res = sqlite3_step(stmt);
+        if (step_res != SQLITE_DONE) {
+            std::cerr << "[DB ERROR] BatchSaveReplays step failed: " << sqlite3_errmsg(m_db) << "\n";
+            sqlite3_exec(m_db, "ROLLBACK;", nullptr, nullptr, nullptr);
+            sqlite3_finalize(stmt);
+            return false;
+        }
         sqlite3_reset(stmt);
     }
 
-    sqlite3_exec(m_db, "COMMIT;", nullptr, nullptr, nullptr);
+    int commit_res = sqlite3_exec(m_db, "COMMIT;", nullptr, nullptr, nullptr);
+    if (commit_res != SQLITE_OK) {
+        std::cerr << "[DB ERROR] BatchSaveReplays COMMIT failed: " << sqlite3_errmsg(m_db) << "\n";
+        sqlite3_exec(m_db, "ROLLBACK;", nullptr, nullptr, nullptr);
+        sqlite3_finalize(stmt);
+        return false;
+    }
+
     sqlite3_finalize(stmt);
     BumpRevision();
     return true;
@@ -220,7 +417,7 @@ bool Database::HasReplay(const std::string& file_path) {
 bool Database::HasValidReplay(const std::string& file_path) {
     std::lock_guard<std::recursive_mutex> lock(m_mutex);
     if (!m_db) return false;
-    const char* sql = "SELECT 1 FROM replays WHERE file_path = ? AND p1_prestige >= 0 AND p1_prestige <= 3 AND p2_prestige >= 0 AND p2_prestige <= 3 AND brutal_plus >= 0 AND brutal_plus <= 6 AND p1_commander != 'Unknown' LIMIT 1;";
+    const char* sql = "SELECT 1 FROM replays WHERE file_path = ? AND result IN ('Victory', 'Defeat', 'Unknown') AND p1_prestige >= 0 AND p1_prestige <= 3 AND p2_prestige >= 0 AND p2_prestige <= 3 AND brutal_plus >= 0 AND brutal_plus <= 6 AND p2_name IS NOT NULL AND p2_name != '' AND (p1_commander != 'Unknown' OR raw_map_name LIKE '[CM]%' OR raw_map_name LIKE '%RTC%') LIMIT 1;";
     sqlite3_stmt* stmt = nullptr;
     if (sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
 
@@ -228,6 +425,40 @@ bool Database::HasValidReplay(const std::string& file_path) {
     bool valid = (sqlite3_step(stmt) == SQLITE_ROW);
     sqlite3_finalize(stmt);
     return valid;
+}
+
+std::unordered_set<std::string> Database::GetAllReplayPaths() {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    std::unordered_set<std::string> paths;
+    if (!m_db) return paths;
+
+    const char* sql = "SELECT file_path FROM replays;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            const unsigned char* p = sqlite3_column_text(stmt, 0);
+            if (p) paths.insert(reinterpret_cast<const char*>(p));
+        }
+        sqlite3_finalize(stmt);
+    }
+    return paths;
+}
+
+std::unordered_set<std::string> Database::GetValidReplayPaths() {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    std::unordered_set<std::string> paths;
+    if (!m_db) return paths;
+
+    const char* sql = "SELECT file_path FROM replays WHERE result IN ('Victory', 'Defeat', 'Unknown') AND p1_prestige >= 0 AND p1_prestige <= 3 AND p2_prestige >= 0 AND p2_prestige <= 3 AND brutal_plus >= 0 AND brutal_plus <= 6 AND p2_name IS NOT NULL AND p2_name != '' AND (p1_commander != 'Unknown' OR raw_map_name LIKE '[CM]%' OR raw_map_name LIKE '%RTC%');";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            const unsigned char* p = sqlite3_column_text(stmt, 0);
+            if (p) paths.insert(reinterpret_cast<const char*>(p));
+        }
+        sqlite3_finalize(stmt);
+    }
+    return paths;
 }
 
 std::vector<std::string> Database::GetCorruptedReplayPaths() {
@@ -322,7 +553,7 @@ std::vector<ReplayRecord> Database::QueryReplays(const std::string& search_query
     }
 
     // 2. Fetch page results
-    std::string fetch_sql = "SELECT file_path, file_mtime, game_date, map_name, raw_map_name, duration_seconds, form_length, result, difficulty, brutal_plus, enemy_race, region, is_weekly, mutators_json, p1_name, p1_handle, p1_commander, p1_prestige, p1_apm, p1_kills, p2_name, p2_handle, p2_commander, p2_prestige, p2_apm, p2_kills, chat_json, details_json FROM replays" + where_clause + " ORDER BY file_mtime DESC, game_date DESC LIMIT ? OFFSET ?;";
+    std::string fetch_sql = "SELECT file_path, file_mtime, game_date, map_name, raw_map_name, duration_seconds, form_length, result, difficulty, brutal_plus, enemy_race, region, is_weekly, mutators_json, p1_name, p1_handle, p1_commander, p1_prestige, p1_apm, p1_kills, p2_name, p2_handle, p2_commander, p2_prestige, p2_apm, p2_kills, chat_json FROM replays" + where_clause + " ORDER BY file_mtime DESC, game_date DESC LIMIT ? OFFSET ?;";
     sqlite3_stmt* stmt = nullptr;
     if (sqlite3_prepare_v2(m_db, fetch_sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
         return results;
@@ -379,14 +610,52 @@ std::vector<ReplayRecord> Database::QueryReplays(const std::string& search_query
         const char* chat = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 26));
         if (chat) r.ChatFromJson(chat);
 
-        const char* details = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 27));
-        if (details) r.DetailsFromJson(details);
-
         results.push_back(r);
     }
 
     sqlite3_finalize(stmt);
     return results;
+}
+
+bool Database::LoadReplayDetails(ReplayRecord& replay) {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    if (!m_db || replay.file_path.empty()) return false;
+
+    sqlite3_stmt* stmt = nullptr;
+    const char* sql = "SELECT details_blob, details_format, details_json FROM replays WHERE file_path = ? LIMIT 1;";
+    if (sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, replay.file_path.c_str(), -1, SQLITE_TRANSIENT);
+    bool loaded = false;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        const void* blob = sqlite3_column_blob(stmt, 0);
+        const int blob_size = sqlite3_column_bytes(stmt, 0);
+        const int format = sqlite3_column_int(stmt, 1);
+        if (blob && blob_size > 0 && format == 1) {
+            loaded = replay.DetailsFromCompressedBlob(blob, static_cast<size_t>(blob_size));
+        }
+        if (!loaded) {
+            const unsigned char* legacy = sqlite3_column_text(stmt, 2);
+            if (legacy) {
+                loaded = replay.DetailsFromJson(reinterpret_cast<const char*>(legacy));
+            }
+        }
+    }
+    sqlite3_finalize(stmt);
+    return loaded;
+}
+
+bool Database::ClearReplayDetails(const std::string& file_path) {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    if (!m_db || file_path.empty()) return false;
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(m_db,
+            "UPDATE replays SET details_blob = NULL, details_format = 0, details_json = NULL WHERE file_path = ?;",
+            -1, &stmt, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, file_path.c_str(), -1, SQLITE_TRANSIENT);
+    const bool ok = sqlite3_step(stmt) == SQLITE_DONE && sqlite3_changes(m_db) > 0;
+    sqlite3_finalize(stmt);
+    if (ok) BumpRevision();
+    return ok;
 }
 
 std::vector<PlayerRecord> Database::QueryPlayers(const std::string& search_filter,
@@ -402,7 +671,8 @@ std::vector<PlayerRecord> Database::QueryPlayers(const std::string& search_filte
     std::string count_sql = R"(
         WITH ally_replays AS (
             SELECT
-                CASE WHEN p.p2_handle != '' AND instr(p.file_path, p.p2_handle) > 0 THEN p.p1_name ELSE p.p2_name END as player_name
+                CASE WHEN is_user_handle(p.p2_handle) OR (p.p2_handle != '' AND instr(p.file_path, p.p2_handle) > 0)
+                     THEN p.p1_name ELSE p.p2_name END as player_name
             FROM replays p
         )
         SELECT COUNT(DISTINCT a.player_name)
@@ -428,6 +698,8 @@ std::vector<PlayerRecord> Database::QueryPlayers(const std::string& search_filte
             out_total_count = sqlite3_column_int(count_stmt, 0);
         }
         sqlite3_finalize(count_stmt);
+    } else {
+        std::cerr << "[DB ERROR] QueryPlayers count prepare failed: " << sqlite3_errmsg(m_db) << "\n";
     }
 
     std::string order_sql = "wins DESC";
@@ -441,8 +713,10 @@ std::vector<PlayerRecord> Database::QueryPlayers(const std::string& search_filte
     std::string query_sql = R"(
         WITH ally_replays AS (
             SELECT
-                CASE WHEN p.p2_handle != '' AND instr(p.file_path, p.p2_handle) > 0 THEN p.p1_name ELSE p.p2_name END as player_name,
-                CASE WHEN p.p2_handle != '' AND instr(p.file_path, p.p2_handle) > 0 THEN p.p1_apm ELSE p.p2_apm END as player_apm,
+                CASE WHEN is_user_handle(p.p2_handle) OR (p.p2_handle != '' AND instr(p.file_path, p.p2_handle) > 0)
+                     THEN p.p1_name ELSE p.p2_name END as player_name,
+                CASE WHEN is_user_handle(p.p2_handle) OR (p.p2_handle != '' AND instr(p.file_path, p.p2_handle) > 0)
+                     THEN p.p1_apm ELSE p.p2_apm END as player_apm,
                 p.result,
                 p.file_mtime
             FROM replays p
@@ -451,7 +725,8 @@ std::vector<PlayerRecord> Database::QueryPlayers(const std::string& search_filte
                COUNT(*) as total_games,
                SUM(CASE WHEN a.result = 'Victory' THEN 1 ELSE 0 END) as wins,
                SUM(CASE WHEN a.result = 'Defeat' THEN 1 ELSE 0 END) as losses,
-               ROUND(100.0 * SUM(CASE WHEN a.result = 'Victory' THEN 1 ELSE 0 END) / COUNT(*), 1) as winrate,
+               ROUND(100.0 * SUM(CASE WHEN a.result = 'Victory' THEN 1 ELSE 0 END) /
+                     NULLIF(SUM(CASE WHEN a.result IN ('Victory', 'Defeat') THEN 1 ELSE 0 END), 0), 1) as winrate,
                ROUND(AVG(a.player_apm)) as median_apm,
                MAX(a.file_mtime) as last_played,
                COALESCE(n.note, '') as note
@@ -468,6 +743,7 @@ std::vector<PlayerRecord> Database::QueryPlayers(const std::string& search_filte
 
     sqlite3_stmt* stmt = nullptr;
     if (sqlite3_prepare_v2(m_db, query_sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+        std::cerr << "[DB ERROR] QueryPlayers prepare failed: " << sqlite3_errmsg(m_db) << "\n";
         return players;
     }
 
@@ -482,15 +758,14 @@ std::vector<PlayerRecord> Database::QueryPlayers(const std::string& search_filte
 
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         PlayerRecord pr;
-        pr.name = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+        pr.name = safe_text(stmt, 0);
         pr.total_games = sqlite3_column_int(stmt, 1);
         pr.wins = sqlite3_column_int(stmt, 2);
         pr.losses = sqlite3_column_int(stmt, 3);
         pr.winrate = sqlite3_column_double(stmt, 4);
         pr.median_apm = sqlite3_column_int(stmt, 5);
         pr.last_played_mtime = sqlite3_column_int64(stmt, 6);
-        const char* note_str = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 7));
-        pr.note = note_str ? note_str : "";
+        pr.note = safe_text(stmt, 7);
         players.push_back(pr);
     }
 
@@ -661,12 +936,12 @@ StatsSummary Database::CalculateStats(const StatsFilter& filter) {
         where_clause += " AND duration_seconds <= " + std::to_string(filter.max_length_minutes * 60);
     }
     if (!filter.ally_name_filter.empty()) {
-        where_clause += " AND (CASE WHEN p2_handle != '' AND instr(file_path, p2_handle) > 0 THEN p1_name ELSE p2_name END) LIKE ?";
+        where_clause += " AND (CASE WHEN is_user_handle(p2_handle) OR (p2_handle != '' AND instr(file_path, p2_handle) > 0) THEN p1_name ELSE p2_name END) LIKE ?";
         ally_pattern = "%" + filter.ally_name_filter + "%";
     }
 
     // Unified Single-Pass Query across the filtered dataset
-    std::string sql = "SELECT map_name, result, duration_seconds, p1_commander, p1_apm, p2_commander, p2_apm, difficulty, brutal_plus, region, file_path, p2_handle FROM replays" + where_clause + ";";
+    std::string sql = "SELECT map_name, result, duration_seconds, p1_commander, p1_apm, p2_commander, p2_apm, difficulty, brutal_plus, region, file_path, p2_handle, p1_handle, game_date FROM replays" + where_clause + ";";
 
     sqlite3_stmt* stmt = nullptr;
     if (sqlite3_prepare_v2(m_db, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
@@ -697,6 +972,7 @@ StatsSummary Database::CalculateStats(const StatsFilter& filter) {
         int wins = 0;
         int losses = 0;
         int64_t total_apm = 0;
+        int64_t total_duration_seconds = 0;
     };
     std::unordered_map<std::string, CmdrAcc> p1_map;
     std::unordered_map<std::string, CmdrAcc> p2_map;
@@ -714,6 +990,7 @@ StatsSummary Database::CalculateStats(const StatsFilter& filter) {
         int total = 0;
     };
     std::unordered_map<std::string, RegAcc> reg_map;
+    std::unordered_set<std::string> active_dates;
 
     static const std::unordered_set<std::string> kKnownCommanders = {
         "Raynor", "Kerrigan", "Artanis", "Swann", "Zagara", "Vorazun",
@@ -734,8 +1011,15 @@ StatsSummary Database::CalculateStats(const StatsFilter& filter) {
         const char* reg_str = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 9));
         const char* path_str = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 10));
         const char* p2h_str = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 11));
+        const char* p1h_str = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 12));
+        const char* date_str = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 13));
 
-        bool p2_is_me = (p2h_str && p2h_str[0] != '\0' && path_str && strstr(path_str, p2h_str) != nullptr);
+        bool p2_is_me = (p2h_str && p2h_str[0] != '\0' && (AppState::Instance().HasUserHandle(p2h_str) || (path_str && strstr(path_str, p2h_str) != nullptr)));
+        bool p1_is_user = (p1h_str && p1h_str[0] != '\0' && AppState::Instance().HasUserHandle(p1h_str));
+        bool p2_is_user = (p2h_str && p2h_str[0] != '\0' && AppState::Instance().HasUserHandle(p2h_str));
+        if (p1_is_user && !p2_is_user) {
+            p2_is_me = false;
+        }
 
         const char* my_cmdr_str = p2_is_me ? p2c_str : p1c_str;
         int my_apm = p2_is_me ? p2_apm : p1_apm;
@@ -744,11 +1028,25 @@ StatsSummary Database::CalculateStats(const StatsFilter& filter) {
 
         std::string map_name = m_str ? m_str : "Unknown";
         std::string result = r_str ? r_str : "Defeat";
+        if (result == "Unknown") {
+            // Skip damaged or incomplete replays from win/loss statistics
+            continue;
+        }
         bool is_victory = (result == "Victory");
 
         sum.total_games++;
         if (is_victory) sum.total_wins++;
         else sum.total_losses++;
+
+        const int valid_duration = std::max(dur, 0);
+        sum.total_duration_seconds += valid_duration;
+        sum.longest_duration_seconds = std::max(sum.longest_duration_seconds, valid_duration);
+        if (date_str && date_str[0] != '\0') {
+            const std::string date(date_str);
+            if (sum.first_game_date.empty() || date < sum.first_game_date) sum.first_game_date = date;
+            if (sum.last_game_date.empty() || date > sum.last_game_date) sum.last_game_date = date;
+            active_dates.insert(date.size() >= 10 ? date.substr(0, 10) : date);
+        }
 
         // Maps
         auto& ma = map_map[map_name];
@@ -766,6 +1064,7 @@ StatsSummary Database::CalculateStats(const StatsFilter& filter) {
                 c.total_games++;
                 if (is_victory) c.wins++; else c.losses++;
                 c.total_apm += my_apm;
+                c.total_duration_seconds += valid_duration;
             }
         }
 
@@ -777,6 +1076,7 @@ StatsSummary Database::CalculateStats(const StatsFilter& filter) {
                 c.total_games++;
                 if (is_victory) c.wins++; else c.losses++;
                 c.total_apm += ally_apm;
+                c.total_duration_seconds += valid_duration;
             }
         }
 
@@ -801,6 +1101,11 @@ StatsSummary Database::CalculateStats(const StatsFilter& filter) {
         }
     }
     sqlite3_finalize(stmt);
+
+    sum.avg_duration_seconds = sum.total_games > 0
+        ? static_cast<int>(sum.total_duration_seconds / sum.total_games)
+        : 0;
+    sum.active_days = static_cast<int>(active_dates.size());
 
     if (sum.total_games > 0) {
         sum.overall_winrate = (100.0 * sum.total_wins) / sum.total_games;
@@ -835,6 +1140,9 @@ StatsSummary Database::CalculateStats(const StatsFilter& filter) {
         cs.winrate = acc.total_games > 0 ? (100.0 * acc.wins / acc.total_games) : 0.0;
         cs.frequency = sum.total_games > 0 ? (100.0 * acc.total_games / sum.total_games) : 0.0;
         cs.avg_apm = acc.total_games > 0 ? static_cast<int>(acc.total_apm / acc.total_games) : 0;
+        cs.total_duration_seconds = acc.total_duration_seconds;
+        cs.time_share = sum.total_duration_seconds > 0
+            ? (100.0 * acc.total_duration_seconds / sum.total_duration_seconds) : 0.0;
         sum.my_commanders.push_back(std::move(cs));
     }
     std::sort(sum.my_commanders.begin(), sum.my_commanders.end(), [](const CommanderStat& a, const CommanderStat& b) {
@@ -851,6 +1159,9 @@ StatsSummary Database::CalculateStats(const StatsFilter& filter) {
         cs.winrate = acc.total_games > 0 ? (100.0 * acc.wins / acc.total_games) : 0.0;
         cs.frequency = sum.total_games > 0 ? (100.0 * acc.total_games / sum.total_games) : 0.0;
         cs.avg_apm = acc.total_games > 0 ? static_cast<int>(acc.total_apm / acc.total_games) : 0;
+        cs.total_duration_seconds = acc.total_duration_seconds;
+        cs.time_share = sum.total_duration_seconds > 0
+            ? (100.0 * acc.total_duration_seconds / sum.total_duration_seconds) : 0.0;
         sum.ally_commanders.push_back(std::move(cs));
     }
     std::sort(sum.ally_commanders.begin(), sum.ally_commanders.end(), [](const CommanderStat& a, const CommanderStat& b) {
@@ -898,7 +1209,7 @@ Database::WeeklyRecord Database::QueryWeeklyRecord(const std::string& map_name, 
     WeeklyRecord wr;
     if (!m_db) return wr;
 
-    std::string sql = "SELECT result, difficulty, file_path FROM replays WHERE map_name = ? AND is_weekly = 1";
+    std::string sql = "SELECT result, difficulty, file_path, duration_seconds FROM replays WHERE map_name = ? AND is_weekly = 1";
     for (size_t i = 0; i < mutators.size(); ++i) {
         sql += " AND mutators_json LIKE ?";
     }
@@ -921,14 +1232,20 @@ Database::WeeklyRecord Database::QueryWeeklyRecord(const std::string& map_name, 
     }
 
     while (sqlite3_step(stmt) == SQLITE_ROW) {
-        std::string res = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
-        std::string diff = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
-        std::string fp = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
+        std::string res = safe_text(stmt, 0);
+        std::string diff = safe_text(stmt, 1);
+        std::string fp = safe_text(stmt, 2);
+        int dur = sqlite3_column_int(stmt, 3);
 
         if (res == "Victory") {
             wr.wins++;
-            wr.highest_diff = diff;
-        } else {
+            if (DiffRank(diff) >= DiffRank(wr.highest_diff)) {
+                wr.highest_diff = diff;
+            }
+            if (wr.fastest_win_seconds == 0 || (dur > 0 && dur < wr.fastest_win_seconds)) {
+                wr.fastest_win_seconds = dur;
+            }
+        } else if (res == "Defeat") {
             wr.losses++;
         }
         wr.replay_files.push_back(fp);
@@ -981,20 +1298,6 @@ std::unordered_map<int, Database::WeeklyRecord> Database::QueryAllWeeklyRecords(
 
     if (items.empty()) return result;
 
-    auto DiffRank = [](const std::string& d) -> int {
-        if (d == "Brutal+6") return 10;
-        if (d == "Brutal+5") return 9;
-        if (d == "Brutal+4") return 8;
-        if (d == "Brutal+3") return 7;
-        if (d == "Brutal+2") return 6;
-        if (d == "Brutal+1") return 5;
-        if (d == "Brutal") return 4;
-        if (d.find("Hard") != std::string::npos) return 3;
-        if (d.find("Normal") != std::string::npos) return 2;
-        if (d.find("Casual") != std::string::npos) return 1;
-        return 0;
-    };
-
     for (const auto& wm : kWeeklyMutations) {
         WeeklyRecord wr;
         for (const auto& item : items) {
@@ -1015,7 +1318,7 @@ std::unordered_map<int, Database::WeeklyRecord> Database::QueryAllWeeklyRecords(
                     if (wr.fastest_win_seconds == 0 || (item.duration_seconds > 0 && item.duration_seconds < wr.fastest_win_seconds)) {
                         wr.fastest_win_seconds = item.duration_seconds;
                     }
-                } else {
+                } else if (item.result == "Defeat") {
                     wr.losses++;
                 }
                 wr.replay_files.push_back(item.file_path);
@@ -1092,6 +1395,13 @@ void Database::RepairWeeklyMutationsIfNeeded() {
     BumpRevision();
 }
 
+// Deprecated / Obsolete:
+// Slot swapping was deprecated in favor of preserving authentic replay player slots (p1 and p2)
+// exactly as recorded in the replay data (see commit 15a63de).
+// Instead of physically mutating the stored rows in SQLite, the UI and query layers
+// (e.g., TabGames, ModalGameDetail, QueryPlayers, and CalculateStats) now dynamically identify
+// which slot belongs to the local user ("Me") and which belongs to the partner ("Ally") based on
+// user account handles and file paths.
 void Database::AlignPlayerSlotsWithUserAccount() {
     return;
     std::lock_guard<std::recursive_mutex> lock(m_mutex);

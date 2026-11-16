@@ -8,6 +8,7 @@
 #include <chrono>
 #include <iostream>
 #include <algorithm>
+#include <unordered_set>
 
 namespace sc2 {
 
@@ -53,9 +54,10 @@ void ReplayWatcher::WatchLoop() {
         if (!m_running.load()) break;
 
         const auto& state = AppState::Instance();
-        if (state.account_folder.empty()) continue;
+        std::string acct_folder = state.GetAccountFolder();
+        if (acct_folder.empty()) continue;
 
-        std::wstring root_w = Win32Utils::Utf8ToWide(state.account_folder);
+        std::wstring root_w = Win32Utils::Utf8ToWide(acct_folder);
         std::error_code ec;
         if (!std::filesystem::exists(root_w, ec) || ec) continue;
 
@@ -82,15 +84,15 @@ void ReplayWatcher::WatchLoop() {
                 last_dir_refresh = now_time;
             }
 
-            // Find newest .SC2Replay file in watched replay folders
-            std::filesystem::path newest_path;
-            std::filesystem::file_time_type newest_time;
-            bool found_any = false;
+            // Collect all unindexed .sc2replay files across watched replay folders
+            std::vector<std::pair<std::filesystem::file_time_type, std::filesystem::path>> unindexed_replays;
+            std::unordered_set<std::string> seen_paths;
 
             for (const auto& dir : watched_dirs) {
+                if (!m_running.load()) break;
                 std::error_code dir_ec;
-                for (auto it = std::filesystem::directory_iterator(dir, std::filesystem::directory_options::skip_permission_denied, dir_ec);
-                     it != std::filesystem::directory_iterator();
+                for (auto it = std::filesystem::recursive_directory_iterator(dir, std::filesystem::directory_options::skip_permission_denied, dir_ec);
+                     it != std::filesystem::recursive_directory_iterator();
                      it.increment(dir_ec)) {
                     if (dir_ec || !m_running.load()) break;
                     const auto& entry = *it;
@@ -99,12 +101,13 @@ void ReplayWatcher::WatchLoop() {
                         auto ext = entry.path().extension().string();
                         for (auto& c : ext) c = tolower(c);
                         if (ext == ".sc2replay") {
-                            auto cur_time = entry.last_write_time(entry_ec);
-                            if (!entry_ec) {
-                                if (!found_any || cur_time > newest_time) {
-                                    newest_time = cur_time;
-                                    newest_path = entry.path();
-                                    found_any = true;
+                            std::string u8path = Win32Utils::WideToUtf8(entry.path().wstring());
+                            if (seen_paths.insert(u8path).second) {
+                                if (!Database::Instance().HasReplay(u8path)) {
+                                    auto cur_time = entry.last_write_time(entry_ec);
+                                    if (!entry_ec) {
+                                        unindexed_replays.push_back({cur_time, entry.path()});
+                                    }
                                 }
                             }
                         }
@@ -112,44 +115,52 @@ void ReplayWatcher::WatchLoop() {
                 }
             }
 
-            if (found_any && !newest_path.empty()) {
-                std::string u8path = Win32Utils::WideToUtf8(newest_path.wstring());
+            // Sort unindexed files by file write time in ascending order (older first, newest last)
+            std::sort(unindexed_replays.begin(), unindexed_replays.end(),
+                      [](const auto& a, const auto& b) {
+                          return a.first < b.first;
+                      });
 
-                // Check if already in database
-                if (!Database::Instance().HasReplay(u8path)) {
-                    // Sleep to ensure SC2 finished flushing and closing the file
-                    std::this_thread::sleep_for(std::chrono::milliseconds(600));
+            for (const auto& item : unindexed_replays) {
+                if (!m_running.load()) break;
+                const auto& replay_path = item.second;
+                std::string u8path = Win32Utils::WideToUtf8(replay_path.wstring());
 
-                    auto parsed = ReplayParser::ParseFile(newest_path.wstring());
-                    if (parsed.has_value()) {
-                        auto rec = parsed.value();
+                if (Database::Instance().HasReplay(u8path)) continue;
 
-                        // Check if this was the fastest time on this map
-                        StatsFilter f;
-                        auto stats = Database::Instance().CalculateStats(f);
-                        bool is_best = false;
-                        for (const auto& ms : stats.maps) {
-                            if (ms.map_name == rec.map_name) {
-                                if (rec.result == "Victory" && (ms.fastest_seconds <= 0 || rec.duration_seconds < ms.fastest_seconds)) {
-                                    is_best = true;
-                                }
-                                break;
+                // Sleep to ensure SC2 finished flushing and closing the file
+                std::this_thread::sleep_for(std::chrono::milliseconds(600));
+                if (!m_running.load()) break;
+
+                auto parsed = ReplayParser::ParseFile(replay_path.wstring());
+                if (parsed.has_value() && parsed->result != "Unknown") {
+                    auto rec = parsed.value();
+
+                    // Check if this was the fastest time on this map
+                    StatsFilter f;
+                    auto stats = Database::Instance().CalculateStats(f);
+                    bool is_best = false;
+                    for (const auto& ms : stats.maps) {
+                        if (ms.map_name == rec.map_name) {
+                            if (rec.result == "Victory" && (ms.fastest_seconds <= 0 || rec.duration_seconds < ms.fastest_seconds)) {
+                                is_best = true;
                             }
+                            break;
                         }
+                    }
 
-                        // Save new match to database
-                        Database::Instance().SaveReplay(rec);
+                    // Save new match to database
+                    Database::Instance().SaveReplay(rec);
 
-                        // Only auto-popup if this match was completed recently:
-                        // Either finished since the watcher started, or within the last 180 seconds.
-                        // (Avoids popping up old replays on application startup)
-                        int64_t now_epoch = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-                        bool is_recently_finished = (rec.file_mtime >= (watcher_start_epoch - 60)) ||
-                                                    ((now_epoch - rec.file_mtime) <= 180);
+                    // Only auto-popup if this match was completed recently:
+                    // Either finished since the watcher started, or within the last 180 seconds.
+                    // (Avoids popping up old replays on application startup)
+                    int64_t now_epoch = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+                    bool is_recently_finished = (rec.file_mtime >= (watcher_start_epoch - 60)) ||
+                                                ((now_epoch - rec.file_mtime) <= 180);
 
-                        if (is_recently_finished && m_on_new_match) {
-                            m_on_new_match(rec, is_best);
-                        }
+                    if (is_recently_finished && m_on_new_match) {
+                        m_on_new_match(rec, is_best);
                     }
                 }
             }

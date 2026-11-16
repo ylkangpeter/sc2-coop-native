@@ -69,7 +69,9 @@ int main() {
     std::cout << "[OK] SummaryOverlay::ShowNext works.\n";
 
     // Test timer update
-    summary.Update(20.0f);
+    for (int i = 0; i < 5; ++i) {
+        summary.Update(10.0f);
+    }
     assert(!summary.IsActive());
     std::cout << "[OK] SummaryOverlay auto-dismissed on timer expiration.\n";
 

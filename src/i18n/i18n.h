@@ -26,6 +26,7 @@ public:
     // Primary translation lookup: retrieves localized text for key from loaded lang file
     static const char* Get(const char* key);
     static const char* Get(const char* key, const char* fallback);
+    static const char* GetFormat(const char* key, const char* fallback);
 
     // Transition helper for dual-literal calls
     static const char* Text(const char* zh, const char* en);

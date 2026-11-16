@@ -8,8 +8,24 @@
 #include <implot.h>
 #include <vector>
 #include <string>
+#include <cstdio>
 
 namespace sc2 {
+
+static std::string FormatHoursMinutes(int64_t total_seconds) {
+    const int64_t total_minutes = std::max<int64_t>(0, total_seconds) / 60;
+    const int hours = static_cast<int>(total_minutes / 60);
+    const int minutes = static_cast<int>(total_minutes % 60);
+    char buffer[96] = {};
+    if (hours > 0) {
+        std::snprintf(buffer, sizeof(buffer),
+                      I18n::GetFormat("Duration_Hours_Minutes", "%dh %02dm"), hours, minutes);
+    } else {
+        std::snprintf(buffer, sizeof(buffer),
+                      I18n::GetFormat("Duration_Minutes", "%dm"), minutes);
+    }
+    return buffer;
+}
 
 int TabStats::s_sub_tab = 0;
 uint64_t TabStats::s_last_revision = 0;
@@ -63,7 +79,7 @@ void TabStats::Render(AppState& state) {
     const auto& summary = s_cached_summary;
 
     // Games found count
-    ImGui::TextColored(ImVec4(0.3f, 0.9f, 0.4f, 1.0f), TR("Games found: %d"), summary.total_games);
+    ImGui::TextColored(ImVec4(0.3f, 0.9f, 0.4f, 1.0f), I18n::GetFormat("Games found: %d", "Games found: %d"), summary.total_games);
     ImGui::Spacing();
 
     // 3. Stats Sub-Navigation
@@ -164,9 +180,9 @@ void TabStats::Render(AppState& state) {
                 ImGui::Dummy(ImVec2(260, 160));
             }
             ImGui::Spacing();
-            ImGui::Text(TR("Fastest Clear: %s"), summary.maps[0].fastest_str.c_str());
-            ImGui::Text(TR("Average Time: %s"), summary.maps[0].avg_str.c_str());
-            ImGui::Text(TR("Winrate: %.1f%%"), summary.maps[0].winrate);
+            ImGui::Text(I18n::GetFormat("Fastest Clear: %s", "Fastest Clear: %s"), summary.maps[0].fastest_str.c_str());
+            ImGui::Text(I18n::GetFormat("Average Time: %s", "Average Time: %s"), summary.maps[0].avg_str.c_str());
+            ImGui::Text(I18n::GetFormat("Winrate: %.1f%%", "Winrate: %.1f%%"), summary.maps[0].winrate);
         } else {
             ImGui::TextDisabled("%s", TR("No map data available."));
         }
@@ -277,13 +293,15 @@ void TabStats::Render(AppState& state) {
         float left_w = (avail_w - ImGui::GetStyle().ItemSpacing.x) * 0.52f;
 
         ImGui::BeginChild("MyComTablePane", ImVec2(left_w, 0), false);
-        if (ImGui::BeginTable("MyComTable", 6, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersOuter | ImGuiTableFlags_ScrollY | ImGuiTableFlags_Resizable)) {
+        if (ImGui::BeginTable("MyComTable", 8, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersOuter | ImGuiTableFlags_ScrollY | ImGuiTableFlags_ScrollX | ImGuiTableFlags_Resizable)) {
             ImGui::TableSetupColumn(TR("Commander"), ImGuiTableColumnFlags_WidthStretch);
             ImGui::TableSetupColumn(TR("Games"), ImGuiTableColumnFlags_WidthFixed, 65.0f);
             ImGui::TableSetupColumn(TR("Wins"), ImGuiTableColumnFlags_WidthFixed, 60.0f);
             ImGui::TableSetupColumn(TR("Losses"), ImGuiTableColumnFlags_WidthFixed, 60.0f);
             ImGui::TableSetupColumn(TR("Winrate"), ImGuiTableColumnFlags_WidthFixed, 70.0f);
             ImGui::TableSetupColumn(TR("APM"), ImGuiTableColumnFlags_WidthFixed, 60.0f);
+            ImGui::TableSetupColumn(TR("TIME"), ImGuiTableColumnFlags_WidthFixed, 85.0f);
+            ImGui::TableSetupColumn(TR("TIME SHARE"), ImGuiTableColumnFlags_WidthFixed, 80.0f);
             ImGui::TableHeadersRow();
 
             for (const auto& c : summary.my_commanders) {
@@ -311,6 +329,13 @@ void TabStats::Render(AppState& state) {
 
                 ImGui::TableSetColumnIndex(5);
                 ImGui::Text("%d", c.avg_apm);
+
+                ImGui::TableSetColumnIndex(6);
+                const std::string commander_time = FormatHoursMinutes(c.total_duration_seconds);
+                ImGui::TextUnformatted(commander_time.c_str());
+
+                ImGui::TableSetColumnIndex(7);
+                ImGui::Text("%.1f%%", c.time_share);
             }
             ImGui::EndTable();
         }
@@ -411,6 +436,40 @@ void TabStats::Render(AppState& state) {
         ImGui::TextDisabled("%s", TR("OVERALL WINRATE"));
         ImGui::TextColored(ImVec4(0.3f, 0.8f, 1.0f, 1.0f), "%.1f%%", summary.overall_winrate);
         ImGui::EndChild();
+
+        ImGui::NewLine();
+
+        ImGui::BeginChild("CardTotalTime", ImVec2(180, 90), true);
+        ImGui::TextDisabled("%s", TR("TOTAL PLAY TIME"));
+        const std::string total_time = FormatHoursMinutes(summary.total_duration_seconds);
+        ImGui::TextColored(ImVec4(0.3f, 0.9f, 1.0f, 1.0f), "%s", total_time.c_str());
+        ImGui::EndChild();
+
+        ImGui::SameLine();
+        ImGui::BeginChild("CardAverageTime", ImVec2(180, 90), true);
+        ImGui::TextDisabled("%s", TR("AVERAGE GAME TIME"));
+        const std::string average_time = FormatHoursMinutes(summary.avg_duration_seconds);
+        ImGui::TextColored(ImVec4(0.3f, 0.9f, 1.0f, 1.0f), "%s", average_time.c_str());
+        ImGui::EndChild();
+
+        ImGui::SameLine();
+        ImGui::BeginChild("CardLongestTime", ImVec2(180, 90), true);
+        ImGui::TextDisabled("%s", TR("LONGEST GAME"));
+        const std::string longest_time = FormatHoursMinutes(summary.longest_duration_seconds);
+        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "%s", longest_time.c_str());
+        ImGui::EndChild();
+
+        ImGui::SameLine();
+        ImGui::BeginChild("CardActiveDays", ImVec2(180, 90), true);
+        ImGui::TextDisabled("%s", TR("ACTIVE DAYS"));
+        ImGui::TextColored(ImVec4(0.8f, 0.7f, 1.0f, 1.0f), "%d", summary.active_days);
+        ImGui::EndChild();
+
+        ImGui::Spacing();
+        ImGui::Text("%s: %s", TR("FIRST RECORDED GAME"),
+                    summary.first_game_date.empty() ? "-" : summary.first_game_date.c_str());
+        ImGui::Text("%s: %s", TR("LAST RECORDED GAME"),
+                    summary.last_game_date.empty() ? "-" : summary.last_game_date.c_str());
     }
 }
 

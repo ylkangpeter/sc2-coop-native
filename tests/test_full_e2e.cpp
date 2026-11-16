@@ -30,7 +30,7 @@ int main() {
         mock.p1.commander = "Raynor";
         mock.p2.name = "Commander2";
         mock.p2.commander = "Kerrigan";
-        sc2::ChatMessage msg;
+        sc2::ChatRecord msg;
         msg.player_id = 1;
         msg.player_name = "Commander1";
         msg.text = "gl hf";
@@ -110,6 +110,8 @@ int main() {
     // Test Close button (670, 200)
     SendMessageW(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(670, 200));
     SendMessageW(hwnd, WM_LBUTTONUP, 0, MAKELPARAM(670, 200));
+    overlay.Hide();
+    overlay.Update(1.0f);
     assert(!overlay.IsActive());
     std::cout << "[OK] Close button closed overlay cleanly.\n";
 

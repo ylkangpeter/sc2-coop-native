@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
+#include <unordered_set>
 #include <memory>
 #include <optional>
 #include <mutex>
@@ -49,6 +50,8 @@ struct CommanderStat {
     double frequency = 0.0;
     int avg_apm = 0;
     double avg_kill_share = 50.0;
+    int64_t total_duration_seconds = 0;
+    double time_share = 0.0;
 };
 
 struct StatsFilter {
@@ -116,6 +119,12 @@ struct StatsSummary {
     int total_wins = 0;
     int total_losses = 0;
     double overall_winrate = 0.0;
+    int64_t total_duration_seconds = 0;
+    int avg_duration_seconds = 0;
+    int longest_duration_seconds = 0;
+    std::string first_game_date;
+    std::string last_game_date;
+    int active_days = 0;
     std::vector<DifficultyStat> difficulties;
     std::vector<RegionStat> regions;
     std::vector<MapStat> maps;
@@ -136,6 +145,8 @@ public:
     bool BatchSaveReplays(const std::vector<ReplayRecord>& recs);
     bool HasReplay(const std::string& file_path);
     bool HasValidReplay(const std::string& file_path);
+    std::unordered_set<std::string> GetAllReplayPaths();
+    std::unordered_set<std::string> GetValidReplayPaths();
     std::vector<std::string> GetCorruptedReplayPaths();
     void SanitizeInvalidPrestiges();
     int GetTotalReplayCount();
@@ -144,6 +155,11 @@ public:
     std::vector<ReplayRecord> QueryReplays(const std::string& search_query,
                                           int limit, int offset,
                                           int& out_total_count);
+
+    // Loads the optional compressed post-game details for an already queried replay.
+    bool LoadReplayDetails(ReplayRecord& replay);
+    // Removes cached details while retaining the historical summary row.
+    bool ClearReplayDetails(const std::string& file_path);
 
     // Query players for Players Tab
     std::vector<PlayerRecord> QueryPlayers(const std::string& search_filter,
@@ -188,6 +204,7 @@ public:
     bool DumpAllToJson(const std::string& output_path);
 
 private:
+    bool MigrateDetailsStorage();
     Database() = default;
     ~Database();
 

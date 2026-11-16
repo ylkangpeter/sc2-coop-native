@@ -4,7 +4,10 @@
 #include <vector>
 #include <array>
 #include <cstdint>
+#include <cstring>
+#include <algorithm>
 #include <nlohmann/json.hpp>
+#include <zlib/zlib.h>
 
 namespace sc2 {
 
@@ -48,6 +51,8 @@ struct ChatRecord {
 };
 
 struct ReplayRecord {
+    static constexpr size_t kMaxStoredSeriesPoints = 256;
+
     std::string file_path;
     int64_t file_mtime = 0;
     std::string game_date;       // "2024-03-29 18:42"
@@ -73,6 +78,41 @@ struct ReplayRecord {
     int bonus_total = 0;
     PlayerTimeSeries p1_series;
     PlayerTimeSeries p2_series;
+
+    static void DownsampleVector(std::vector<float>& values) {
+        if (values.size() <= kMaxStoredSeriesPoints) return;
+        std::vector<float> sampled;
+        sampled.reserve(kMaxStoredSeriesPoints);
+        const size_t last = values.size() - 1;
+        for (size_t i = 0; i < kMaxStoredSeriesPoints; ++i) {
+            const size_t source = (i == kMaxStoredSeriesPoints - 1)
+                ? last
+                : (i * last) / (kMaxStoredSeriesPoints - 1);
+            sampled.push_back(values[source]);
+        }
+        values.swap(sampled);
+    }
+
+    static void DownsampleSeries(PlayerTimeSeries& series) {
+        DownsampleVector(series.time_stamps);
+        DownsampleVector(series.army_value);
+        DownsampleVector(series.supply_used);
+        DownsampleVector(series.kill_count);
+        DownsampleVector(series.collection_rate);
+    }
+
+    static std::vector<uint8_t> CompressJson(const std::string& json) {
+        if (json.empty()) return {};
+        uLongf compressed_size = compressBound(static_cast<uLong>(json.size()));
+        std::vector<uint8_t> compressed(compressed_size);
+        if (compress2(compressed.data(), &compressed_size,
+                      reinterpret_cast<const Bytef*>(json.data()),
+                      static_cast<uLong>(json.size()), Z_BEST_COMPRESSION) != Z_OK) {
+            return {};
+        }
+        compressed.resize(compressed_size);
+        return compressed;
+    }
 
     std::string DetailsToJson() const {
         nlohmann::json j;
@@ -114,14 +154,51 @@ struct ReplayRecord {
             return sj;
         };
 
-        j["p1_series"] = SerializeSeries(p1_series);
-        j["p2_series"] = SerializeSeries(p2_series);
+        PlayerTimeSeries compact_p1 = p1_series;
+        PlayerTimeSeries compact_p2 = p2_series;
+        DownsampleSeries(compact_p1);
+        DownsampleSeries(compact_p2);
+        j["p1_series"] = SerializeSeries(compact_p1);
+        j["p2_series"] = SerializeSeries(compact_p2);
 
         return j.dump();
     }
 
-    void DetailsFromJson(const std::string& json_str) {
-        if (json_str.empty()) return;
+    std::vector<uint8_t> DetailsToCompressedBlob() const {
+        return CompressJson(DetailsToJson());
+    }
+
+    bool DetailsFromCompressedBlob(const void* data, size_t size) {
+        if (!data || size == 0 || size > (64u * 1024u * 1024u)) return false;
+        constexpr size_t kMaxOutputSize = 64u * 1024u * 1024u;
+        const size_t initial_size = std::min(kMaxOutputSize, std::max<size_t>(size * 8, 4096));
+        std::vector<uint8_t> output(initial_size);
+        z_stream stream{};
+        stream.next_in = const_cast<Bytef*>(reinterpret_cast<const Bytef*>(data));
+        stream.avail_in = static_cast<uInt>(size);
+        if (inflateInit(&stream) != Z_OK) return false;
+        int result = Z_OK;
+        while (result == Z_OK) {
+            if (stream.total_out == output.size()) {
+                if (output.size() >= kMaxOutputSize) {
+                    inflateEnd(&stream);
+                    return false;
+                }
+                output.resize(std::min<size_t>(output.size() * 2, 64u * 1024u * 1024u));
+            }
+            stream.next_out = output.data() + stream.total_out;
+            stream.avail_out = static_cast<uInt>(output.size() - stream.total_out);
+            result = inflate(&stream, Z_NO_FLUSH);
+            if (result == Z_BUF_ERROR && stream.avail_out != 0) break;
+        }
+        const size_t output_size = stream.total_out;
+        inflateEnd(&stream);
+        if (result != Z_STREAM_END) return false;
+        return DetailsFromJson(std::string(reinterpret_cast<const char*>(output.data()), output_size));
+    }
+
+    bool DetailsFromJson(const std::string& json_str) {
+        if (json_str.empty()) return false;
         try {
             auto j = nlohmann::json::parse(json_str);
             enemy_comp = j.value("enemy_comp", "");
@@ -167,7 +244,10 @@ struct ReplayRecord {
 
             if (j.contains("p1_series")) DeserializeSeries(j["p1_series"], p1_series);
             if (j.contains("p2_series")) DeserializeSeries(j["p2_series"], p2_series);
-        } catch (...) {}
+            return true;
+        } catch (...) {
+            return false;
+        }
     }
 
     std::string MutatorsToJson() const {

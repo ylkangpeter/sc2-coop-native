@@ -265,7 +265,7 @@ void TabGames::Render(AppState& state) {
 
     // 4. Pagination Footer
     ImGui::Separator();
-    ImGui::Text(TR("page_info_format"), s_current_page + 1, total_pages, total_records);
+    ImGui::Text(I18n::GetFormat("page_info_format", "Page %d of %d (Total: %d games)"), s_current_page + 1, total_pages, total_records);
 
     float btn_bar_w = ImGui::CalcTextSize(TR("<< First")).x + ImGui::CalcTextSize(TR("< Prev")).x +
                       ImGui::CalcTextSize(TR("Next >")).x + ImGui::CalcTextSize(TR("Last >>")).x +

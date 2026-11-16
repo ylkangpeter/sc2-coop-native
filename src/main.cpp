@@ -5,6 +5,7 @@
 #include "app_state.h"
 #include "ui/ui_manager.h"
 #include "db/database.h"
+#include "utils/win32_utils.h"
 #include <backends/imgui_impl_win32.h>
 
 static LONG WINAPI CrashHandler(EXCEPTION_POINTERS* pException) {
@@ -87,17 +88,29 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
     // Enable modern Per-Monitor V2 DPI Awareness for crisp High-DPI scaling
     ImGui_ImplWin32_EnableDpiAwareness();
 
-    // Single instance check
-    HANDLE hMutex = CreateMutexW(nullptr, TRUE, L"SC2CoopNativeSingleInstanceMutex");
-    if (GetLastError() == ERROR_ALREADY_EXISTS) {
-        HWND existingWnd = FindWindowW(L"SC2CoopNativeClass", nullptr);
+    // Single instance check. A named mutex is released by the OS even if the
+    // process crashes, so it cannot become stale like a lock file.
+    SetLastError(ERROR_SUCCESS);
+    HANDLE hMutex = CreateMutexW(nullptr, TRUE, L"Local\\SC2CoopNativeSingleInstanceMutex");
+    const DWORD mutex_error = GetLastError();
+    if (!hMutex) {
+        MessageBoxW(nullptr, L"Failed to create the single-instance mutex.",
+                    L"SC2 Co-op Native Error", MB_ICONERROR | MB_OK);
+        CoUninitialize();
+        return 1;
+    }
+
+    if (mutex_error == ERROR_ALREADY_EXISTS) {
+        HWND existingWnd = nullptr;
+        for (int attempt = 0; attempt < 40 && !existingWnd; ++attempt) {
+            existingWnd = FindWindowW(L"SC2CoopNativeClass", nullptr);
+            if (!existingWnd) Sleep(50);
+        }
         if (existingWnd) {
             ShowWindow(existingWnd, SW_RESTORE);
             SetForegroundWindow(existingWnd);
         }
-        if (hMutex) {
-            CloseHandle(hMutex);
-        }
+        CloseHandle(hMutex);
         CoUninitialize();
         return 0;
     }
@@ -131,12 +144,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
             f << "C++ Standard Exception: " << e.what() << std::endl;
             f.close();
         }
-        int len = MultiByteToWideChar(CP_UTF8, 0, e.what(), -1, nullptr, 0);
-        std::wstring wmsg;
-        if (len > 1) {
-            wmsg.resize(len - 1);
-            MultiByteToWideChar(CP_UTF8, 0, e.what(), -1, &wmsg[0], len);
-        }
+        std::wstring wmsg = sc2::Win32Utils::Utf8ToWide(e.what());
         MessageBoxW(nullptr, wmsg.c_str(), L"SC2 Co-op Native Exception", MB_ICONERROR | MB_OK);
         if (hMutex) {
             ReleaseMutex(hMutex);

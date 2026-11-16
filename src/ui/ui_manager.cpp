@@ -312,8 +312,11 @@ void UIManager::ProcessPendingMatches() {
         if (AppState::Instance().auto_show_summary) {
             SummaryOverlay::Instance().ShowMatch(m.record, m.is_best_time, (float)AppState::Instance().hud_duration_seconds);
         }
-        if (AppState::Instance().show_ally_hud && !m.record.p2.name.empty()) {
-            AllyToastWindow::Instance().ShowAllyInfo(m.record.p2.name, (float)AppState::Instance().hud_duration_seconds);
+        bool p2_is_me = (!m.record.p2.handle.empty() && m.record.file_path.find(m.record.p2.handle) != std::string::npos) ||
+                        (!m.record.p2.handle.empty() && AppState::Instance().HasUserHandle(m.record.p2.handle));
+        std::string ally_name = p2_is_me ? m.record.p1.name : m.record.p2.name;
+        if (AppState::Instance().show_ally_hud && !ally_name.empty()) {
+            AllyToastWindow::Instance().ShowAllyInfo(ally_name, (float)AppState::Instance().hud_duration_seconds);
         }
     }
 }
@@ -357,7 +360,7 @@ bool UIManager::Init(HINSTANCE hInstance, int nCmdShow) {
     int win_x = mi.rcWork.left + (mon_w - win_w) / 2;
     int win_y = mi.rcWork.top + (mon_h - win_h) / 2;
 
-    m_hwnd = CreateWindowW(m_wc.lpszClassName, L"StarCraft II Co-op Native v1.0.5",
+    m_hwnd = CreateWindowW(m_wc.lpszClassName, L"StarCraft II Co-op Native v1.0.6",
                            WS_OVERLAPPEDWINDOW, win_x, win_y, win_w, win_h,
                            nullptr, nullptr, m_wc.hInstance, nullptr);
 
@@ -503,7 +506,7 @@ void UIManager::Run() {
         // Header Navigation Bar
         ImGui::TextColored(ImVec4(0.0f, 0.75f, 1.0f, 1.0f), "SC2 CO-OP NATIVE");
         ImGui::SameLine();
-        ImGui::TextDisabled("v1.0.5");
+        ImGui::TextDisabled("v1.0.6");
         ImGui::SameLine(0, 16.0f);
 
         // Tab Buttons

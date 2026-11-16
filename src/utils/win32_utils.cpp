@@ -12,19 +12,19 @@ namespace sc2 {
 
 std::wstring Win32Utils::Utf8ToWide(const std::string& utf8) {
     if (utf8.empty()) return L"";
-    int count = MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), -1, nullptr, 0);
+    int count = MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), nullptr, 0);
     if (count <= 0) return L"";
-    std::wstring wide(count - 1, 0);
-    MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), -1, &wide[0], count);
+    std::wstring wide(count, 0);
+    MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), &wide[0], count);
     return wide;
 }
 
 std::string Win32Utils::WideToUtf8(const std::wstring& wide) {
     if (wide.empty()) return "";
-    int count = WideCharToMultiByte(CP_UTF8, 0, wide.c_str(), -1, nullptr, 0, nullptr, nullptr);
+    int count = WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), nullptr, 0, nullptr, nullptr);
     if (count <= 0) return "";
-    std::string utf8(count - 1, 0);
-    WideCharToMultiByte(CP_UTF8, 0, wide.c_str(), -1, &utf8[0], count, nullptr, nullptr);
+    std::string utf8(count, 0);
+    WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), &utf8[0], count, nullptr, nullptr);
     return utf8;
 }
 
@@ -92,6 +92,9 @@ bool Win32Utils::SetAutoStart(bool enable, const std::string& app_name, const st
     bool ok = false;
     if (enable) {
         std::wstring wexe = Utf8ToWide(exe_path);
+        if (wexe.empty() || wexe.front() != L'\"' || wexe.back() != L'\"') {
+            wexe = L"\"" + wexe + L"\"";
+        }
         ok = (RegSetValueExW(hKey, wname.c_str(), 0, REG_SZ,
                              reinterpret_cast<const BYTE*>(wexe.c_str()),
                              static_cast<DWORD>((wexe.size() + 1) * sizeof(wchar_t))) == ERROR_SUCCESS);

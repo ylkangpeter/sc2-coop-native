@@ -155,8 +155,13 @@ void SummaryOverlay::ShowMatch(const ReplayRecord& rec, bool is_best_time, float
     m_total_duration = duration > 0.0f ? duration : (float)AppState::Instance().hud_duration_seconds;
     m_remaining_time = m_total_duration;
 
-    // If unit details or time series are empty and replay file exists, parse on demand
-    if (m_current_record.p1.units.empty() && !m_current_record.file_path.empty()) {
+    // Details are intentionally loaded separately from the history list. Prefer the
+    // compact database cache, then fall back to parsing the original replay.
+    bool details_loaded = false;
+    if (!m_current_record.file_path.empty()) {
+        details_loaded = Database::Instance().LoadReplayDetails(m_current_record);
+    }
+    if (!details_loaded && m_current_record.p1.units.empty() && !m_current_record.file_path.empty()) {
         std::wstring wpath = ToWide(m_current_record.file_path);
         auto full_rec = ReplayParser::ParseFile(wpath);
         if (full_rec.has_value()) {

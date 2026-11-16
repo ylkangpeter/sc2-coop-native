@@ -44,8 +44,9 @@ void TabSettings::Render(AppState& state) {
     ImGui::Spacing();
 
     static char folder_buf[512] = {0};
-    if (folder_buf[0] == '\0' && !state.account_folder.empty()) {
-        strncpy_s(folder_buf, state.account_folder.c_str(), sizeof(folder_buf) - 1);
+    std::string current_folder = state.GetAccountFolder();
+    if (folder_buf[0] == '\0' && !current_folder.empty()) {
+        strncpy_s(folder_buf, current_folder.c_str(), sizeof(folder_buf) - 1);
     }
 
     float browse_btn_w = ImGui::CalcTextSize(TR("Browse...")).x + ImGui::GetStyle().FramePadding.x * 2.0f + 16.0f;
@@ -53,14 +54,14 @@ void TabSettings::Render(AppState& state) {
     ImGui::SetNextItemWidth(std::max(200.0f, ImGui::GetContentRegionAvail().x - browse_btn_w - auto_btn_w - ImGui::GetStyle().ItemSpacing.x * 2.0f));
     ImGui::InputText("##AccountFolder", folder_buf, sizeof(folder_buf));
     if (ImGui::IsItemDeactivatedAfterEdit()) {
-        state.account_folder = folder_buf;
+        state.SetAccountFolder(folder_buf);
         state.SaveSettings();
     }
     ImGui::SameLine();
     if (ImGui::Button(TR("Browse..."), ImVec2(browse_btn_w, 0))) {
         std::string chosen = Win32Utils::SelectFolderDialog(nullptr, TR("StarCraft II Replays & Account Directory"));
         if (!chosen.empty()) {
-            state.account_folder = chosen;
+            state.SetAccountFolder(chosen);
             strncpy_s(folder_buf, chosen.c_str(), sizeof(folder_buf) - 1);
             state.SaveSettings();
         }
@@ -69,7 +70,7 @@ void TabSettings::Render(AppState& state) {
     if (ImGui::Button(TR("Auto Detect"), ImVec2(auto_btn_w, 0))) {
         std::string detected = Win32Utils::FindDefaultAccountsFolder();
         if (!detected.empty()) {
-            state.account_folder = detected;
+            state.SetAccountFolder(detected);
             strncpy_s(folder_buf, detected.c_str(), sizeof(folder_buf) - 1);
             state.SaveSettings();
         }
@@ -91,7 +92,7 @@ void TabSettings::Render(AppState& state) {
         s_last_count_check = current_time;
     }
     int total_db_replays = s_cached_total_db_replays;
-    ImGui::Text(TR("Total Replays Indexed in Database: %d"), total_db_replays);
+    ImGui::Text(I18n::GetFormat("Total Replays Indexed in Database: %d", "Total Replays Indexed in Database: %d"), total_db_replays);
 
     if (state.is_scanning) {
         int prog = state.scan_progress.load();
@@ -254,7 +255,7 @@ void TabSettings::Render(AppState& state) {
     ImGui::Spacing();
 
     // 6. About & Version Info
-    ImGui::TextDisabled("StarCraft II Co-op Native v1.0.5 (DirectX 11 + Dear ImGui + SQLite3)");
+    ImGui::TextDisabled("StarCraft II Co-op Native v1.0.6 (DirectX 11 + Dear ImGui + SQLite3)");
     ImGui::TextDisabled("%s", TR("About_Description"));
 }
 

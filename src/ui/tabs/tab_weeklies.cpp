@@ -89,9 +89,9 @@ void TabWeeklies::Render(AppState& state) {
     if (ImGui::BeginChild("CurrentWeeklyBanner", ImVec2(0, banner_h), true)) {
         ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.5f, 1.0f), "%s", TR("Active Weekly Mutation"));
         ImGui::SameLine();
-        ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), TR("Week_Format"), curr_wm.week_number, TR(curr_wm.title));
+        ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), I18n::GetFormat("Week_Format", "Week #%d: %s"), curr_wm.week_number, TR(curr_wm.title));
         ImGui::SameLine();
-        ImGui::TextDisabled(TR("Map_Format"), TR(curr_wm.map_name));
+        ImGui::TextDisabled(I18n::GetFormat("Map_Format", "|  Map: %s"), TR(curr_wm.map_name));
 
         const char* locate_label = TR("Locate Active Week");
         float locate_w = std::max(140.0f, ImGui::CalcTextSize(locate_label).x + ImGui::GetStyle().FramePadding.x * 2.0f + 16.0f);
@@ -155,7 +155,7 @@ void TabWeeklies::Render(AppState& state) {
         Database::Instance().BumpRevision();
     }
     ImGui::SameLine();
-    ImGui::TextDisabled(TR("Catalog_Count_Format"), kWeeklyMutations.size());
+    ImGui::TextDisabled(I18n::GetFormat("Catalog_Count_Format", "(Catalog of %zu Weekly Mutations)"), kWeeklyMutations.size());
 
     ImGui::Spacing();
     ImGui::Separator();
@@ -284,9 +284,9 @@ void TabWeeklies::Render(AppState& state) {
                         ImGui::TextColored(ImVec4(0.9f, 0.9f, 0.9f, 1.0f), "%s", time_buf);
                     }
                     ImGui::SameLine();
-                    ImGui::TextDisabled(TR("Record_WinLoss_Format"), rec.wins, rec.losses);
+                    ImGui::TextDisabled(I18n::GetFormat("Record_WinLoss_Format", "(%dW %dL)"), rec.wins, rec.losses);
                 } else {
-                    ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), TR("Defeat_Count_Format"), rec.losses);
+                    ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), I18n::GetFormat("Defeat_Count_Format", "Defeat (%dL)"), rec.losses);
                 }
             } else {
                 ImGui::TextDisabled("%s", TR("Unplayed"));

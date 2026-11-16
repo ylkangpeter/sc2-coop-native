@@ -24,8 +24,9 @@ void AppState::Init() {
     LoadSettings();
 
     // If account_folder is empty, auto-detect
-    if (account_folder.empty() || !std::filesystem::exists(Win32Utils::Utf8ToWide(account_folder))) {
-        account_folder = Win32Utils::FindDefaultAccountsFolder();
+    std::string cur_folder = GetAccountFolder();
+    if (cur_folder.empty() || !std::filesystem::exists(Win32Utils::Utf8ToWide(cur_folder))) {
+        SetAccountFolder(Win32Utils::FindDefaultAccountsFolder());
         SaveSettings();
     } else {
         RefreshUserHandles();
@@ -35,12 +36,24 @@ void AppState::Init() {
     AutoRepairCorruptedReplaysAsync();
 
     // Auto-start initial background scan if replays directory is configured
-    if (!account_folder.empty() && std::filesystem::exists(Win32Utils::Utf8ToWide(account_folder))) {
+    cur_folder = GetAccountFolder();
+    if (!cur_folder.empty() && std::filesystem::exists(Win32Utils::Utf8ToWide(cur_folder))) {
         StartScanAsync(false);
     }
 }
 
+std::string AppState::GetAccountFolder() const {
+    std::lock_guard<std::mutex> lock(m_settings_mutex);
+    return account_folder;
+}
+
+void AppState::SetAccountFolder(const std::string& folder) {
+    std::lock_guard<std::mutex> lock(m_settings_mutex);
+    account_folder = folder;
+}
+
 void AppState::LoadSettings() {
+    std::lock_guard<std::mutex> lock(m_settings_mutex);
     auto& db = Database::Instance();
     account_folder = db.GetSetting("account_folder", "");
 
@@ -99,6 +112,7 @@ void AppState::LoadSettings() {
 }
 
 void AppState::SaveSettings() {
+    std::lock_guard<std::mutex> lock(m_settings_mutex);
     auto& db = Database::Instance();
     db.SetSetting("account_folder", account_folder);
     RefreshUserHandles();
@@ -207,7 +221,7 @@ void AppState::StartScanAsync(bool force_reparse) {
     scan_total = 0;
 
     m_scan_thread = std::thread([this, force_reparse]() {
-        std::wstring root_w = Win32Utils::Utf8ToWide(account_folder);
+        std::wstring root_w = Win32Utils::Utf8ToWide(GetAccountFolder());
         if (!std::filesystem::exists(root_w)) {
             is_scanning = false;
             return;
@@ -234,44 +248,71 @@ void AppState::StartScanAsync(bool force_reparse) {
             std::cerr << "Directory scan exception: " << e.what() << std::endl;
         }
 
-        scan_total = static_cast<int>(replay_paths.size());
+        scan_total = 0;
+        scan_progress = 0;
+
+        if (m_stop_scan_flag) {
+            is_scanning = false;
+            return;
+        }
+
+        // Identify which replays actually need parsing
+        std::vector<std::filesystem::path> to_parse;
+        if (force_reparse) {
+            to_parse = std::move(replay_paths);
+        } else {
+            auto valid_paths = Database::Instance().GetValidReplayPaths();
+            for (auto& p : replay_paths) {
+                if (m_stop_scan_flag) break;
+                std::string u8path = Win32Utils::WideToUtf8(p.wstring());
+                if (valid_paths.find(u8path) == valid_paths.end()) {
+                    to_parse.push_back(std::move(p));
+                }
+            }
+        }
+
+        if (m_stop_scan_flag || to_parse.empty()) {
+            {
+                std::lock_guard<std::mutex> lock(scan_status_mutex);
+                scan_status_message = "All replays up to date (" + std::to_string(replay_paths.size()) + " total)";
+            }
+            is_scanning = false;
+            return;
+        }
+
+        scan_total = static_cast<int>(to_parse.size());
         int processed = 0;
         std::vector<ReplayRecord> batch;
 
-        for (const auto& p : replay_paths) {
+        for (const auto& p : to_parse) {
             if (m_stop_scan_flag) break;
 
-            std::string u8path = Win32Utils::WideToUtf8(p.wstring());
-
-            // Check if parsing is needed
-            if (force_reparse || !Database::Instance().HasValidReplay(u8path)) {
-                auto parsed = ReplayParser::ParseFile(p.wstring());
-                if (parsed.has_value()) {
-                    batch.push_back(parsed.value());
-                    if (batch.size() >= 30) {
-                        Database::Instance().BatchSaveReplays(batch);
-                        batch.clear();
-                    }
+            auto parsed = ReplayParser::ParseFile(p.wstring());
+            if (parsed.has_value() && parsed->result != "Unknown") {
+                batch.push_back(parsed.value());
+                if (batch.size() >= 30) {
+                    Database::Instance().BatchSaveReplays(batch);
+                    batch.clear();
                 }
             }
 
             processed++;
             scan_progress = processed;
 
-            if (processed % 20 == 0) {
+            if (processed % 10 == 0 || processed == scan_total.load()) {
                 std::lock_guard<std::mutex> lock(scan_status_mutex);
                 scan_status_message = "Parsed " + std::to_string(processed) + " / " + std::to_string(scan_total.load()) + " replays";
             }
         }
 
-        if (!batch.empty()) {
+        if (!batch.empty() && !m_stop_scan_flag) {
             Database::Instance().BatchSaveReplays(batch);
             batch.clear();
         }
 
         {
             std::lock_guard<std::mutex> lock(scan_status_mutex);
-            scan_status_message = "Scan complete (" + std::to_string(scan_total.load()) + " total replays)";
+            scan_status_message = "Scan complete (" + std::to_string(processed) + " new replays parsed)";
         }
         is_scanning = false;
     });
@@ -293,7 +334,7 @@ void AppState::AutoRepairCorruptedReplaysAsync() {
             std::wstring wpath = Win32Utils::Utf8ToWide(u8path);
             if (std::filesystem::exists(wpath)) {
                 auto parsed = ReplayParser::ParseFile(wpath);
-                if (parsed.has_value()) {
+                if (parsed.has_value() && parsed->result != "Unknown") {
                     batch.push_back(parsed.value());
                     if (batch.size() >= 30) {
                         Database::Instance().BatchSaveReplays(batch);

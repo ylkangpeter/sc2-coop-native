@@ -6,6 +6,7 @@
 #include <iostream>
 #include <algorithm>
 #include <mutex>
+#include <string_view>
 
 namespace sc2 {
 
@@ -218,6 +219,34 @@ const char* I18n::Get(const char* key, const char* fallback) {
         return it->second.c_str();
     }
     return fallback ? fallback : key;
+}
+
+static std::string FormatSignature(std::string_view format) {
+    std::string signature;
+    for (size_t i = 0; i < format.size(); ++i) {
+        if (format[i] != '%') continue;
+        if (i + 1 < format.size() && format[i + 1] == '%') {
+            ++i;
+            continue;
+        }
+        size_t j = i + 1;
+        while (j < format.size() && std::string_view("-+ #0'123456789.*hlLjzt").find(format[j]) != std::string_view::npos) {
+            ++j;
+        }
+        if (j >= format.size()) return {};
+        const char spec = format[j];
+        if (spec == 'n' || spec == '$') return {};
+        signature.push_back(spec);
+        i = j;
+    }
+    return signature;
+}
+
+const char* I18n::GetFormat(const char* key, const char* fallback) {
+    if (!fallback) fallback = key ? key : "";
+    const char* translated = Get(key, fallback);
+    if (FormatSignature(translated) == FormatSignature(fallback)) return translated;
+    return fallback;
 }
 
 const char* I18n::Text(const char* zh, const char* en) {

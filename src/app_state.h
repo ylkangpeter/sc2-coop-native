@@ -99,6 +99,9 @@ public:
     void Init();
     void LoadSettings();
     void SaveSettings();
+    std::string GetAccountFolder() const;
+    void SetAccountFolder(const std::string& folder);
+    mutable std::mutex m_settings_mutex;
     void RefreshUserHandles();
     bool HasUserHandle(const std::string& handle);
     std::unordered_set<std::string> user_handles;

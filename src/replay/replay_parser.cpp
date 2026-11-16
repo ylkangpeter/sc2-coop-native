@@ -51,12 +51,7 @@ std::optional<ReplayRecord> ReplayParser::ParseFile(const std::wstring& replay_p
     ReplayRecord record;
 
     // Convert wide path to UTF-8
-    int len = WideCharToMultiByte(CP_UTF8, 0, replay_path.c_str(), -1, nullptr, 0, nullptr, nullptr);
-    if (len > 0) {
-        std::string u8path(len - 1, 0);
-        WideCharToMultiByte(CP_UTF8, 0, replay_path.c_str(), -1, &u8path[0], len, nullptr, nullptr);
-        record.file_path = u8path;
-    }
+    record.file_path = Win32Utils::WideToUtf8(replay_path);
 
     // Get file modification time
     struct _stat64 st;
@@ -77,7 +72,7 @@ std::optional<ReplayRecord> ReplayParser::ParseFile(const std::wstring& replay_p
     record.form_length = FormatDuration(record.duration_seconds);
 
     // Parse players from metadata
-    if (meta_json.contains("Players") && meta_json["Players"].is_array()) {
+    if (meta_json.contains("Players") && meta_json["Players"].is_array() && !meta_json["Players"].empty()) {
         const auto& players_arr = meta_json["Players"];
         if (players_arr.size() >= 1) {
             record.p1.player_id = 1;
@@ -95,7 +90,7 @@ std::optional<ReplayRecord> ReplayParser::ParseFile(const std::wstring& replay_p
             record.result = "Defeat";
         }
     } else {
-        record.result = "Victory";
+        record.result = "Unknown";
     }
 
     // 2. Read replay.details
@@ -194,9 +189,10 @@ std::optional<ReplayRecord> ReplayParser::ParseFile(const std::wstring& replay_p
     } else {
         record.bonus_total = 2;
     }
-    if (record.result == "Victory") {
-        record.bonus_earned = record.bonus_total;
-    }
+    // replay.tracker.events currently does not expose a reliable bonus-objective
+    // completion event. Preserve the existing HUD behavior: a completed victory
+    // is treated as earning all map bonuses, while defeat/unknown stays at zero.
+    record.bonus_earned = (record.result == "Victory") ? record.bonus_total : 0;
 
     // 4. Read replay.tracker.events (Player Stats, Units, Enemy Comps)
     std::vector<uint8_t> tracker_bytes;

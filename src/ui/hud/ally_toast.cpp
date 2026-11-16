@@ -186,7 +186,13 @@ void AllyToastWindow::Render() {
     int win_y = mon_y + (int)(mon_h * 0.05f); // Near top center
 
     HDC hdcScreen = GetDC(nullptr);
+    if (!hdcScreen) return;
+
     HDC hdcMem = CreateCompatibleDC(hdcScreen);
+    if (!hdcMem) {
+        ReleaseDC(nullptr, hdcScreen);
+        return;
+    }
 
     BITMAPINFO bmi = {};
     bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
@@ -198,6 +204,12 @@ void AllyToastWindow::Render() {
 
     void* pBits = nullptr;
     HBITMAP hBitmap = CreateDIBSection(hdcMem, &bmi, DIB_RGB_COLORS, &pBits, nullptr, 0);
+    if (!hBitmap || !pBits) {
+        if (hBitmap) DeleteObject(hBitmap);
+        DeleteDC(hdcMem);
+        ReleaseDC(nullptr, hdcScreen);
+        return;
+    }
     HGDIOBJ hOldBmp = SelectObject(hdcMem, hBitmap);
 
     // 1. Dark Glass Background
@@ -242,18 +254,20 @@ void AllyToastWindow::Render() {
     bool is_zh = (AppState::Instance().language == 0 || AppState::Instance().language_code == "zh_CN");
 
     // Line 1: Ally Name & Stats
-    SelectObject(hdcMem, hFontBold);
+    HGDIOBJ hOldFont = nullptr;
+    if (hFontBold) {
+        hOldFont = SelectObject(hdcMem, hFontBold);
+    }
     SetTextColor(hdcMem, RGB(46, 204, 113));
     std::wstring ally_title = ToWide(TR("ALLY: ")) + ToWide(m_ally_name);
     RECT rcTitle = { pad_x, top_y1, mid_x, top_y2 };
     DrawTextW(hdcMem, ally_title.c_str(), -1, &rcTitle, DT_SINGLELINE | DT_VCENTER);
 
-    SelectObject(hdcMem, hFontBold);
     std::wostringstream oss;
     if (m_total_games > 0) {
         wchar_t stats_buf[128];
-        const wchar_t* fmt = ToWide(TR("Ally_Toast_Stats_Format")).c_str();
-        swprintf_s(stats_buf, fmt, m_total_games, m_winrate, m_apm);
+        std::wstring fmt = ToWide(TR("Ally_Toast_Stats_Format"));
+        swprintf_s(stats_buf, fmt.c_str(), m_total_games, m_winrate, m_apm);
         oss << stats_buf;
     } else {
         oss << ToWide(TR("New Ally (0 previous matches)"));
@@ -297,8 +311,11 @@ void AllyToastWindow::Render() {
     UpdateLayeredWindow(m_hwnd, hdcScreen, &ptPos, &sizeWnd, hdcMem, &ptSrc, 0, &blend, ULW_ALPHA);
     ShowWindow(m_hwnd, SW_SHOWNOACTIVATE);
 
-    DeleteObject(hFontBold);
-    DeleteObject(hFontSmall);
+    if (hOldFont) {
+        SelectObject(hdcMem, hOldFont);
+    }
+    if (hFontBold) DeleteObject(hFontBold);
+    if (hFontSmall) DeleteObject(hFontSmall);
     SelectObject(hdcMem, hOldBmp);
     DeleteObject(hBitmap);
     DeleteDC(hdcMem);

@@ -101,16 +101,21 @@ SOURCES = [
 
 def get_max_header_mtime():
     mtime = 0.0
-    for p in (PROJECT_ROOT / "src").rglob("*.h"):
-        mtime = max(mtime, p.stat().st_mtime)
+    for root in (PROJECT_ROOT / "src", PROJECT_ROOT / "vendor", PROJECT_ROOT / "tests"):
+        for pattern in ("*.h", "*.hpp"):
+            for p in root.rglob(pattern):
+                mtime = max(mtime, p.stat().st_mtime)
     return mtime
 
 MAX_HEADER_MTIME = get_max_header_mtime()
 
 def compile_file(src_path: Path, obj_path: Path):
     is_src = (PROJECT_ROOT / "src") in src_path.parents or src_path.parent == PROJECT_ROOT / "src"
+    is_tests = (PROJECT_ROOT / "tests") in src_path.parents or src_path.parent == PROJECT_ROOT / "tests"
+    # Every translation unit depends on headers, including vendored code.
+    is_checked_source = True
     if obj_path.exists() and obj_path.stat().st_mtime >= src_path.stat().st_mtime:
-        if not is_src or obj_path.stat().st_mtime >= MAX_HEADER_MTIME:
+        if not is_checked_source or obj_path.stat().st_mtime >= MAX_HEADER_MTIME:
             return
     obj_path.parent.mkdir(parents=True, exist_ok=True)
     rel_src = src_path.relative_to(PROJECT_ROOT)
@@ -166,9 +171,195 @@ def kill_running_app():
     except Exception:
         pass
 
+def ensure_sqlite() -> Path:
+    sqlite_c = PROJECT_ROOT / "vendor" / "sqlite3" / "sqlite3.c"
+    sqlite_h = PROJECT_ROOT / "vendor" / "sqlite3" / "sqlite3.h"
+    sqlite_obj = BUILD_DIR / "sqlite3.o"
+    sqlite_mtime = max(sqlite_c.stat().st_mtime, sqlite_h.stat().st_mtime if sqlite_h.exists() else 0.0)
+    if not sqlite_obj.exists() or sqlite_obj.stat().st_mtime < sqlite_mtime:
+        print("Compiling sqlite3.c...")
+        cmd = [str(CLANG), "-O2", "-c", str(sqlite_c.relative_to(PROJECT_ROOT)), "-o", str(sqlite_obj.relative_to(PROJECT_ROOT))]
+        res = None
+        for attempt in range(12):
+            res = subprocess.run(cmd, cwd=PROJECT_ROOT, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            if res.returncode == 0:
+                break
+            if "UtilAcceptVsock" in res.stderr or "vsock" in res.stderr:
+                import time
+                time.sleep(1.0)
+                continue
+            print(f"FAILED to compile sqlite3.c:\n{res.stderr}")
+            sys.exit(1)
+        if res and res.returncode != 0:
+            print(f"FAILED to compile sqlite3.c:\n{res.stderr}")
+            sys.exit(1)
+    return sqlite_obj
+
+def ensure_stormlib() -> Path:
+    stormlib_dir = PROJECT_ROOT / "vendor" / "stormlib"
+    stormlib_lib = stormlib_dir / "libstorm.a"
+    rebuild_stormlib = False
+    if not stormlib_lib.exists():
+        rebuild_stormlib = True
+    else:
+        lib_mtime = stormlib_lib.stat().st_mtime
+        for ext in ("*.c", "*.cpp", "*.h", "*.hpp"):
+            for p in stormlib_dir.rglob(ext):
+                if p.stat().st_mtime > lib_mtime:
+                    rebuild_stormlib = True
+                    break
+            if rebuild_stormlib:
+                break
+
+    if rebuild_stormlib:
+        print("Building StormLib archive...")
+        cmd = [sys.executable, "build_stormlib.py"]
+        res = subprocess.run(cmd, cwd=stormlib_dir, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        if res.returncode != 0:
+            print(f"FAILED to build StormLib:\n{res.stderr}")
+            sys.exit(1)
+    return stormlib_lib
+
+def run_tests():
+    print("========================================================")
+    print(" Building and Running SC2 Co-op Native Test Suite")
+    print("========================================================")
+
+    BUILD_DIR.mkdir(parents=True, exist_ok=True)
+    test_dir = BUILD_DIR / "test_objs"
+    test_dir.mkdir(parents=True, exist_ok=True)
+
+    # 1. Ensure vendor dependencies
+    sqlite_obj = ensure_sqlite()
+    stormlib_lib = ensure_stormlib()
+
+    # 2. Compile non-main library sources
+    non_main_sources = [s for s in SOURCES if s.name != "main.cpp"]
+    non_main_objs = []
+    for src in non_main_sources:
+        rel = src.relative_to(PROJECT_ROOT)
+        obj_name = str(rel).replace("/", "_").replace("\\", "_") + ".o"
+        obj_path = BUILD_DIR / obj_name
+        compile_file(src, obj_path)
+        non_main_objs.append(obj_path)
+
+    # 3. Discover test sources
+    test_files = sorted(list((PROJECT_ROOT / "tests").glob("test_*.cpp")))
+    if not test_files:
+        print("[WARNING] No test files found in tests/ directory.")
+        return
+
+    failed_tests = []
+    passed_tests = []
+
+    for test_src in test_files:
+        test_name = test_src.stem
+        test_obj = test_dir / f"{test_name}.o"
+        test_exe = test_dir / f"{test_name}.exe"
+
+        # Compile test file
+        compile_file(test_src, test_obj)
+
+        # Check incremental linking for test executable
+        link_needed = not test_exe.exists()
+        if not link_needed:
+            exe_mtime = test_exe.stat().st_mtime
+            if (test_obj.stat().st_mtime > exe_mtime or
+                sqlite_obj.stat().st_mtime > exe_mtime or
+                stormlib_lib.stat().st_mtime > exe_mtime or
+                any(o.stat().st_mtime > exe_mtime for o in non_main_objs)):
+                link_needed = True
+
+        if link_needed:
+            print(f"Linking test executable {test_exe.name}...")
+            rsp_file = BUILD_DIR / f"{test_name}_link.rsp"
+            rsp_args = (
+                ["-static"]
+                + [str(test_obj.relative_to(PROJECT_ROOT))]
+                + [str(o.relative_to(PROJECT_ROOT)) for o in non_main_objs]
+                + [
+                    str(sqlite_obj.relative_to(PROJECT_ROOT)),
+                    str(stormlib_lib.relative_to(PROJECT_ROOT)),
+                ]
+                + [
+                    "-ld3d11",
+                    "-ld3dcompiler",
+                    "-ldwmapi",
+                    "-lole32",
+                    "-lwindowscodecs",
+                    "-lwininet",
+                    "-limm32",
+                    "-lgdi32",
+                    "-lshell32",
+                    "-luuid",
+                    "-o",
+                    str(test_exe.relative_to(PROJECT_ROOT)),
+                ]
+            )
+            with open(rsp_file, "w") as rf:
+                rf.write("\n".join(rsp_args))
+
+            link_cmd = [str(CLANG_PP), f"@{rsp_file.relative_to(PROJECT_ROOT)}"]
+            res = None
+            for attempt in range(12):
+                res = subprocess.run(link_cmd, cwd=PROJECT_ROOT, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                if res.returncode == 0:
+                    break
+                if "UtilAcceptVsock" in res.stderr or "vsock" in res.stderr:
+                    import time
+                    time.sleep(1.0)
+                    continue
+                print(f"FAILED to link test {test_name}:\n{res.stderr}")
+                sys.exit(1)
+            if res and res.returncode != 0:
+                print(f"FAILED to link test {test_name}:\n{res.stderr}")
+                sys.exit(1)
+
+        # Run test executable using subprocess.run(..., stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        print(f"\n--- Running [{test_name}] ---")
+        run_res = subprocess.run(
+            [str(test_exe)],
+            cwd=PROJECT_ROOT,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            errors="replace"
+        )
+
+        if run_res.stdout:
+            print(run_res.stdout.rstrip())
+        if run_res.stderr:
+            print(run_res.stderr.rstrip(), file=sys.stderr)
+
+        if run_res.returncode == 0:
+            print(f"[PASS] {test_name}")
+            passed_tests.append(test_name)
+        else:
+            print(f"[FAIL] {test_name} (exit code: {run_res.returncode})")
+            failed_tests.append(test_name)
+
+    print("\n========================================================")
+    print(" Test Execution Summary")
+    print("========================================================")
+    print(f"Total: {len(test_files)} | Passed: {len(passed_tests)} | Failed: {len(failed_tests)}")
+
+    if failed_tests:
+        print(f"[ERROR] The following test(s) failed: {', '.join(failed_tests)}")
+        sys.exit(1)
+    else:
+        print("[SUCCESS] All tests passed!")
+
 def main():
     if "--package-only" in sys.argv:
+        if not DIST_DIR.is_dir() or not (DIST_DIR / "sc2_coop.exe").is_file():
+            print(f"[ERROR] Cannot package: missing built executable at {DIST_DIR / 'sc2_coop.exe'}")
+            sys.exit(1)
         package_release()
+        return
+
+    if "--test" in sys.argv:
+        run_tests()
         return
 
     BUILD_DIR.mkdir(parents=True, exist_ok=True)
@@ -189,34 +380,8 @@ def main():
         obj_files.append(obj_path)
 
     # 3. Vendor dependencies
-    sqlite_c = PROJECT_ROOT / "vendor" / "sqlite3" / "sqlite3.c"
-    sqlite_obj = BUILD_DIR / "sqlite3.o"
-    if not sqlite_obj.exists() or sqlite_obj.stat().st_mtime < sqlite_c.stat().st_mtime:
-        print("Compiling sqlite3.c...")
-        cmd = [str(CLANG), "-O2", "-c", str(sqlite_c.relative_to(PROJECT_ROOT)), "-o", str(sqlite_obj.relative_to(PROJECT_ROOT))]
-        res = None
-        for attempt in range(12):
-            res = subprocess.run(cmd, cwd=PROJECT_ROOT, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            if res.returncode == 0:
-                break
-            if "UtilAcceptVsock" in res.stderr or "vsock" in res.stderr:
-                import time
-                time.sleep(1.0)
-                continue
-            print(f"FAILED to compile sqlite3.c:\n{res.stderr}")
-            sys.exit(1)
-        if res and res.returncode != 0:
-            print(f"FAILED to compile sqlite3.c:\n{res.stderr}")
-            sys.exit(1)
-
-    stormlib_lib = PROJECT_ROOT / "vendor" / "stormlib" / "libstorm.a"
-    if not stormlib_lib.exists():
-        print("Building StormLib archive...")
-        cmd = [sys.executable, "build_stormlib.py"]
-        res = subprocess.run(cmd, cwd=PROJECT_ROOT / "vendor" / "stormlib", stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        if res.returncode != 0:
-            print(f"FAILED to build StormLib:\n{res.stderr}")
-            sys.exit(1)
+    sqlite_obj = ensure_sqlite()
+    stormlib_lib = ensure_stormlib()
 
     # 4. Link executable
     target_exe = DIST_DIR / "sc2_coop.exe"
@@ -308,7 +473,7 @@ def main():
     if "--package" in sys.argv or "-p" in sys.argv:
         package_release()
 
-def package_release(version: str = "v1.0.5"):
+def package_release(version: str = "v1.0.6"):
     import zipfile
     zip_name = f"sc2-coop-native-{version}-windows-x64.zip"
     zip_dest = PROJECT_ROOT / "dist" / zip_name
@@ -329,8 +494,14 @@ def package_release(version: str = "v1.0.5"):
             for f in sorted(files):
                 p = Path(root) / f
                 
-                # Check exclusions
-                if p.suffix.lower() in EXCLUDE_EXTS or any(p.match(pat) for pat in EXCLUDE_PATTERNS):
+                # Check exclusions: exclude replay_data_dump.json and any *.json located directly in dist/ or dist/sc2_coop/
+                is_replay_dump = (p.name == "replay_data_dump.json")
+                is_root_json = (p.suffix.lower() == ".json" and (p.parent == DIST_DIR or p.parent == PROJECT_ROOT / "dist"))
+
+                if (p.suffix.lower() in EXCLUDE_EXTS or
+                    any(p.match(pat) for pat in EXCLUDE_PATTERNS) or
+                    is_replay_dump or
+                    is_root_json):
                     print(f"  [SHIELDED/EXCLUDED] {p.name}")
                     excluded_count += 1
                     continue
