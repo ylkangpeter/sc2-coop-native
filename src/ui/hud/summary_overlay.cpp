@@ -4,6 +4,7 @@
 #include "../../db/database.h"
 #include "../../app_state.h"
 #include "../../utils/win32_utils.h"
+#include "../../utils/diagnostics.h"
 #include "../../data/sc2_constants.h"
 #include "../../replay/replay_parser.h"
 #include "../../i18n/i18n.h"
@@ -89,6 +90,9 @@ void SummaryOverlay::Init(HINSTANCE hInstance) {
         mi.rcMonitor.left + mon_w, mi.rcMonitor.top, m_overlay_w, m_overlay_h,
         nullptr, nullptr, hInstance, nullptr
     );
+    if (!m_hwnd) {
+        LogDiagnostic("summary", "CreateWindowEx failed; error=" + std::to_string(GetLastError()));
+    }
 
     // Create 45-degree rotated font for chart X-axis labels
     LOGFONTW lf = {};
@@ -169,8 +173,10 @@ void SummaryOverlay::ShowMatch(const ReplayRecord& rec, bool is_best_time, float
     if (m_anim_t <= 0.0f) m_anim_t = 0.01f;
 
     Render();
-    UpdatePosition();
+    UpdatePosition(true);
     ShowWindow(m_hwnd, SW_SHOWNOACTIVATE);
+    LogDiagnostic("summary", "show requested; visible=" + std::to_string(IsWindowVisible(m_hwnd)) +
+        "; duration=" + std::to_string(m_total_duration));
 }
 
 void SummaryOverlay::ShowLatest() {
@@ -268,7 +274,10 @@ void SummaryOverlay::Toggle() {
         Hide();
     } else if (m_anim_state == OverlayAnimState::SlidingOut) {
         m_anim_state = OverlayAnimState::SlidingIn;
-        if (m_hwnd) ShowWindow(m_hwnd, SW_SHOWNOACTIVATE);
+        if (m_hwnd) {
+            UpdatePosition(true);
+            ShowWindow(m_hwnd, SW_SHOWNOACTIVATE);
+        }
     } else {
         ShowLatest();
     }
@@ -297,12 +306,17 @@ void SummaryOverlay::Update(float delta_time) {
         if (m_anim_t >= 1.0f) {
             m_anim_t = 1.0f;
             m_anim_state = OverlayAnimState::Visible;
+            LogDiagnostic("summary", "slide-in complete");
         }
         UpdatePosition();
     } else if (m_anim_state == OverlayAnimState::Visible) {
         m_remaining_time -= delta_time;
         if (m_remaining_time <= 0.0f) {
             Hide();
+        } else {
+            // Keep layered window topmost above borderless StarCraft II window
+            SetWindowPos(m_hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
         }
     } else if (m_anim_state == OverlayAnimState::SlidingOut) {
         m_anim_t -= delta_time / 0.30f; // Slide out over 300ms
@@ -320,7 +334,7 @@ void SummaryOverlay::Update(float delta_time) {
     }
 }
 
-void SummaryOverlay::UpdatePosition() {
+void SummaryOverlay::UpdatePosition(bool force_show) {
     if (!m_hwnd) return;
     HWND sc2_hwnd = Win32Utils::FindStarCraftIIWindow();
     HMONITOR hMon = MonitorFromWindow(sc2_hwnd ? sc2_hwnd : GetDesktopWindow(), MONITOR_DEFAULTTONEAREST);
@@ -349,8 +363,11 @@ void SummaryOverlay::UpdatePosition() {
 
     int cur_x = mon_x + mon_w - (int)(m_overlay_w * ease_factor);
     int cur_y = mon_y;
-    SetWindowPos(m_hwnd, HWND_TOPMOST, cur_x, cur_y, m_overlay_w, m_overlay_h,
-                 SWP_NOACTIVATE | SWP_NOSIZE);
+    UINT flags = SWP_NOACTIVATE;
+    if (force_show) {
+        flags |= SWP_SHOWWINDOW;
+    }
+    SetWindowPos(m_hwnd, HWND_TOPMOST, cur_x, cur_y, m_overlay_w, m_overlay_h, flags);
 }
 
 void SummaryOverlay::Render() {
@@ -557,7 +574,9 @@ void SummaryOverlay::Render() {
     POINT ptDst = { cur_x, cur_y };
     SIZE sz = { width, height };
     BLENDFUNCTION blend = { AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
-    UpdateLayeredWindow(m_hwnd, hdcScreen, &ptDst, &sz, hdcMem, &ptZero, RGB(0, 0, 0), &blend, ULW_ALPHA);
+    if (!UpdateLayeredWindow(m_hwnd, hdcScreen, &ptDst, &sz, hdcMem, &ptZero, RGB(0, 0, 0), &blend, ULW_ALPHA)) {
+        LogDiagnostic("summary", "UpdateLayeredWindow failed; error=" + std::to_string(GetLastError()));
+    }
 
     // Cleanup GDI objects
     if (hOldFont) {

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 import os
 import sys
 import shutil
@@ -82,6 +83,7 @@ SOURCES = [
     PROJECT_ROOT / "src" / "replay" / "tracker_decoder.cpp",
     PROJECT_ROOT / "src" / "replay" / "chat_decoder.cpp",
     PROJECT_ROOT / "src" / "replay" / "replay_parser.cpp",
+    PROJECT_ROOT / "src" / "replay" / "replay_file_state.cpp",
     PROJECT_ROOT / "src" / "replay" / "replay_scanner.cpp",
     PROJECT_ROOT / "src" / "replay" / "replay_watcher.cpp",
     PROJECT_ROOT / "src" / "utils" / "win32_utils.cpp",
@@ -243,7 +245,7 @@ def ensure_stormlib() -> Path:
             sys.exit(1)
     return stormlib_lib
 
-def run_tests():
+def run_tests(test_filter=None):
     print("========================================================")
     print(" Building and Running SC2 Co-op Native Test Suite")
     print("========================================================")
@@ -268,9 +270,11 @@ def run_tests():
 
     # 3. Discover test sources
     test_files = sorted(list((PROJECT_ROOT / "tests").glob("test_*.cpp")))
+    if test_filter:
+        test_files = [p for p in test_files if p.stem == test_filter]
     if not test_files:
-        print("[WARNING] No test files found in tests/ directory.")
-        return
+        print("[ERROR] No matching test files found in tests/ directory.")
+        sys.exit(1)
 
     failed_tests = []
     passed_tests = []
@@ -298,14 +302,15 @@ def run_tests():
             rsp_file = BUILD_DIR / f"{test_name}_link.rsp"
             rsp_args = (
                 ["-static"]
-                + [str(test_obj.relative_to(PROJECT_ROOT))]
-                + [str(o.relative_to(PROJECT_ROOT)) for o in non_main_objs]
+                + [test_obj.relative_to(PROJECT_ROOT).as_posix()]
+                + [o.relative_to(PROJECT_ROOT).as_posix() for o in non_main_objs]
                 + [
-                    str(sqlite_obj.relative_to(PROJECT_ROOT)),
-                    str(stormlib_lib.relative_to(PROJECT_ROOT)),
+                    sqlite_obj.relative_to(PROJECT_ROOT).as_posix(),
+                    stormlib_lib.relative_to(PROJECT_ROOT).as_posix(),
                 ]
                 + [
                     "-ld3d11",
+                    "-lbcrypt",
                     "-ld3dcompiler",
                     "-ldwmapi",
                     "-lole32",
@@ -316,7 +321,7 @@ def run_tests():
                     "-lshell32",
                     "-luuid",
                     "-o",
-                    str(test_exe.relative_to(PROJECT_ROOT)),
+                    test_exe.relative_to(PROJECT_ROOT).as_posix(),
                 ]
             )
             with open(rsp_file, "w") as rf:
@@ -382,7 +387,9 @@ def main():
         return
 
     if "--test" in sys.argv:
-        run_tests()
+        test_filter = next((arg.split("=", 1)[1] for arg in sys.argv
+                            if arg.startswith("--test-filter=")), None)
+        run_tests(test_filter)
         return
 
     BUILD_DIR.mkdir(parents=True, exist_ok=True)
@@ -413,14 +420,15 @@ def main():
     rsp_file = BUILD_DIR / "link_args.rsp"
     rsp_args = (
         ["-static", "-mwindows"]
-        + [str(o.relative_to(PROJECT_ROOT)) for o in obj_files]
+        + [o.relative_to(PROJECT_ROOT).as_posix() for o in obj_files]
         + [
-            str(res_obj.relative_to(PROJECT_ROOT)),
-            str(sqlite_obj.relative_to(PROJECT_ROOT)),
-            str(stormlib_lib.relative_to(PROJECT_ROOT)),
+            res_obj.relative_to(PROJECT_ROOT).as_posix(),
+            sqlite_obj.relative_to(PROJECT_ROOT).as_posix(),
+            stormlib_lib.relative_to(PROJECT_ROOT).as_posix(),
         ]
         + [
             "-ld3d11",
+            "-lbcrypt",
             "-ld3dcompiler",
             "-ldwmapi",
             "-lole32",
@@ -431,7 +439,7 @@ def main():
             "-lshell32",
             "-luuid",
             "-o",
-            str(target_exe.relative_to(PROJECT_ROOT)),
+            target_exe.relative_to(PROJECT_ROOT).as_posix(),
         ]
     )
     with open(rsp_file, "w") as rf:
@@ -496,7 +504,7 @@ def main():
     if "--package" in sys.argv or "-p" in sys.argv:
         package_release()
 
-def package_release(version: str = "v1.0.13"):
+def package_release(version: str = "v1.0.14"):
     import zipfile
     zip_name = f"sc2-coop-native-{version}-windows-x64.zip"
     zip_dest = PROJECT_ROOT / "dist" / zip_name

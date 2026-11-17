@@ -9,6 +9,7 @@
 #include <mutex>
 #include <atomic>
 #include "../replay/replay_types.h"
+#include "../replay/replay_file_state.h"
 
 struct sqlite3;
 
@@ -149,6 +150,11 @@ public:
     std::unordered_set<std::string> GetAllReplayPaths();
     std::unordered_set<std::string> GetValidReplayPaths();
     std::unordered_map<std::string, int64_t> GetValidReplayMtimes();
+    std::unordered_map<std::string, int64_t> GetIndexedReplayMtimes();
+    std::unordered_map<std::string, ReplayFileState> GetReplayFileStates();
+    bool SaveReplayFileState(const std::string& path, const ReplayFileState& state);
+    bool HasFailedReplayHash(const std::string& sha256);
+    bool ClearReplayFileStates();
     std::vector<std::string> GetCorruptedReplayPaths();
     std::unordered_set<std::string> GetDifficultyRepairPaths();
     void SanitizeInvalidPrestiges();

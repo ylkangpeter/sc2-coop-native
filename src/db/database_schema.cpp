@@ -117,6 +117,20 @@ bool Database::Open(const std::string& db_path) {
             value TEXT
         );
 
+        CREATE TABLE IF NOT EXISTS replay_file_states (
+            file_path TEXT PRIMARY KEY,
+            write_time INTEGER NOT NULL,
+            file_size INTEGER NOT NULL,
+            sha256 TEXT NOT NULL,
+            outcome TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_replay_file_hash ON replay_file_states(sha256, outcome);
+        CREATE TABLE IF NOT EXISTS replay_failed_hashes (
+            sha256 TEXT PRIMARY KEY
+        );
+        INSERT OR IGNORE INTO replay_failed_hashes
+            SELECT sha256 FROM replay_file_states WHERE outcome = 'failed';
+
         CREATE INDEX IF NOT EXISTS idx_replays_date ON replays(game_date DESC);
         CREATE INDEX IF NOT EXISTS idx_replays_mtime ON replays(file_mtime DESC);
         CREATE INDEX IF NOT EXISTS idx_replays_map ON replays(map_name);

@@ -38,7 +38,7 @@ private:
     ~SummaryOverlay() = default;
 
     void Render();
-    void UpdatePosition();
+    void UpdatePosition(bool force_show = false);
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
     HINSTANCE m_hInstance = nullptr;

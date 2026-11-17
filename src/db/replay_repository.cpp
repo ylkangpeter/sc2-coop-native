@@ -216,6 +216,69 @@ std::unordered_map<std::string, int64_t> Database::GetValidReplayMtimes() {
     return mtimes;
 }
 
+std::unordered_map<std::string, int64_t> Database::GetIndexedReplayMtimes() {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    std::unordered_map<std::string, int64_t> mtimes;
+    if (!m_db) return mtimes;
+    SqliteStmt stmt(m_db, "SELECT file_path, file_mtime FROM replays WHERE result IN ('Victory', 'Defeat');");
+    if (stmt.IsValid()) {
+        while (stmt.Step() == SQLITE_ROW) mtimes[stmt.ColumnText(0)] = stmt.ColumnInt64(1);
+    }
+    return mtimes;
+}
+
+std::unordered_map<std::string, ReplayFileState> Database::GetReplayFileStates() {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    std::unordered_map<std::string, ReplayFileState> states;
+    if (!m_db) return states;
+    SqliteStmt stmt(m_db, "SELECT file_path, write_time, file_size, sha256, outcome FROM replay_file_states;");
+    if (stmt.IsValid()) {
+        while (stmt.Step() == SQLITE_ROW) {
+            states[stmt.ColumnText(0)] = {stmt.ColumnInt64(1), stmt.ColumnInt64(2),
+                stmt.ColumnText(3), stmt.ColumnText(4)};
+        }
+    }
+    return states;
+}
+
+bool Database::SaveReplayFileState(const std::string& path, const ReplayFileState& state) {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    if (!m_db || state.sha256.empty()) return false;
+    if (state.outcome == "failed") {
+        SqliteStmt failed(m_db, "INSERT OR IGNORE INTO replay_failed_hashes (sha256) VALUES (?);");
+        if (!failed.IsValid()) return false;
+        failed.BindText(1, state.sha256);
+        if (failed.Step() != SQLITE_DONE) return false;
+    }
+    SqliteStmt stmt(m_db, "INSERT OR REPLACE INTO replay_file_states "
+        "(file_path, write_time, file_size, sha256, outcome) VALUES (?, ?, ?, ?, ?);");
+    if (!stmt.IsValid()) return false;
+    stmt.BindText(1, path);
+    stmt.BindInt64(2, state.write_time);
+    stmt.BindInt64(3, state.file_size);
+    stmt.BindText(4, state.sha256);
+    stmt.BindText(5, state.outcome);
+    return stmt.Step() == SQLITE_DONE;
+}
+
+bool Database::HasFailedReplayHash(const std::string& sha256) {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    if (!m_db || sha256.empty()) return false;
+    SqliteStmt stmt(m_db, "SELECT 1 FROM replay_failed_hashes WHERE sha256 = ? LIMIT 1;");
+    if (!stmt.IsValid()) return false;
+    stmt.BindText(1, sha256);
+    return stmt.Step() == SQLITE_ROW;
+}
+
+bool Database::ClearReplayFileStates() {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    if (!m_db) return false;
+    SqliteTransaction txn(m_db);
+    if (!txn.IsActive() || sqlite3_exec(m_db,
+        "DELETE FROM replay_file_states; DELETE FROM replay_failed_hashes;", nullptr, nullptr, nullptr) != SQLITE_OK) return false;
+    return txn.Commit();
+}
+
 std::vector<std::string> Database::GetCorruptedReplayPaths() {
     std::lock_guard<std::recursive_mutex> lock(m_mutex);
     std::vector<std::string> paths;

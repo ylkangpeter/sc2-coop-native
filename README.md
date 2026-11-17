@@ -87,7 +87,7 @@ However, running a full web runtime inside an overlay poses noticeable drawbacks
 
 ## 📥 Download & Usage
 
-1. Go to the [**Releases**](https://github.com/ylkangpeter/sc2-coop-native/releases) page and download `sc2-coop-native-v1.0.13-windows-x64.zip`.
+1. Go to the [**Releases**](https://github.com/ylkangpeter/sc2-coop-native/releases) page and download `sc2-coop-native-v1.0.14-windows-x64.zip`.
 2. Extract the archive anywhere on your PC (e.g. `D:\Tools\SC2_Coop_Native\`).
 3. Run `sc2_coop.exe`.
 4. Launch **StarCraft II** in **Windowed (Fullscreen)** or **Windowed** mode.
@@ -114,6 +114,16 @@ python build.py
 ```
 
 The compiled standalone executable and asset directory will be generated in `dist/sc2_coop/sc2_coop.exe`.
+
+To verify automatic post-game notifications with an isolated database and temporary replay folders:
+
+```cmd
+python build.py --test --test-filter=test_replay_notifications
+```
+
+When logging is enabled, `overlay_diagnostics.log` beside the executable records the build timestamp, watched folder, replay retries, UI notifications, and summary window display. The log is capped at approximately 1 MB and includes local replay paths. It can distinguish a replay detection failure from a notification or window rendering failure.
+
+Replay discovery polls the watched folders every second and compares file metadata; only new or changed candidates need SHA-256 hashing. Processing results are persisted in `replay_file_states` in the local database. Successfully indexed arcade replays are considered processed even when their commanders are unknown. Unreadable replay content is marked by SHA-256 and skipped on later scans and restarts, including renamed copies. Files with an active writer remain retryable, and changed content is reconsidered. Newest files are processed first, with background work limited to 16 files or 250 ms per pass. **Re-parse All Replays** clears the content markers and explicitly retries the library.
 
 ---
 

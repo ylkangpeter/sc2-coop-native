@@ -8,6 +8,7 @@
 #include "hud/ally_toast.h"
 #include "../utils/hotkey_manager.h"
 #include "../utils/win32_utils.h"
+#include "../utils/diagnostics.h"
 #include "../replay/replay_watcher.h"
 
 #include <imgui.h>
@@ -299,7 +300,9 @@ void UIManager::PostNewMatch(const ReplayRecord& rec, bool is_best_time) {
         m_pending_matches.push_back({rec, is_best_time});
     }
     if (m_hwnd) {
-        PostMessageW(m_hwnd, WM_USER_NEW_MATCH, 0, 0);
+        if (!PostMessageW(m_hwnd, WM_USER_NEW_MATCH, 0, 0)) {
+            LogDiagnostic("ui", "PostMessage failed; error=" + std::to_string(GetLastError()));
+        }
     }
 }
 
@@ -310,6 +313,8 @@ void UIManager::ProcessPendingMatches() {
         matches = std::move(m_pending_matches);
     }
     for (const auto& m : matches) {
+        LogDiagnostic("ui", std::string("processing match; auto_show_summary=") +
+            (AppState::Instance().auto_show_summary ? "1" : "0"));
         if (AppState::Instance().auto_show_summary) {
             SummaryOverlay::Instance().ShowMatch(m.record, m.is_best_time, (float)AppState::Instance().hud_duration_seconds);
         }
@@ -361,7 +366,7 @@ bool UIManager::Init(HINSTANCE hInstance, int nCmdShow) {
     int win_x = mi.rcWork.left + (mon_w - win_w) / 2;
     int win_y = mi.rcWork.top + (mon_h - win_h) / 2;
 
-    m_hwnd = CreateWindowW(m_wc.lpszClassName, L"StarCraft II Co-op Native v1.0.13",
+    m_hwnd = CreateWindowW(m_wc.lpszClassName, L"StarCraft II Co-op Native v1.0.14",
                            WS_OVERLAPPEDWINDOW, win_x, win_y, win_w, win_h,
                            nullptr, nullptr, m_wc.hInstance, nullptr);
 
@@ -421,6 +426,7 @@ bool UIManager::Init(HINSTANCE hInstance, int nCmdShow) {
         PostNewMatch(rec, is_best_time);
     });
     watcher.Start();
+    LogDiagnostic("ui", std::string("started build ") + __DATE__ + " " + __TIME__);
 
     return true;
 }
@@ -465,6 +471,7 @@ void UIManager::Run() {
         last_frame_time = now;
 
         // Update HUD and Overlay fade timers
+        ProcessPendingMatches();
         SummaryOverlay::Instance().Update(dt);
         AllyToastWindow::Instance().Update(dt);
 
