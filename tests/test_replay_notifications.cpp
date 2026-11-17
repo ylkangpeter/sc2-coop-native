@@ -11,6 +11,7 @@
 #include "../src/db/database.h"
 #include "../src/replay/replay_parser.h"
 #include "../src/replay/replay_watcher.h"
+#include "../src/replay/replay_discovery.h"
 #include "../src/ui/ui_manager.h"
 #include "../src/ui/hud/summary_overlay.h"
 #include "../src/utils/win32_utils.h"
@@ -161,6 +162,25 @@ int main() {
     WaitUntil([] { return false; }, 2500ms);
     assert(db.GetRevision() == revision);
     std::cout << "[OK] Failed content has a SHA-256 marker; parsed arcade games are not repeatedly imported.\n";
+
+    // Once queued work drains, idle ticks must not enumerate the replay tree.
+    auto& watcher = sc2::ReplayWatcher::Instance();
+    const auto root_key = sc2::ReplayScanRoot((root / L"backlog").wstring());
+    assert(WaitUntil([&] { return db.GetPendingReplayChanges(root_key).empty(); }, 5s));
+    WaitUntil([] { return false; }, 1500ms);
+    const auto discoveries = watcher.GetDiscoveryCount();
+    WaitUntil([] { return false; }, 2500ms);
+    assert(watcher.GetDiscoveryCount() == discoveries);
+    std::cout << "[OK] Idle watcher does not enumerate files or reload whole-library indexes.\n";
+
+    watcher.Stop();
+    auto offline = backlog / L"saved-while-closed.SC2Replay";
+    std::filesystem::copy_file(fixture, offline);
+    std::filesystem::last_write_time(offline, std::filesystem::file_time_type::clock::now());
+    watcher.Start();
+    const auto offline_path = sc2::Win32Utils::WideToUtf8(offline.wstring());
+    assert(WaitUntil([&] { return db.HasReplay(offline_path); }, 7s));
+    std::cout << "[OK] Restart catches up replays created while the watcher was stopped.\n";
 
     ui.Shutdown();
     db.Close();

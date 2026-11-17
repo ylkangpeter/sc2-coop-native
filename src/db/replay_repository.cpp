@@ -241,6 +241,104 @@ std::unordered_map<std::string, ReplayFileState> Database::GetReplayFileStates()
     return states;
 }
 
+std::optional<ReplayFileState> Database::GetReplayFileState(const std::string& path) {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    if (!m_db) return std::nullopt;
+    SqliteStmt stmt(m_db, "SELECT write_time, file_size, sha256, outcome FROM replay_file_states WHERE file_path = ?;");
+    if (!stmt.IsValid()) return std::nullopt;
+    stmt.BindText(1, path);
+    if (stmt.Step() != SQLITE_ROW) return std::nullopt;
+    return ReplayFileState{stmt.ColumnInt64(0), stmt.ColumnInt64(1), stmt.ColumnText(2), stmt.ColumnText(3)};
+}
+
+int64_t Database::GetReplayScanWatermark(const std::string& root) {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    if (!m_db) return 0;
+    SqliteStmt progress(m_db, "SELECT last_update FROM replay_scan_progress WHERE root = ?;");
+    if (!progress.IsValid()) return 0;
+    progress.BindText(1, root);
+    if (progress.Step() == SQLITE_ROW) return progress.ColumnInt64(0);
+
+    // Existing installations bootstrap from their own latest indexed replay.
+    // An empty database naturally returns zero through this same query.
+    const std::string prefix = root + "\\";
+    SqliteStmt latest(m_db, "SELECT COALESCE(MAX(file_mtime), 0) FROM replays "
+        "WHERE lower(substr(replace(file_path, '/', char(92)), 1, length(?))) = lower(?);");
+    if (!latest.IsValid()) return 0;
+    latest.BindText(1, prefix);
+    latest.BindText(2, prefix);
+    if (latest.Step() != SQLITE_ROW || latest.ColumnInt64(0) <= 0) return 0;
+    // Keep the whole last second, including other files with the same mtime.
+    return (latest.ColumnInt64(0) + 11644473600LL) * 10000000LL;
+}
+
+bool Database::QueueReplayChanges(const std::string& root, int64_t through,
+                                  const std::vector<ReplayScanEntry>& entries) {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    if (!m_db) return false;
+    SqliteTransaction txn(m_db);
+    if (!txn.IsActive()) return false;
+    SqliteStmt insert(m_db, "INSERT INTO replay_scan_pending (root, file_path, write_time, file_size) VALUES (?, ?, ?, ?) "
+        "ON CONFLICT(root, file_path) DO UPDATE SET write_time=excluded.write_time, file_size=excluded.file_size;");
+    if (!insert.IsValid()) return false;
+    for (const auto& entry : entries) {
+        insert.Reset();
+        insert.ClearBindings();
+        insert.BindText(1, root);
+        insert.BindText(2, entry.path);
+        insert.BindInt64(3, entry.state.write_time);
+        insert.BindInt64(4, entry.state.file_size);
+        if (insert.Step() != SQLITE_DONE) return false;
+    }
+    SqliteStmt progress(m_db, "INSERT INTO replay_scan_progress (root, last_update) VALUES (?, ?) "
+        "ON CONFLICT(root) DO UPDATE SET last_update=excluded.last_update;");
+    if (!progress.IsValid()) return false;
+    progress.BindText(1, root);
+    progress.BindInt64(2, through);
+    return progress.Step() == SQLITE_DONE && txn.Commit();
+}
+
+std::vector<ReplayScanEntry> Database::GetPendingReplayChanges(const std::string& root) {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    std::vector<ReplayScanEntry> result;
+    if (!m_db) return result;
+    SqliteStmt stmt(m_db, "SELECT file_path, write_time, file_size FROM replay_scan_pending WHERE root = ? ORDER BY write_time DESC, file_path;");
+    if (!stmt.IsValid()) return result;
+    stmt.BindText(1, root);
+    while (stmt.Step() == SQLITE_ROW) {
+        result.push_back({stmt.ColumnText(0), {stmt.ColumnInt64(1), stmt.ColumnInt64(2), {}, {}}});
+    }
+    return result;
+}
+
+bool Database::CompleteReplayChange(const std::string& root, const ReplayScanEntry& entry) {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    if (!m_db) return false;
+    // A newer queued version must survive completion of an older parse.
+    SqliteStmt stmt(m_db, "DELETE FROM replay_scan_pending WHERE root = ? AND file_path = ? AND write_time = ? AND file_size = ?;");
+    if (!stmt.IsValid()) return false;
+    stmt.BindText(1, root);
+    stmt.BindText(2, entry.path);
+    stmt.BindInt64(3, entry.state.write_time);
+    stmt.BindInt64(4, entry.state.file_size);
+    return stmt.Step() == SQLITE_DONE;
+}
+
+bool Database::ResetReplayScan(const std::string& root) {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    if (!m_db) return false;
+    SqliteTransaction txn(m_db);
+    if (!txn.IsActive()) return false;
+    SqliteStmt pending(m_db, "DELETE FROM replay_scan_pending WHERE root = ?;");
+    if (!pending.IsValid()) return false;
+    pending.BindText(1, root);
+    if (pending.Step() != SQLITE_DONE) return false;
+    SqliteStmt progress(m_db, "INSERT OR REPLACE INTO replay_scan_progress (root, last_update) VALUES (?, 0);");
+    if (!progress.IsValid()) return false;
+    progress.BindText(1, root);
+    return progress.Step() == SQLITE_DONE && txn.Commit();
+}
+
 bool Database::SaveReplayFileState(const std::string& path, const ReplayFileState& state) {
     std::lock_guard<std::recursive_mutex> lock(m_mutex);
     if (!m_db || state.sha256.empty()) return false;

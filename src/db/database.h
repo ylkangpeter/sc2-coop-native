@@ -152,6 +152,13 @@ public:
     std::unordered_map<std::string, int64_t> GetValidReplayMtimes();
     std::unordered_map<std::string, int64_t> GetIndexedReplayMtimes();
     std::unordered_map<std::string, ReplayFileState> GetReplayFileStates();
+    std::optional<ReplayFileState> GetReplayFileState(const std::string& path);
+    int64_t GetReplayScanWatermark(const std::string& root);
+    bool QueueReplayChanges(const std::string& root, int64_t through,
+                            const std::vector<ReplayScanEntry>& entries);
+    std::vector<ReplayScanEntry> GetPendingReplayChanges(const std::string& root);
+    bool CompleteReplayChange(const std::string& root, const ReplayScanEntry& entry);
+    bool ResetReplayScan(const std::string& root);
     bool SaveReplayFileState(const std::string& path, const ReplayFileState& state);
     bool HasFailedReplayHash(const std::string& sha256);
     bool ClearReplayFileStates();

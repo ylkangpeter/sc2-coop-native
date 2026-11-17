@@ -1,11 +1,14 @@
 #include "replay_scanner.h"
 #include "replay_parser.h"
+#include "replay_discovery.h"
+#include "replay_watcher.h"
 #include "../app_state.h"
 #include "../db/database.h"
 #include "../utils/win32_utils.h"
 #include "../utils/diagnostics.h"
 
 #include <filesystem>
+#include <chrono>
 #include <iostream>
 #include <algorithm>
 #include <unordered_set>
@@ -70,164 +73,91 @@ void ReplayScanner::StartRepair() {
 }
 
 void ReplayScanner::RunScan(bool force_reparse, bool auto_repair_after) {
+    std::unique_lock<std::mutex> scan_lock(ReplayScanMutex());
     auto& app = AppState::Instance();
-    std::wstring root_w = Win32Utils::Utf8ToWide(app.GetAccountFolder());
-
-    std::error_code ec;
-    if (root_w.empty() || !std::filesystem::exists(root_w, ec) || ec) {
-        m_is_scanning = false;
-        app.is_scanning = false;
-        return;
-    }
-
-    {
+    auto& db = Database::Instance();
+    auto set_status = [&](const std::string& message) {
         std::lock_guard<std::mutex> lock(app.scan_status_mutex);
-        app.scan_status_message = "Finding replay files...";
-    }
-
-    std::vector<std::filesystem::path> replay_paths;
+        app.scan_status_message = message;
+    };
     try {
-        for (const auto& entry : std::filesystem::recursive_directory_iterator(
-                 root_w, std::filesystem::directory_options::skip_permission_denied, ec)) {
-            if (ec || m_stop_flag.load()) break;
-            std::error_code entry_ec;
-            if (entry.is_regular_file(entry_ec) && !entry_ec) {
-                auto ext = entry.path().extension().string();
-                for (auto& c : ext) c = static_cast<char>(tolower(c));
-                if (ext == ".sc2replay") {
-                    replay_paths.push_back(entry.path());
+        const auto folder = app.GetAccountFolder();
+        if (!folder.empty()) {
+            const auto root_w = Win32Utils::Utf8ToWide(folder);
+            const auto root = ReplayScanRoot(root_w);
+            if (force_reparse && (!db.ClearReplayFileStates() || !db.ResetReplayScan(root))) {
+                throw std::runtime_error("Cannot reset replay scan state");
+            }
+            set_status("Finding changed replay files...");
+            const auto since = db.GetReplayScanWatermark(root);
+            auto found = DiscoverReplayChanges(root_w, since, m_stop_flag);
+            if (!m_stop_flag.load()) {
+                if (!db.QueueReplayChanges(root, found.complete ? found.through : since, found.entries)) {
+                    throw std::runtime_error("Cannot save replay discovery progress");
                 }
+                const auto pending = db.GetPendingReplayChanges(root);
+                app.scan_total = static_cast<int>(pending.size());
+                for (const auto& item : pending) {
+                    if (m_stop_flag.load()) break;
+                    ++app.scan_progress;
+                    // Let the live watcher drain notifications and prioritize a
+                    // just-finished game during a long explicit library scan.
+                    if (app.scan_progress.load() % 8 == 0) {
+                        scan_lock.unlock();
+                        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                        scan_lock.lock();
+                    }
+                    const auto wide = Win32Utils::Utf8ToWide(item.path);
+                    const auto observed = ReadReplayFileState(wide);
+                    if (!observed) continue; // Retain durable work for the live watcher.
+                    const auto saved = db.GetReplayFileState(item.path);
+                    const int64_t age = ReplayEpochSeconds(ReplayFileTimeNow()) - ReplayEpochSeconds(observed->write_time);
+                    // Leave recent results queued for the watcher to deliver their
+                    // first popup, even if the startup scanner wins the parse race.
+                    const bool recent = age >= -60 && age <= 300;
+                    auto complete = [&](const ReplayFileState& state) {
+                        if (db.SaveReplayFileState(item.path, state) && (!recent || state.outcome == "failed")) {
+                            db.CompleteReplayChange(root, item);
+                        }
+                    };
+                    if (saved && observed->SameFileVersion(*saved)) {
+                        if (saved->outcome == "failed" || (!recent && db.HasReplay(item.path))) {
+                            db.CompleteReplayChange(root, item);
+                        }
+                        continue;
+                    }
+                    auto fingerprint = ReadReplayFileState(wide, true);
+                    if (!fingerprint) continue;
+                    if (db.HasFailedReplayHash(fingerprint->sha256)) {
+                        fingerprint->outcome = "failed";
+                        complete(*fingerprint);
+                        continue;
+                    }
+                    std::optional<ReplayRecord> parsed;
+                    try { parsed = ReplayParser::ParseFile(wide); } catch (...) { parsed = std::nullopt; }
+                    const auto after = ReadReplayFileState(wide);
+                    if (!after || !after->SameFileVersion(*fingerprint)) continue;
+                    if (parsed && parsed->result != "Unknown") {
+                        if (db.SaveReplay(*parsed)) {
+                            fingerprint->outcome = "parsed";
+                            complete(*fingerprint);
+                        }
+                    } else if (!recent || force_reparse) {
+                        fingerprint->outcome = "failed";
+                        complete(*fingerprint);
+                    } // Recent partial files stay queued for bounded watcher retries.
+                    set_status("Processed " + std::to_string(app.scan_progress.load()) + " / " +
+                        std::to_string(app.scan_total.load()) + " changed replays");
+                }
+                set_status(found.complete ? "Incremental scan complete" : "Scan incomplete; pending files will be retried");
             }
         }
+        if (auto_repair_after && !m_stop_flag.load()) RunRepairInternal();
     } catch (const std::exception& e) {
-        std::cerr << "Directory scan exception: " << e.what() << std::endl;
-    } catch (...) {
-        std::cerr << "Directory scan unknown exception" << std::endl;
+        set_status(std::string("Scan error: ") + e.what());
+        LogDiagnostic("scanner", e.what());
     }
-
-    if (m_stop_flag.load()) {
-        m_is_scanning = false;
-        app.is_scanning = false;
-        return;
-    }
-
-    // Identify which replays actually need parsing (file_path + file_mtime check)
-    std::vector<std::filesystem::path> to_parse;
-    if (force_reparse) {
-        Database::Instance().ClearReplayFileStates();
-        to_parse = std::move(replay_paths);
-    } else {
-        auto valid_mtimes = Database::Instance().GetIndexedReplayMtimes();
-        auto file_states = Database::Instance().GetReplayFileStates();
-        for (auto& p : replay_paths) {
-            if (m_stop_flag.load()) break;
-            std::string u8path = Win32Utils::WideToUtf8(p.wstring());
-            auto it = valid_mtimes.find(u8path);
-            auto observed = ReadReplayFileState(p.wstring());
-            auto saved = file_states.find(u8path);
-            const bool same_version = observed && saved != file_states.end() &&
-                observed->SameFileVersion(saved->second);
-            if (same_version && saved->second.outcome == "failed") continue;
-            const bool changed_version = observed && saved != file_states.end() && !same_version;
-            if (it == valid_mtimes.end() || changed_version) {
-                to_parse.push_back(std::move(p));
-            } else {
-                struct _stat64 st;
-                if (_wstat64(p.c_str(), &st) == 0) {
-                    if (st.st_mtime > it->second) {
-                        to_parse.push_back(std::move(p));
-                    }
-                }
-            }
-        }
-    }
-
-    if (m_stop_flag.load()) {
-        m_is_scanning = false;
-        app.is_scanning = false;
-        return;
-    }
-
-    if (to_parse.empty()) {
-        {
-            std::lock_guard<std::mutex> lock(app.scan_status_mutex);
-            app.scan_status_message = "All replays up to date (" + std::to_string(replay_paths.size()) + " total)";
-        }
-    } else {
-        app.scan_total = static_cast<int>(to_parse.size());
-        app.scan_progress = 0;
-        int processed = 0;
-        std::vector<ReplayRecord> batch;
-        std::vector<std::pair<std::string, ReplayFileState>> batch_states;
-        auto save_batch = [&]() {
-            if (Database::Instance().BatchSaveReplays(batch)) {
-                for (const auto& [path, state] : batch_states) {
-                    Database::Instance().SaveReplayFileState(path, state);
-                }
-            }
-            batch.clear();
-            batch_states.clear();
-        };
-
-        for (const auto& p : to_parse) {
-            if (m_stop_flag.load()) break;
-            ++processed;
-            app.scan_progress = processed;
-
-            try {
-                auto fingerprint = ReadReplayFileState(p.wstring(), true);
-                if (!fingerprint) continue; // Open for writing or temporarily unreadable.
-                const std::string path = Win32Utils::WideToUtf8(p.wstring());
-                if (!force_reparse && Database::Instance().HasFailedReplayHash(fingerprint->sha256)) {
-                    fingerprint->outcome = "failed";
-                    Database::Instance().SaveReplayFileState(path, *fingerprint);
-                    continue;
-                }
-                auto parsed = ReplayParser::ParseFile(p.wstring());
-                auto after_parse = ReadReplayFileState(p.wstring());
-                if (!after_parse || !after_parse->SameFileVersion(*fingerprint)) continue;
-                if (parsed.has_value() && parsed->result != "Unknown") {
-                    batch.push_back(parsed.value());
-                    fingerprint->outcome = "parsed";
-                    batch_states.emplace_back(path, *fingerprint);
-                    if (batch.size() >= 30) {
-                        save_batch();
-                    }
-                } else {
-                    fingerprint->outcome = "failed";
-                    Database::Instance().SaveReplayFileState(path, *fingerprint);
-                    LogDiagnostic("scanner", "marked failed SHA-256=" + fingerprint->sha256 + ": " + path);
-                }
-            } catch (const std::exception& e) {
-                std::cerr << "Parse exception for " << Win32Utils::WideToUtf8(p.wstring())
-                          << ": " << e.what() << std::endl;
-            } catch (...) {
-                std::cerr << "Unknown parse exception for "
-                          << Win32Utils::WideToUtf8(p.wstring()) << std::endl;
-            }
-
-            if (processed % 10 == 0 || processed == app.scan_total.load()) {
-                std::lock_guard<std::mutex> lock(app.scan_status_mutex);
-                app.scan_status_message = "Parsed " + std::to_string(processed) + " / " +
-                                          std::to_string(app.scan_total.load()) + " replays";
-            }
-        }
-
-        if (!batch.empty() && !m_stop_flag.load()) {
-            save_batch();
-        }
-
-        if (!m_stop_flag.load()) {
-            std::lock_guard<std::mutex> lock(app.scan_status_mutex);
-            app.scan_status_message = "Scan complete (" + std::to_string(processed) + " replays parsed)";
-        }
-    }
-
-    // Sequence auto-repair after scan so they don't run concurrently
-    if (auto_repair_after && !m_stop_flag.load()) {
-        RunRepairInternal();
-    }
-
+    ReplayWatcher::Instance().CheckPendingChanges();
     m_is_scanning = false;
     app.is_scanning = false;
 }

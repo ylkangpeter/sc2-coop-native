@@ -128,6 +128,17 @@ bool Database::Open(const std::string& db_path) {
         CREATE TABLE IF NOT EXISTS replay_failed_hashes (
             sha256 TEXT PRIMARY KEY
         );
+        CREATE TABLE IF NOT EXISTS replay_scan_progress (
+            root TEXT PRIMARY KEY,
+            last_update INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS replay_scan_pending (
+            root TEXT NOT NULL,
+            file_path TEXT NOT NULL,
+            write_time INTEGER NOT NULL,
+            file_size INTEGER NOT NULL,
+            PRIMARY KEY (root, file_path)
+        );
         INSERT OR IGNORE INTO replay_failed_hashes
             SELECT sha256 FROM replay_file_states WHERE outcome = 'failed';
 

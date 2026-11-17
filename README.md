@@ -87,7 +87,7 @@ However, running a full web runtime inside an overlay poses noticeable drawbacks
 
 ## 📥 Download & Usage
 
-1. Go to the [**Releases**](https://github.com/ylkangpeter/sc2-coop-native/releases) page and download `sc2-coop-native-v1.0.14-windows-x64.zip`.
+1. Go to the [**Releases**](https://github.com/ylkangpeter/sc2-coop-native/releases) page and download `sc2-coop-native-v1.0.15-windows-x64.zip`.
 2. Extract the archive anywhere on your PC (e.g. `D:\Tools\SC2_Coop_Native\`).
 3. Run `sc2_coop.exe`.
 4. Launch **StarCraft II** in **Windowed (Fullscreen)** or **Windowed** mode.
@@ -98,34 +98,25 @@ However, running a full web runtime inside an overlay poses noticeable drawbacks
 
 ## 🛠️ Building from Source
 
-### Prerequisites
-- **OS**: Windows 10/11 x64 (or WSL2 with Windows tools).
-- **Toolchain**: [LLVM-MinGW](https://github.com/mstorsjo/llvm-mingw) (Martin Storsjö LLVM-MinGW with Clang 18+ and UCRT runtime) or MSVC with C++20 support.
-- **Python**: Python 3.9+ (used by the lightweight build scripts).
+Requirements: Windows 10/11, built-in Windows PowerShell 5.1+, and LLVM-MinGW (UCRT, x64). Python is not required for building, tests, packaging, or running the application.
 
-### Compile
-Run the automated build script:
-```cmd
-# Using batch file
-build.bat
-
-# Or using Python directly
-python build.py
+```powershell
+winget install MartinStorsjo.LLVM-MinGW.UCRT
+.\build.ps1
+.\build.ps1 -Test
+.\build.ps1 -Test -TestFilter test_replay_notifications
+.\build.ps1 -Package
 ```
 
-The compiled standalone executable and asset directory will be generated in `dist/sc2_coop/sc2_coop.exe`.
+`build.bat` and `package.bat` invoke the same PowerShell entry point. If local script execution is restricted, invoke `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 -Package` (this applies only to that process). Use `-CompilerBin` for a custom LLVM-MinGW location, `-Clean` to rebuild dependencies, or `-OutputDirectory dist/sc2_coop_v1.0.15` to build alongside a running version. The build never kills the running app.
 
-To verify automatic post-game notifications with an isolated database and temporary replay folders:
+Packaging includes only the executable and asset files, with a SHA-256 checksum beside the ZIP. Databases, personal settings, logs, dumps and old executables are excluded. `-PackageOnly` packages an existing build.
 
-```cmd
-python build.py --test --test-filter=test_replay_notifications
-```
+### Incremental replay discovery
 
-When logging is enabled, `overlay_diagnostics.log` beside the executable records the build timestamp, watched folder, replay retries, UI notifications, and summary window display. The log is capped at approximately 1 MB and includes local replay paths. It can distinguish a replay detection failure from a notification or window rendering failure.
+Startup and explicit scans read their last discovery watermark from the local SQLite database; an existing installation without a watermark uses its latest indexed replay timestamp, while an empty database returns zero. The same timestamp filter handles all cases. Replay creation time is included so files copied in with preserved modification times can be found. Equal timestamps are included and file version markers prevent duplicate parsing.
 
-Replay discovery polls the watched folders every second and compares file metadata; only new or changed candidates need SHA-256 hashing. Processing results are persisted in `replay_file_states` in the local database. Successfully indexed arcade replays are considered processed even when their commanders are unknown. Unreadable replay content is marked by SHA-256 and skipped on later scans and restarts, including renamed copies. Files with an active writer remain retryable, and changed content is reconsidered. Newest files are processed first, with background work limited to 16 files or 250 ms per pass. **Re-parse All Replays** clears the content markers and explicitly retries the library.
-
----
+Changed paths are durably queued in the same transaction that advances the discovery watermark. Interruptions, active writers and failed database saves leave work queued for the next run. During normal operation, Windows `ReadDirectoryChangesW` supplies changed paths directly: idle ticks do not enumerate the library or reload whole-library indexes. New or renamed directories are checked for contained replays. A notification overflow or unavailable watch falls back to timestamp-based catch-up; the watermark is conservatively advanced only after a complete enumeration, never merely because a notification arrived. “Re-parse All Replays” resets the watermark to zero and uses that same pipeline.
 
 ## 🧩 Architecture
 

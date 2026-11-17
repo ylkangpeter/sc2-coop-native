@@ -20,6 +20,9 @@ public:
     void Start();
     void Stop();
     bool IsRunning() const { return m_running.load(); }
+    uint64_t GetDiscoveryCount() const { return m_discovery_count.load(); }
+
+    void CheckPendingChanges() { m_check_pending = true; }
 
     void SetOnNewMatchCallback(std::function<void(const ReplayRecord&, bool is_best_time)> callback);
 
@@ -32,10 +35,13 @@ private:
 
     std::thread m_thread;
     std::atomic<bool> m_running{false};
+    std::atomic<uint64_t> m_discovery_count{0};
+    std::atomic<bool> m_check_pending{false};
     std::condition_variable m_cv;
     std::mutex m_cv_mutex;
     std::unordered_map<std::string, std::chrono::steady_clock::time_point> m_failed_retry_after;
     std::unordered_map<std::string, int> m_recent_retry_counts;
+    std::unordered_map<std::string, std::string> m_recent_retry_hashes;
     // Tracks recent replays that have already generated a popup. The initial
     // scanner can save a replay before this watcher sees it, so a valid DB row
     // alone must not suppress the first notification.

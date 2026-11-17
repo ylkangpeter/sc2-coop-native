@@ -366,7 +366,7 @@ bool UIManager::Init(HINSTANCE hInstance, int nCmdShow) {
     int win_x = mi.rcWork.left + (mon_w - win_w) / 2;
     int win_y = mi.rcWork.top + (mon_h - win_h) / 2;
 
-    m_hwnd = CreateWindowW(m_wc.lpszClassName, L"StarCraft II Co-op Native v1.0.14",
+    m_hwnd = CreateWindowW(m_wc.lpszClassName, L"StarCraft II Co-op Native v1.0.15",
                            WS_OVERLAPPEDWINDOW, win_x, win_y, win_w, win_h,
                            nullptr, nullptr, m_wc.hInstance, nullptr);
 
@@ -476,7 +476,7 @@ void UIManager::Run() {
         AllyToastWindow::Instance().Update(dt);
 
         if (m_minimized || (m_hwnd && !IsWindowVisible(m_hwnd))) {
-            Sleep(25);
+            MsgWaitForMultipleObjectsEx(0, nullptr, 25, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
             continue;
         }
 

@@ -34,13 +34,9 @@ void AppState::Init() {
         RefreshUserHandles();
     }
 
-    // Auto-start initial background scan (which also sequences auto-repair) if replays directory is configured
-    cur_folder = GetAccountFolder();
-    if (!cur_folder.empty() && std::filesystem::exists(Win32Utils::Utf8ToWide(cur_folder))) {
-        StartScanAsync(false);
-    } else {
-        AutoRepairCorruptedReplaysAsync();
-    }
+    // The live watcher owns automatic startup catch-up and notifications.
+    // Avoid a second scanner enumerating/parsing the same startup increment.
+    AutoRepairCorruptedReplaysAsync();
 }
 
 std::string AppState::GetAccountFolder() const {

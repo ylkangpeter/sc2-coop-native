@@ -17,6 +17,11 @@ struct ReplayFileState {
     }
 };
 
+struct ReplayScanEntry {
+    std::string path;
+    ReplayFileState state;
+};
+
 // Hashing requires a readable file with no active writer. A sharing violation
 // is transient and must never become a persistent failed-content marker.
 std::optional<ReplayFileState> ReadReplayFileState(const std::wstring& path, bool hash_content = false);

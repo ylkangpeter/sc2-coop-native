@@ -1,6 +1,8 @@
 #include <iostream>
 #include <cassert>
 #include <windows.h>
+#include <filesystem>
+#include "../src/utils/win32_utils.h"
 #include "../src/db/database.h"
 #include "../src/app_state.h"
 #include "../src/ui/hud/summary_overlay.h"
@@ -12,8 +14,11 @@ int main() {
     std::cout << "TEST: End-to-End Database & Overlay Test\n";
     std::cout << "========================================\n";
 
-    // 1. Open production database
-    bool ok = sc2::Database::Instance().Open("dist/sc2_coop/coop_data.db");
+    // Keep end-to-end fixtures separate from the user's live library.
+    const auto test_root = std::filesystem::temp_directory_path() /
+        (L"sc2-e2e-" + std::to_wstring(GetCurrentProcessId()));
+    std::filesystem::create_directories(test_root);
+    bool ok = sc2::Database::Instance().Open(sc2::Win32Utils::WideToUtf8((test_root / L"test.db").wstring()));
     assert(ok);
     int total = sc2::Database::Instance().GetTotalReplayCount();
     if (total == 0) {
@@ -117,6 +122,8 @@ int main() {
 
     overlay.Shutdown();
     sc2::Database::Instance().Close();
+
+    std::filesystem::remove_all(test_root);
 
     std::cout << "\n>>> ALL END-TO-END VERIFICATION TESTS PASSED SUCCESSFULLY! <<<\n";
     return 0;
