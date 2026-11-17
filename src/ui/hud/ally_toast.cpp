@@ -3,6 +3,7 @@
 #include "../../app_state.h"
 #include "../../utils/win32_utils.h"
 #include "../../i18n/i18n.h"
+#include "../../utils/hotkey_manager.h"
 #include <backends/imgui_impl_win32.h>
 
 #include <algorithm>
@@ -104,6 +105,7 @@ void AllyToastWindow::ShowAllyInfo(const std::string& ally_name, float duration)
     m_active = true;
 
     Render();
+    HotkeyManager::Instance().UpdateContext();
 }
 
 void AllyToastWindow::ShowTestToast() {
@@ -116,10 +118,12 @@ void AllyToastWindow::ShowTestToast() {
     m_remaining_time = (float)AppState::Instance().hud_duration_seconds;
     m_active = true;
     Render();
+    HotkeyManager::Instance().UpdateContext();
 }
 
 void AllyToastWindow::Hide() {
     m_active = false;
+    HotkeyManager::Instance().UpdateContext();
     if (m_hwnd) {
         SetWindowPos(m_hwnd, nullptr, -10000, -10000, 0, 0,
                      SWP_HIDEWINDOW | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);

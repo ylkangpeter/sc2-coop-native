@@ -4,7 +4,7 @@ param(
     [string]$TestFilter = '',
     [switch]$Package,
     [switch]$PackageOnly,
-    [string]$Version = 'v1.0.15',
+    [string]$Version = 'v1.0.16',
     [string]$CompilerBin = '',
     [string]$OutputDirectory = 'dist/sc2_coop',
     [switch]$Clean

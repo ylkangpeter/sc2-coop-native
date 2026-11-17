@@ -83,7 +83,7 @@ int main() {
     overlay.ShowLatest();
     assert(overlay.IsActive());
 
-    HWND hwnd = FindWindowW(L"SC2SummaryOverlayClass", nullptr);
+    HWND hwnd = overlay.GetHwnd();
     assert(hwnd != nullptr);
     std::cout << "[OK] SummaryOverlay visible with hwnd: " << hwnd << "\n";
 

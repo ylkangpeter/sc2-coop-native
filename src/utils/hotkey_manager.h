@@ -4,6 +4,7 @@
 #include <string>
 #include <functional>
 #include <unordered_map>
+#include <unordered_set>
 #include <chrono>
 
 namespace sc2 {
@@ -25,6 +26,9 @@ public:
     // Register / re-register hotkeys based on AppState
     void RegisterAll();
     void UnregisterAll();
+    void UpdateContext();
+    bool IsHookActive() const { return m_hook != nullptr; }
+    bool IsHotkeyUnavailable(int action_id) const { return m_unavailable_actions.count(action_id) != 0; }
 
     void OnHotkey(int id);
     void SetCallback(HotkeyAction action, std::function<void()> callback);
@@ -49,6 +53,7 @@ private:
     ~HotkeyManager() = default;
 
     bool RegisterSingle(int id, UINT mod, UINT vk);
+    void UpdateHook();
     void TriggerAction(HotkeyAction action);
 
     static LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam);
@@ -59,6 +64,7 @@ private:
     int m_recording_action = -1; // 1 = Summary, 2 = Ally, 3 = Prev, 4 = Next
 
     std::unordered_map<int, HotkeyAction> m_action_map;
+    std::unordered_set<int> m_unavailable_actions;
     std::unordered_map<HotkeyAction, std::function<void()>> m_callbacks;
     std::unordered_map<HotkeyAction, std::chrono::steady_clock::time_point> m_last_trigger_time;
 };

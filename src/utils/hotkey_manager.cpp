@@ -5,6 +5,7 @@
 #include "../ui/hud/ally_toast.h"
 #include "../ui/ui_manager.h"
 #include <iostream>
+#include "diagnostics.h"
 
 #define HOTKEY_SUMMARY_ID      2001
 #define HOTKEY_PREV_ID         2003
@@ -41,21 +42,34 @@ LRESULT CALLBACK HotkeyManager::LowLevelKeyboardProc(int nCode, WPARAM wParam, L
 
 void HotkeyManager::Init(HWND hwnd) {
     m_hwnd = hwnd;
-    if (!m_hook) {
-        m_hook = SetWindowsHookExW(WH_KEYBOARD_LL, LowLevelKeyboardProc, GetModuleHandleW(nullptr), 0);
-        s_global_hook = m_hook;
-    }
+    m_recording_action = -1;
     RegisterAll();
 }
 
 void HotkeyManager::Shutdown() {
-    if (m_hook) {
+    UnregisterAll();
+    m_hwnd = nullptr;
+    m_recording_action = -1;
+    m_unavailable_actions.clear();
+    UpdateHook();
+}
+
+void HotkeyManager::UpdateHook() {
+    const bool needed = m_hwnd && (IsRecording() || SummaryOverlay::Instance().IsActive() ||
+                                                   AllyToastWindow::Instance().IsActive());
+    if (needed && !m_hook) {
+        m_hook = SetWindowsHookExW(WH_KEYBOARD_LL, LowLevelKeyboardProc, GetModuleHandleW(nullptr), 0);
+        s_global_hook = m_hook;
+        if (!m_hook) LogDiagnostic("hotkeys", "temporary keyboard hook could not be installed");
+    } else if (!needed && m_hook) {
         UnhookWindowsHookEx(m_hook);
         m_hook = nullptr;
         s_global_hook = nullptr;
     }
-    UnregisterAll();
-    m_hwnd = nullptr;
+}
+
+void HotkeyManager::UpdateContext() {
+    UpdateHook();
 }
 
 bool HotkeyManager::RegisterSingle(int id, UINT mod, UINT vk) {
@@ -68,37 +82,28 @@ bool HotkeyManager::RegisterSingle(int id, UINT mod, UINT vk) {
 
 void HotkeyManager::RegisterAll() {
     UnregisterAll();
-    if (!m_hwnd) return;
-
-    auto& state = AppState::Instance();
-
-    // 1. Toggle Summary Overlay (Default: Ctrl + Shift + H)
-    if (state.hotkey_summary_enabled && state.hotkey_summary_vk != 0) {
-        if (RegisterSingle(HOTKEY_SUMMARY_ID, state.hotkey_summary_mod, state.hotkey_summary_vk)) {
-            m_action_map[HOTKEY_SUMMARY_ID] = HotkeyAction::ToggleSummary;
-        }
+    m_unavailable_actions.clear();
+    if (m_hwnd && !IsRecording()) {
+        const auto& state = AppState::Instance();
+        auto add = [&](bool enabled, int id, int action_id, HotkeyAction action, UINT mod, UINT vk) {
+            if (!enabled || !vk) return;
+            if (RegisterSingle(id, mod, vk)) {
+                m_action_map[id] = action;
+            } else {
+                m_unavailable_actions.insert(action_id);
+                LogDiagnostic("hotkeys", "shortcut unavailable: " + FormatHotkey(mod, vk));
+            }
+        };
+        add(state.hotkey_summary_enabled, HOTKEY_SUMMARY_ID, 1, HotkeyAction::ToggleSummary,
+            state.hotkey_summary_mod, state.hotkey_summary_vk);
+        add(state.hotkey_ally_enabled, HOTKEY_ALLY_ID, 2, HotkeyAction::AllyInfo,
+            state.hotkey_ally_mod, state.hotkey_ally_vk);
+        add(state.hotkey_nav_enabled, HOTKEY_PREV_ID, 3, HotkeyAction::PrevMatch,
+            state.hotkey_prev_mod, state.hotkey_prev_vk);
+        add(state.hotkey_nav_enabled, HOTKEY_NEXT_ID, 4, HotkeyAction::NextMatch,
+            state.hotkey_next_mod, state.hotkey_next_vk);
     }
-
-    // 2. Previous Match Summary (Default: Ctrl + Alt + Left)
-    if (state.hotkey_nav_enabled && state.hotkey_prev_vk != 0) {
-        if (RegisterSingle(HOTKEY_PREV_ID, state.hotkey_prev_mod, state.hotkey_prev_vk)) {
-            m_action_map[HOTKEY_PREV_ID] = HotkeyAction::PrevMatch;
-        }
-    }
-
-    // 3. Next Match Summary (Default: Ctrl + Alt + Right)
-    if (state.hotkey_nav_enabled && state.hotkey_next_vk != 0) {
-        if (RegisterSingle(HOTKEY_NEXT_ID, state.hotkey_next_mod, state.hotkey_next_vk)) {
-            m_action_map[HOTKEY_NEXT_ID] = HotkeyAction::NextMatch;
-        }
-    }
-
-    // 4. Ally Info & Winrates (Default: Ctrl + Alt + W)
-    if (state.hotkey_ally_enabled && state.hotkey_ally_vk != 0) {
-        if (RegisterSingle(HOTKEY_ALLY_ID, state.hotkey_ally_mod, state.hotkey_ally_vk)) {
-            m_action_map[HOTKEY_ALLY_ID] = HotkeyAction::AllyInfo;
-        }
-    }
+    UpdateHook();
 }
 
 void HotkeyManager::UnregisterAll() {
@@ -127,6 +132,7 @@ void HotkeyManager::TriggerAction(HotkeyAction action) {
 }
 
 void HotkeyManager::OnHotkey(int id) {
+    if (IsRecording()) return;
     auto it = m_action_map.find(id);
     if (it != m_action_map.end()) {
         TriggerAction(it->second);
@@ -134,120 +140,53 @@ void HotkeyManager::OnHotkey(int id) {
 }
 
 bool HotkeyManager::HandleLowLevelKey(DWORD vk, bool is_sys_key, bool is_down) {
-    // 1. If currently recording a new hotkey in Settings
-    if (m_recording_action > 0) {
+    if (!is_down) return false;
+    if (IsRecording()) {
         if (vk == VK_ESCAPE) {
-            StopRecording();
+            m_recording_action = -1;
+            PostMessageW(m_hwnd, WM_USER_HOTKEY_RECORD_CANCELLED, 0, 0);
             return true;
         }
-
-        // Wait for actual key, ignore bare modifiers
         if (vk == VK_CONTROL || vk == VK_LCONTROL || vk == VK_RCONTROL ||
             vk == VK_MENU || vk == VK_LMENU || vk == VK_RMENU ||
             vk == VK_SHIFT || vk == VK_LSHIFT || vk == VK_RSHIFT ||
-            vk == VK_LWIN || vk == VK_RWIN) {
-            return false;
-        }
+            vk == VK_LWIN || vk == VK_RWIN) return false;
 
-        bool ctrl = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
-        bool alt = (GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
-        bool shift = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
-        bool win = ((GetAsyncKeyState(VK_LWIN) & 0x8000) != 0) || ((GetAsyncKeyState(VK_RWIN) & 0x8000) != 0);
-
-        UINT mod = (ctrl ? MOD_CONTROL : 0) | (alt ? MOD_ALT : 0) | (shift ? MOD_SHIFT : 0) | (win ? MOD_WIN : 0);
-
-        int action = m_recording_action;
-        StopRecording();
-        if (m_hwnd) {
-            PostMessageW(m_hwnd, WM_USER_HOTKEY_RECORDED, (WPARAM)action, MAKELPARAM(mod, vk));
-        } else {
-            ApplyRecordedHotkey(action, mod, vk);
-        }
+        const UINT mod = ((GetAsyncKeyState(VK_CONTROL) & 0x8000) ? MOD_CONTROL : 0) |
+                         ((GetAsyncKeyState(VK_MENU) & 0x8000) ? MOD_ALT : 0) |
+                         ((GetAsyncKeyState(VK_SHIFT) & 0x8000) ? MOD_SHIFT : 0) |
+                         (((GetAsyncKeyState(VK_LWIN) | GetAsyncKeyState(VK_RWIN)) & 0x8000) ? MOD_WIN : 0);
+        const int action = m_recording_action;
+        m_recording_action = -1;
+        // Re-register shortcuts, remove the hook and save settings outside the
+        // synchronous input callback, through the normal UI message queue.
+        PostMessageW(m_hwnd, WM_USER_HOTKEY_RECORDED, action, MAKELPARAM(mod, vk));
         return true;
     }
 
-    // 2. Escape closes any visible overlay/toast without consuming ESC for the game
     if (vk == VK_ESCAPE) {
-        if (SummaryOverlay::Instance().IsActive()) {
-            SummaryOverlay::Instance().Hide();
-        }
-        if (AllyToastWindow::Instance().IsActive()) {
-            AllyToastWindow::Instance().Hide();
-        }
-        return false;
+        PostMessageW(m_hwnd, WM_USER_DISMISS_OVERLAYS, 0, 0);
+        return false; // The game must still receive its Escape key.
     }
-
-    // 3. Evaluate modifier keys
-    bool ctrl = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
-    bool alt = (GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
-    bool shift = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
-    bool win = ((GetAsyncKeyState(VK_LWIN) & 0x8000) != 0) || ((GetAsyncKeyState(VK_RWIN) & 0x8000) != 0);
-
-    UINT current_mod = (ctrl ? MOD_CONTROL : 0) | (alt ? MOD_ALT : 0) | (shift ? MOD_SHIFT : 0) | (win ? MOD_WIN : 0);
-
-    auto& state = AppState::Instance();
-
-    // Hotkey 1: Toggle Match Summary Overlay
-    if (state.hotkey_summary_enabled && state.hotkey_summary_vk != 0) {
-        if (vk == state.hotkey_summary_vk && current_mod == state.hotkey_summary_mod) {
-            if (m_hwnd) {
-                PostMessageW(m_hwnd, WM_USER_HOTKEY_ACTION, static_cast<WPARAM>(HotkeyAction::ToggleSummary), 0);
-            } else {
-                TriggerAction(HotkeyAction::ToggleSummary);
-            }
-            return true;
-        }
-    }
-
-    // Hotkey 2: Toggle Ally Info & Winrates
-    if (state.hotkey_ally_enabled && state.hotkey_ally_vk != 0) {
-        if (vk == state.hotkey_ally_vk && current_mod == state.hotkey_ally_mod) {
-            if (m_hwnd) {
-                PostMessageW(m_hwnd, WM_USER_HOTKEY_ACTION, static_cast<WPARAM>(HotkeyAction::AllyInfo), 0);
-            } else {
-                TriggerAction(HotkeyAction::AllyInfo);
-            }
-            return true;
-        }
-    }
-
-    // Hotkeys 3 & 4: Browse Previous / Next Match (only consume if Summary Overlay is visible)
-    if (state.hotkey_nav_enabled && SummaryOverlay::Instance().IsActive()) {
-        if (state.hotkey_prev_vk != 0 && vk == state.hotkey_prev_vk && current_mod == state.hotkey_prev_mod) {
-            if (m_hwnd) {
-                PostMessageW(m_hwnd, WM_USER_HOTKEY_ACTION, static_cast<WPARAM>(HotkeyAction::PrevMatch), 0);
-            } else {
-                TriggerAction(HotkeyAction::PrevMatch);
-            }
-            return true;
-        }
-        if (vk == VK_NEXT && current_mod == 0) { // Page Down
-            if (m_hwnd) {
-                PostMessageW(m_hwnd, WM_USER_HOTKEY_ACTION, static_cast<WPARAM>(HotkeyAction::PrevMatch), 0);
-            } else {
-                TriggerAction(HotkeyAction::PrevMatch);
-            }
-            return true;
-        }
-        if (state.hotkey_next_vk != 0 && vk == state.hotkey_next_vk && current_mod == state.hotkey_next_mod) {
-            if (m_hwnd) {
-                PostMessageW(m_hwnd, WM_USER_HOTKEY_ACTION, static_cast<WPARAM>(HotkeyAction::NextMatch), 0);
-            } else {
-                TriggerAction(HotkeyAction::NextMatch);
-            }
-            return true;
-        }
-        if (vk == VK_PRIOR && current_mod == 0) { // Page Up
-            if (m_hwnd) {
-                PostMessageW(m_hwnd, WM_USER_HOTKEY_ACTION, static_cast<WPARAM>(HotkeyAction::NextMatch), 0);
-            } else {
-                TriggerAction(HotkeyAction::NextMatch);
-            }
-            return true;
-        }
-    }
-
-    return false;
+    // Normal hotkeys are handled exclusively by RegisterHotKey/WM_HOTKEY.
+    // All ordinary typing and game keys take this branch with no key-state queries.
+    if ((vk != VK_PRIOR && vk != VK_NEXT) || !AppState::Instance().hotkey_nav_enabled ||
+        !SummaryOverlay::Instance().IsActive()) return false;
+    if (((GetAsyncKeyState(VK_CONTROL) | GetAsyncKeyState(VK_MENU) | GetAsyncKeyState(VK_SHIFT) |
+          GetAsyncKeyState(VK_LWIN) | GetAsyncKeyState(VK_RWIN)) & 0x8000) != 0) return false;
+    const auto& state = AppState::Instance();
+    const auto registered_key = [&](int id, UINT mod, UINT key) {
+        return mod == 0 && key == vk && m_action_map.count(id) != 0;
+    };
+    // Explicit assignments take priority over the overlay's bare PageUp/Down
+    // convenience controls. Let Windows deliver the registered action once.
+    if (registered_key(HOTKEY_SUMMARY_ID, state.hotkey_summary_mod, state.hotkey_summary_vk) ||
+        registered_key(HOTKEY_ALLY_ID, state.hotkey_ally_mod, state.hotkey_ally_vk) ||
+        registered_key(HOTKEY_PREV_ID, state.hotkey_prev_mod, state.hotkey_prev_vk) ||
+        registered_key(HOTKEY_NEXT_ID, state.hotkey_next_mod, state.hotkey_next_vk)) return false;
+    const auto action = vk == VK_NEXT ? HotkeyAction::PrevMatch : HotkeyAction::NextMatch;
+    PostMessageW(m_hwnd, WM_USER_HOTKEY_ACTION, static_cast<WPARAM>(action), 0);
+    return true;
 }
 
 void HotkeyManager::ApplyRecordedHotkey(int action_id, UINT mod, UINT vk) {
@@ -274,11 +213,15 @@ void HotkeyManager::DispatchAction(HotkeyAction action) {
 }
 
 void HotkeyManager::StartRecording(int action_id) {
+    if (!m_hwnd || action_id < 1 || action_id > 4) return;
     m_recording_action = action_id;
+    RegisterAll(); // Suspend global shortcuts while capturing a replacement.
+    if (!m_hook) StopRecording();
 }
 
 void HotkeyManager::StopRecording() {
     m_recording_action = -1;
+    RegisterAll();
 }
 
 void HotkeyManager::SetCallback(HotkeyAction action, std::function<void()> callback) {

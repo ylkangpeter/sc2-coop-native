@@ -3,6 +3,7 @@
     "name": "简体中文",
     "code": "zh_CN"
   },
+  "Hotkey unavailable; choose another combination.": "快捷键不可用或已被占用，请更换组合键。",
   "Games": "对局历史",
   "Players": "玩家统计",
   "Weeklies": "每周突变",

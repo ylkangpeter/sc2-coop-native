@@ -32,6 +32,9 @@ LRESULT WINAPI UIManager::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPa
         return true;
 
     switch (msg) {
+        case WM_ACTIVATEAPP:
+            if (!wParam && HotkeyManager::Instance().IsRecording()) HotkeyManager::Instance().StopRecording();
+            break;
         case WM_SIZE:
             if (wParam == SIZE_MINIMIZED) {
                 UIManager::Instance().m_minimized = true;
@@ -90,6 +93,15 @@ LRESULT WINAPI UIManager::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPa
             HotkeyManager::Instance().ApplyRecordedHotkey(static_cast<int>(wParam), (UINT)LOWORD(lParam), (UINT)HIWORD(lParam));
             return 0;
 
+        case WM_USER_HOTKEY_RECORD_CANCELLED:
+            HotkeyManager::Instance().StopRecording();
+            return 0;
+
+        case WM_USER_DISMISS_OVERLAYS:
+            SummaryOverlay::Instance().Hide();
+            AllyToastWindow::Instance().Hide();
+            return 0;
+
         case WM_COMMAND:
             switch (LOWORD(wParam)) {
                 case ID_TRAY_SHOW:
@@ -107,6 +119,7 @@ LRESULT WINAPI UIManager::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPa
             return 0;
 
         case WM_CLOSE:
+            if (HotkeyManager::Instance().IsRecording()) HotkeyManager::Instance().StopRecording();
             if (AppState::Instance().minimize_to_tray) {
                 ShowWindow(hWnd, SW_HIDE);
                 return 0;
@@ -366,7 +379,7 @@ bool UIManager::Init(HINSTANCE hInstance, int nCmdShow) {
     int win_x = mi.rcWork.left + (mon_w - win_w) / 2;
     int win_y = mi.rcWork.top + (mon_h - win_h) / 2;
 
-    m_hwnd = CreateWindowW(m_wc.lpszClassName, L"StarCraft II Co-op Native v1.0.15",
+    m_hwnd = CreateWindowW(m_wc.lpszClassName, L"StarCraft II Co-op Native v1.0.16",
                            WS_OVERLAPPEDWINDOW, win_x, win_y, win_w, win_h,
                            nullptr, nullptr, m_wc.hInstance, nullptr);
 

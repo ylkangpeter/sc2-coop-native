@@ -29,6 +29,7 @@ public:
     void ToggleMatch(const ReplayRecord& rec);
     void Hide();
 
+    HWND GetHwnd() const { return m_hwnd; }
     bool IsActive() const { return m_anim_state != OverlayAnimState::Hidden; }
     void Update(float delta_time);
     void DumpNextRender(const std::string& path) { m_dump_path = path; }
@@ -38,11 +39,19 @@ private:
     ~SummaryOverlay() = default;
 
     void Render();
+    void StartForegroundWatch();
+    void StopForegroundWatch();
+    void EnsureTopmost(bool force = false);
+    static void CALLBACK ForegroundChanged(HWINEVENTHOOK hook, DWORD event, HWND hwnd,
+                                          LONG object, LONG child, DWORD thread, DWORD time);
     void UpdatePosition(bool force_show = false);
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
     HINSTANCE m_hInstance = nullptr;
     HWND m_hwnd = nullptr;
+    HWINEVENTHOOK m_foreground_hook = nullptr;
+    bool m_topmost_message_pending = false;
+    float m_topmost_check_elapsed = 0.0f;
 
     OverlayAnimState m_anim_state = OverlayAnimState::Hidden;
     float m_anim_t = 0.0f;           // 0.0 = completely offscreen right, 1.0 = fully docked to right edge

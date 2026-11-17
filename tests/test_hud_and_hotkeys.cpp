@@ -97,6 +97,12 @@ int main() {
     // 4. Test Hotkey Manager
     HWND hDummy = CreateWindowExW(0, L"STATIC", L"test", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, hInstance, nullptr);
     auto& hk = sc2::HotkeyManager::Instance();
+    // Test registration independently of a running production instance.
+    auto& app = sc2::AppState::Instance();
+    app.hotkey_summary_mod = MOD_CONTROL | MOD_ALT | MOD_SHIFT;
+    app.hotkey_summary_vk = VK_F24;
+    app.hotkey_ally_enabled = false;
+    app.hotkey_nav_enabled = false;
     hk.Init(hDummy);
 
     bool toggle_called = false;

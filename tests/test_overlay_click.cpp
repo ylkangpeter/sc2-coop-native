@@ -22,7 +22,7 @@ int main() {
     overlay.Init(hInstance);
     overlay.ShowLatest();
 
-    HWND hwnd = FindWindowW(L"SC2SummaryOverlayClass", nullptr);
+    HWND hwnd = overlay.GetHwnd();
     std::cout << "Found hwnd: " << hwnd << "\n";
 
     if (hwnd) {

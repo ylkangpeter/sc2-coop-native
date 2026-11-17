@@ -15,6 +15,7 @@
 #include "../src/ui/ui_manager.h"
 #include "../src/ui/hud/summary_overlay.h"
 #include "../src/utils/win32_utils.h"
+#include "../src/utils/hotkey_manager.h"
 
 using namespace std::chrono_literals;
 
@@ -76,7 +77,7 @@ int main() {
     auto& ui = sc2::UIManager::Instance();
     assert(ui.Init(GetModuleHandleW(nullptr), SW_HIDE));
     auto& overlay = sc2::SummaryOverlay::Instance();
-    HWND hwnd = FindWindowW(L"SC2SummaryOverlayClass", nullptr);
+    HWND hwnd = overlay.GetHwnd();
     assert(WaitUntil([&] { return overlay.IsActive(); }, 10s));
     assert(!IsWindowVisible(ui.GetHwnd()));
     assert(IsWindowVisible(hwnd));
@@ -91,6 +92,12 @@ int main() {
     assert(WaitUntil([&] { return !overlay.IsActive(); }, 2s));
     assert(!WaitUntil([&] { return overlay.IsActive(); }, 2500ms));
     std::cout << "[OK] An unchanged replay does not trigger a duplicate popup.\n";
+    auto& hotkeys = sc2::HotkeyManager::Instance();
+    hotkeys.StartRecording(1);
+    assert(hotkeys.IsHookActive());
+    SendMessageW(ui.GetHwnd(), WM_ACTIVATEAPP, FALSE, 0);
+    assert(!hotkeys.IsRecording() && !hotkeys.IsHookActive());
+    std::cout << "[OK] Leaving the settings app cancels recording and releases its hook.\n";
 
     auto partial = root / L"first" / L"Replays" / L"partial.SC2Replay";
     { std::ofstream file(partial, std::ios::binary); file << "still writing"; }

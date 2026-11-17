@@ -216,6 +216,10 @@ void TabSettings::Render(AppState& state) {
             if (is_pushed) {
                 ImGui::PopStyleColor(2);
             }
+            if (HotkeyManager::Instance().IsHotkeyUnavailable(action_id)) {
+                ImGui::TextColored(ImVec4(1.0f, 0.65f, 0.25f, 1.0f), "%s",
+                    TR("Hotkey unavailable; choose another combination."));
+            }
         };
 
         RenderHotkeyRow("Toggle Match Summary Overlay", state.hotkey_summary_enabled, state.hotkey_summary_mod, state.hotkey_summary_vk, 1);
@@ -267,7 +271,7 @@ void TabSettings::Render(AppState& state) {
     ImGui::Spacing();
 
     // 6. About & Version Info
-    ImGui::TextDisabled("StarCraft II Co-op Native v1.0.15 (DirectX 11 + Dear ImGui + SQLite3)");
+    ImGui::TextDisabled("StarCraft II Co-op Native v1.0.16 (DirectX 11 + Dear ImGui + SQLite3)");
     ImGui::TextDisabled("%s", TR("About_Description"));
 }
 

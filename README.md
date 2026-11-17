@@ -87,7 +87,7 @@ However, running a full web runtime inside an overlay poses noticeable drawbacks
 
 ## 📥 Download & Usage
 
-1. Go to the [**Releases**](https://github.com/ylkangpeter/sc2-coop-native/releases) page and download `sc2-coop-native-v1.0.15-windows-x64.zip`.
+1. Go to the [**Releases**](https://github.com/ylkangpeter/sc2-coop-native/releases) page and download `sc2-coop-native-v1.0.16-windows-x64.zip`.
 2. Extract the archive anywhere on your PC (e.g. `D:\Tools\SC2_Coop_Native\`).
 3. Run `sc2_coop.exe`.
 4. Launch **StarCraft II** in **Windowed (Fullscreen)** or **Windowed** mode.
@@ -108,7 +108,7 @@ winget install MartinStorsjo.LLVM-MinGW.UCRT
 .\build.ps1 -Package
 ```
 
-`build.bat` and `package.bat` invoke the same PowerShell entry point. If local script execution is restricted, invoke `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 -Package` (this applies only to that process). Use `-CompilerBin` for a custom LLVM-MinGW location, `-Clean` to rebuild dependencies, or `-OutputDirectory dist/sc2_coop_v1.0.15` to build alongside a running version. The build never kills the running app.
+`build.bat` and `package.bat` invoke the same PowerShell entry point. If local script execution is restricted, invoke `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 -Package` (this applies only to that process). Use `-CompilerBin` for a custom LLVM-MinGW location, `-Clean` to rebuild dependencies, or `-OutputDirectory dist/sc2_coop_v1.0.16` to build alongside a running version. The build never kills the running app.
 
 Packaging includes only the executable and asset files, with a SHA-256 checksum beside the ZIP. Databases, personal settings, logs, dumps and old executables are excluded. `-PackageOnly` packages an existing build.
 
@@ -117,6 +117,13 @@ Packaging includes only the executable and asset files, with a SHA-256 checksum 
 Startup and explicit scans read their last discovery watermark from the local SQLite database; an existing installation without a watermark uses its latest indexed replay timestamp, while an empty database returns zero. The same timestamp filter handles all cases. Replay creation time is included so files copied in with preserved modification times can be found. Equal timestamps are included and file version markers prevent duplicate parsing.
 
 Changed paths are durably queued in the same transaction that advances the discovery watermark. Interruptions, active writers and failed database saves leave work queued for the next run. During normal operation, Windows `ReadDirectoryChangesW` supplies changed paths directly: idle ticks do not enumerate the library or reload whole-library indexes. New or renamed directories are checked for contained replays. A notification overflow or unavailable watch falls back to timestamp-based catch-up; the watermark is conservatively advanced only after a complete enumeration, never merely because a notification arrived. “Re-parse All Replays” resets the watermark to zero and uses that same pipeline.
+
+### Keyboard and overlay overhead
+
+Global shortcuts use `RegisterHotKey`; no low-level keyboard hook remains installed while replay overlays are closed and shortcut recording is inactive. Recording and visible overlays temporarily enable the hook for capture, Escape and PageUp/PageDown controls. Ordinary game/typing keys bypass modifier queries. Recording suspends global shortcut actions and cancels when the app loses focus; unavailable shortcuts are identified in Settings.
+
+Summary slide animations preserve Z order. Stable display performs no frame-by-frame repositioning or topmost updates. An asynchronous foreground-change notification restores ordering when switching applications, with a once-per-second recovery check that only changes Z order when topmost status is lost or StarCraft II has overtaken the overlay. These hooks are removed when the summary closes.
+
 
 ## 🧩 Architecture
 

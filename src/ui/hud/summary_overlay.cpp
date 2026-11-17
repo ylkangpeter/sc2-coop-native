@@ -8,6 +8,7 @@
 #include "../../data/sc2_constants.h"
 #include "../../replay/replay_parser.h"
 #include "../../i18n/i18n.h"
+#include "../../utils/hotkey_manager.h"
 #include <stb/stb_image.h>
 
 #include <algorithm>
@@ -19,12 +20,18 @@
 
 namespace sc2 {
 
+static constexpr UINT WM_REFRESH_OVERLAY_TOPMOST = WM_APP + 1;
+
 static inline std::wstring ToWide(const std::string& str) {
     return Win32Utils::Utf8ToWide(str);
 }
 
 LRESULT CALLBACK SummaryOverlay::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
+        case WM_REFRESH_OVERLAY_TOPMOST:
+            SummaryOverlay::Instance().m_topmost_message_pending = false;
+            SummaryOverlay::Instance().EnsureTopmost(true);
+            return 0;
         case WM_KEYDOWN:
             if (wParam == VK_ESCAPE) {
                 SummaryOverlay::Instance().Hide();
@@ -108,7 +115,9 @@ void SummaryOverlay::Init(HINSTANCE hInstance) {
 }
 
 void SummaryOverlay::Shutdown() {
-    Hide();
+    StopForegroundWatch();
+    m_anim_state = OverlayAnimState::Hidden;
+    m_anim_t = 0.0f;
     if (!m_font_path.empty()) {
         RemoveFontResourceExW(m_font_path.c_str(), FR_PRIVATE, nullptr);
         m_font_path.clear();
@@ -126,6 +135,7 @@ void SummaryOverlay::Shutdown() {
         UnregisterClassW(L"SC2SummaryOverlayClass", m_hInstance);
         m_hInstance = nullptr;
     }
+    HotkeyManager::Instance().UpdateContext();
 }
 
 void SummaryOverlay::ShowMatch(const ReplayRecord& rec, bool is_best_time, float duration) {
@@ -175,6 +185,9 @@ void SummaryOverlay::ShowMatch(const ReplayRecord& rec, bool is_best_time, float
     Render();
     UpdatePosition(true);
     ShowWindow(m_hwnd, SW_SHOWNOACTIVATE);
+    m_topmost_check_elapsed = 0.0f;
+    StartForegroundWatch();
+    HotkeyManager::Instance().UpdateContext();
     LogDiagnostic("summary", "show requested; visible=" + std::to_string(IsWindowVisible(m_hwnd)) +
         "; duration=" + std::to_string(m_total_duration));
 }
@@ -314,15 +327,22 @@ void SummaryOverlay::Update(float delta_time) {
         if (m_remaining_time <= 0.0f) {
             Hide();
         } else {
-            // Keep layered window topmost above borderless StarCraft II window
-            SetWindowPos(m_hwnd, HWND_TOPMOST, 0, 0, 0, 0,
-                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            // Foreground notifications do immediate recovery. Once a second,
+            // check for missed events or another topmost game window overtaking
+            // us, and only change Z order if recovery is actually needed.
+            m_topmost_check_elapsed += delta_time;
+            if (m_topmost_check_elapsed >= 1.0f) {
+                m_topmost_check_elapsed = 0.0f;
+                EnsureTopmost();
+            }
         }
     } else if (m_anim_state == OverlayAnimState::SlidingOut) {
         m_anim_t -= delta_time / 0.30f; // Slide out over 300ms
         if (m_anim_t <= 0.0f) {
             m_anim_t = 0.0f;
             m_anim_state = OverlayAnimState::Hidden;
+            StopForegroundWatch();
+            HotkeyManager::Instance().UpdateContext();
             if (m_hwnd) {
                 SetWindowPos(m_hwnd, nullptr, -10000, -10000, 0, 0,
                              SWP_HIDEWINDOW | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
@@ -363,11 +383,55 @@ void SummaryOverlay::UpdatePosition(bool force_show) {
 
     int cur_x = mon_x + mon_w - (int)(m_overlay_w * ease_factor);
     int cur_y = mon_y;
-    UINT flags = SWP_NOACTIVATE;
-    if (force_show) {
-        flags |= SWP_SHOWWINDOW;
-    }
+    UINT flags = SWP_NOACTIVATE | SWP_NOZORDER;
+    if (force_show) flags = SWP_NOACTIVATE | SWP_SHOWWINDOW;
     SetWindowPos(m_hwnd, HWND_TOPMOST, cur_x, cur_y, m_overlay_w, m_overlay_h, flags);
+}
+
+void SummaryOverlay::StartForegroundWatch() {
+    if (!m_foreground_hook) {
+        m_foreground_hook = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND,
+            nullptr, ForegroundChanged, 0, 0, WINEVENT_OUTOFCONTEXT);
+    }
+}
+
+void SummaryOverlay::StopForegroundWatch() {
+    if (m_foreground_hook) {
+        UnhookWinEvent(m_foreground_hook);
+        m_foreground_hook = nullptr;
+    }
+    m_topmost_message_pending = false;
+}
+
+void CALLBACK SummaryOverlay::ForegroundChanged(HWINEVENTHOOK, DWORD, HWND hwnd, LONG, LONG, DWORD, DWORD) {
+    auto& overlay = Instance();
+    // Out-of-context foreground events are asynchronous and do not intercept
+    // input. Coalesce them onto our own queue; never do window work in callbacks.
+    if (!overlay.IsActive() || !overlay.m_hwnd || hwnd == overlay.m_hwnd ||
+        overlay.m_topmost_message_pending) return;
+    overlay.m_topmost_message_pending = true;
+    if (!PostMessageW(overlay.m_hwnd, WM_REFRESH_OVERLAY_TOPMOST, 0, 0)) {
+        overlay.m_topmost_message_pending = false;
+    }
+}
+
+void SummaryOverlay::EnsureTopmost(bool force) {
+    if (!IsActive() || !m_hwnd || !IsWindowVisible(m_hwnd)) return;
+    bool needed = force || !(GetWindowLongPtrW(m_hwnd, GWL_EXSTYLE) & WS_EX_TOPMOST);
+    HWND game = Win32Utils::FindStarCraftIIWindow();
+    if (!needed && game && game == GetForegroundWindow()) {
+        // Being topmost is not sufficient if SC2 is itself above us in the
+        // topmost group. Stop as soon as either window is reached.
+        HWND current = GetTopWindow(nullptr);
+        for (int count = 0; current && count < 512; ++count, current = GetWindow(current, GW_HWNDNEXT)) {
+            if (current == m_hwnd) break;
+            if (current == game) { needed = true; break; }
+        }
+    }
+    if (needed) {
+        SetWindowPos(m_hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    }
 }
 
 void SummaryOverlay::Render() {
