@@ -6,11 +6,22 @@
 
 namespace sc2 {
 
+static bool OpenArchive(const std::wstring& path, HANDLE* archive) {
+    // SFileSetArchiveMarkers initializes StormLib's global crypto tables.
+    // Zero marker values preserve its defaults. C++ serializes first use.
+    static const bool initialized = [] {
+        SFILE_MARKERS markers{};
+        markers.dwSize = sizeof(markers);
+        return SFileSetArchiveMarkers(&markers);
+    }();
+    return initialized && SFileOpenArchive(path.c_str(), 0, MPQ_OPEN_READ_ONLY, archive);
+}
+
 bool MpqReader::ReadFile(const std::wstring& archive_path,
                          const std::string& filename_in_archive,
                          std::vector<uint8_t>& out_bytes) {
     HANDLE hArchive = nullptr;
-    if (!SFileOpenArchive(archive_path.c_str(), 0, MPQ_OPEN_READ_ONLY, &hArchive)) {
+    if (!OpenArchive(archive_path, &hArchive)) {
         return false;
     }
 
@@ -79,7 +90,7 @@ bool MpqReader::ReadJson(const std::wstring& archive_path,
 std::vector<std::string> MpqReader::ListFiles(const std::wstring& archive_path) {
     std::vector<std::string> files;
     HANDLE hArchive = nullptr;
-    if (!SFileOpenArchive(archive_path.c_str(), 0, MPQ_OPEN_READ_ONLY, &hArchive)) {
+    if (!OpenArchive(archive_path, &hArchive)) {
         return files;
     }
 

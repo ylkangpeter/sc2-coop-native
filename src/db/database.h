@@ -151,6 +151,9 @@ public:
 
     // Replay CRUD
     bool SaveReplay(const ReplayRecord& rec);
+    // Commit a matching queued version and its fingerprint; full records also retire the work.
+    bool SaveScannedReplay(const ReplayRecord& rec, const ReplayFileState& state,
+                           const std::string& root);
     bool BatchSaveReplays(const std::vector<ReplayRecord>& recs);
     bool HasReplay(const std::string& file_path);
     bool HasValidReplay(const std::string& file_path);
@@ -163,7 +166,7 @@ public:
     std::optional<ReplayFileState> GetReplayFileState(const std::string& path);
     int64_t GetReplayScanWatermark(const std::string& root);
     bool QueueReplayChanges(const std::string& root, int64_t through,
-                            const std::vector<ReplayScanEntry>& entries);
+                            const std::vector<ReplayScanEntry>& entries, bool force_reparse = false);
     std::vector<ReplayScanEntry> GetPendingReplayChanges(const std::string& root);
     bool CompleteReplayChange(const std::string& root, const ReplayScanEntry& entry);
     bool ResetReplayScan(const std::string& root);
@@ -175,6 +178,7 @@ public:
     void SanitizeInvalidPrestiges();
     void MarkDifficultyFixComplete();
     int GetTotalReplayCount();
+    int GetFailedReplayCount();
 
     // Query games for Games Tab
     std::vector<ReplayRecord> QueryReplays(const std::string& search_query,
@@ -230,6 +234,8 @@ public:
     bool DumpAllToJson(const std::string& output_path);
 
 private:
+    bool WriteReplays(const std::vector<ReplayRecord>& recs, const ReplayFileState* state,
+                      const std::string& root = {});
     bool MigrateDetailsStorage();
     Database() = default;
     ~Database();

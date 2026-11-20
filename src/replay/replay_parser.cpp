@@ -47,7 +47,61 @@ std::string ReplayParser::FormatTimestamp(int64_t mtime) {
     return oss.str();
 }
 
-std::optional<ReplayRecord> ReplayParser::ParseFile(const std::wstring& replay_path) {
+static void DecodeMatchEvents(const std::wstring& replay_path, const nlohmann::json& meta_json, ReplayRecord& record) {
+    // 4. Read replay.tracker.events (Player Stats, Units, Enemy Comps)
+    ReplayObjectives objectives;
+    std::vector<uint8_t> tracker_bytes;
+    if (MpqReader::ReadFile(replay_path, "replay.tracker.events", tracker_bytes)) {
+        auto summary = S2Decoder::DecodeTrackerEvents(tracker_bytes,
+                                                      record.p1.kills, record.p2.kills,
+                                                      record.p1.commander, record.p2.commander);
+        record.p1_series = std::move(summary.p1_series);
+        record.p2_series = std::move(summary.p2_series);
+        record.p1.units = std::move(summary.p1_units);
+        record.p2.units = std::move(summary.p2_units);
+        record.amon_units = std::move(summary.amon_units);
+        record.enemy_comp = std::move(summary.enemy_comp);
+        if (record.p1.kills <= 0) record.p1.kills = summary.p1_kills;
+        if (record.p2.kills <= 0) record.p2.kills = summary.p2_kills;
+        objectives = summary.objectives;
+    }
+
+    const bool victory = record.result == "Victory";
+    if (CanEstimateReplayDuration(record.raw_map_name, victory, record.duration_seconds)) {
+        const auto build = meta_json.find("BaseBuild");
+        std::vector<uint8_t> game_bytes;
+        if (build != meta_json.end() && build->is_string() &&
+            MpqReader::ReadFile(replay_path, "replay.game.events", game_bytes)) {
+            record.duration_seconds = EstimateReplayDuration(record.duration_seconds, build->get_ref<const std::string&>(),
+                                                            record.raw_map_name, victory, game_bytes, objectives);
+        }
+    }
+
+    // Fallback series if tracker events were missing or empty
+    if (record.p1_series.time_stamps.empty()) {
+        int dur = record.duration_seconds > 0 ? record.duration_seconds : 900;
+        for (int i = 0; i <= 10; ++i) {
+            float t = (dur * i) / 10.0f;
+            float progress = static_cast<float>(i) / 10.0f;
+            record.p1_series.time_stamps.push_back(t);
+            record.p2_series.time_stamps.push_back(t);
+
+            record.p1_series.kill_count.push_back(record.p1.kills * progress);
+            record.p2_series.kill_count.push_back(record.p2.kills * progress);
+
+            record.p1_series.supply_used.push_back(std::min(200.0f, 15.0f + 160.0f * progress));
+            record.p2_series.supply_used.push_back(std::min(200.0f, 15.0f + 140.0f * progress));
+
+            record.p1_series.army_value.push_back(2000.0f * progress);
+            record.p2_series.army_value.push_back(1800.0f * progress);
+
+            record.p1_series.collection_rate.push_back(progress > 0.1f ? 1800.0f : 400.0f);
+            record.p2_series.collection_rate.push_back(progress > 0.1f ? 1600.0f : 400.0f);
+        }
+    }
+}
+
+std::optional<ReplayRecord> ReplayParser::ParseFile(const std::wstring& replay_path, ReplayParseDepth depth) {
     try {
         ReplayRecord record;
 
@@ -225,58 +279,10 @@ std::optional<ReplayRecord> ReplayParser::ParseFile(const std::wstring& replay_p
     // is treated as earning all map bonuses, while defeat/unknown stays at zero.
     record.bonus_earned = (record.result == "Victory") ? record.bonus_total : 0;
 
-    // 4. Read replay.tracker.events (Player Stats, Units, Enemy Comps)
-    ReplayObjectives objectives;
-    std::vector<uint8_t> tracker_bytes;
-    if (MpqReader::ReadFile(replay_path, "replay.tracker.events", tracker_bytes)) {
-        auto summary = S2Decoder::DecodeTrackerEvents(tracker_bytes,
-                                                      record.p1.kills, record.p2.kills,
-                                                      record.p1.commander, record.p2.commander);
-        record.p1_series = std::move(summary.p1_series);
-        record.p2_series = std::move(summary.p2_series);
-        record.p1.units = std::move(summary.p1_units);
-        record.p2.units = std::move(summary.p2_units);
-        record.amon_units = std::move(summary.amon_units);
-        record.enemy_comp = std::move(summary.enemy_comp);
-        if (record.p1.kills <= 0) record.p1.kills = summary.p1_kills;
-        if (record.p2.kills <= 0) record.p2.kills = summary.p2_kills;
-        objectives = summary.objectives;
-    }
-
-    const bool victory = record.result == "Victory";
-    if (CanEstimateReplayDuration(record.raw_map_name, victory, record.duration_seconds)) {
-        const auto build = meta_json.find("BaseBuild");
-        std::vector<uint8_t> game_bytes;
-        if (build != meta_json.end() && build->is_string() &&
-            MpqReader::ReadFile(replay_path, "replay.game.events", game_bytes)) {
-            record.duration_seconds = EstimateReplayDuration(record.duration_seconds, build->get_ref<const std::string&>(),
-                                                            record.raw_map_name, victory, game_bytes, objectives);
-        }
+    if (depth == ReplayParseDepth::Full) {
+        DecodeMatchEvents(replay_path, meta_json, record);
     }
     record.form_length = FormatDuration(record.duration_seconds);
-
-    // Fallback series if tracker events were missing or empty
-    if (record.p1_series.time_stamps.empty()) {
-        int dur = record.duration_seconds > 0 ? record.duration_seconds : 900;
-        for (int i = 0; i <= 10; ++i) {
-            float t = (dur * i) / 10.0f;
-            float progress = static_cast<float>(i) / 10.0f;
-            record.p1_series.time_stamps.push_back(t);
-            record.p2_series.time_stamps.push_back(t);
-
-            record.p1_series.kill_count.push_back(record.p1.kills * progress);
-            record.p2_series.kill_count.push_back(record.p2.kills * progress);
-
-            record.p1_series.supply_used.push_back(std::min(200.0f, 15.0f + 160.0f * progress));
-            record.p2_series.supply_used.push_back(std::min(200.0f, 15.0f + 140.0f * progress));
-
-            record.p1_series.army_value.push_back(2000.0f * progress);
-            record.p2_series.army_value.push_back(1800.0f * progress);
-
-            record.p1_series.collection_rate.push_back(progress > 0.1f ? 1800.0f : 400.0f);
-            record.p2_series.collection_rate.push_back(progress > 0.1f ? 1600.0f : 400.0f);
-        }
-    }
 
     // 4. Read replay.message.events (chat)
     std::vector<uint8_t> msg_bytes;

@@ -1,4 +1,9 @@
 {
+  "Import resume help": "Import and detail analysis resume on the next launch. The list shows recorded duration until analysis finishes.",
+  "Failed replay count": "%d replay files failed to parse. Check the original files and use Re-parse All Replays to retry.",
+  "Pending retry": "Pending retry",
+  "Replay retry help": "Import is waiting to retry. Check that the replay folder is accessible and the database drive has free space. Re-parse All Replays rebuilds records from their files.",
+  "Analyzing details": "Analyzing details",
   "_meta": {
     "name": "English",
     "code": "en_US"

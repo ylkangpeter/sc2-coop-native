@@ -51,7 +51,7 @@ void FrameRenderer::RenderFrame() {
     // Header Navigation Bar
     ImGui::TextColored(ImVec4(0.0f, 0.75f, 1.0f, 1.0f), "SC2 CO-OP NATIVE");
     ImGui::SameLine();
-    ImGui::TextDisabled("v1.0.17");
+    ImGui::TextDisabled("v1.0.18");
     ImGui::SameLine(0, 16.0f);
 
     // Tab Buttons
@@ -115,16 +115,25 @@ void FrameRenderer::RenderFrame() {
     ImGui::PopStyleColor(5);
 
     // Right side: Scanner status & Rescan indicator
-    const auto imported = ReplayWatcher::Instance().GetImportProgress();
-    const bool manual_scan = state.is_scanning.load();
-    const bool scanning = manual_scan || imported.total > 0;
-    char scan_buf[128];
+    auto& watcher = ReplayWatcher::Instance();
+    auto progress = watcher.GetImportProgress();
+    const char* phase = TR("Scanning");
+    if (state.is_scanning) {
+        progress = {state.scan_progress.load(), state.scan_total.load()};
+    } else if (progress.total == 0) {
+        progress = watcher.GetDetailProgress();
+        phase = TR("Analyzing details");
+    }
+    const bool retry = watcher.IsWaitingForRetry();
+    const bool scanning = progress.total > 0 || state.is_scanning || retry;
+    char scan_buf[160];
     const char* status = TR("Idle");
-    if (scanning) {
-        std::snprintf(scan_buf, sizeof(scan_buf), "%s (%d/%d)...", TR("Scanning"),
-                      manual_scan ? state.scan_progress.load() : imported.completed,
-                      manual_scan ? state.scan_total.load() : imported.total);
+    if (progress.total > 0) {
+        std::snprintf(scan_buf, sizeof(scan_buf), "%s (%d/%d)%s%s", phase, progress.completed, progress.total,
+                      retry ? " · " : "", retry ? TR("Pending retry") : "");
         status = scan_buf;
+    } else if (scanning) {
+        status = retry ? TR("Pending retry") : phase;
     }
     const float target_x = ImGui::GetWindowContentRegionMax().x - ImGui::CalcTextSize(status).x;
     if (target_x >= ImGui::GetItemRectMax().x - ImGui::GetWindowPos().x + ImGui::GetStyle().ItemSpacing.x) {
@@ -134,6 +143,9 @@ void FrameRenderer::RenderFrame() {
     }
     if (scanning) ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "%s", status);
     else ImGui::TextDisabled("%s", status);
+    if (scanning && ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("%s", retry ? TR("Replay retry help") : TR("Import resume help"));
+    }
 
     ImGui::Spacing();
     ImGui::Separator();

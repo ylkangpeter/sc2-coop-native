@@ -7,6 +7,7 @@
 #include "../utils/diagnostics.h"
 
 #include <filesystem>
+#include <future>
 #include <chrono>
 #include <iostream>
 #include <algorithm>
@@ -16,6 +17,52 @@
 #include <sys/stat.h>
 
 namespace sc2 {
+
+namespace {
+
+struct DetailRead {
+    // Keep this file version stable until the watcher commits its result.
+    std::unique_ptr<void, decltype(&CloseHandle)> file{nullptr, CloseHandle};
+    std::optional<ReplayFileState> current;
+    std::optional<ReplayRecord> record;
+};
+
+DetailRead ReadDetail(const ReplayScanEntry& item) {
+    DetailRead read;
+    const auto path = Win32Utils::Utf8ToWide(item.path);
+    HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+                              OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) {
+        return read;
+    }
+    read.file.reset(file);
+    read.current = ReadReplayFileState(path, true);
+    if (read.current && read.current->SameFileVersion(item.state) && read.current->sha256 == item.state.sha256) {
+        read.record = ReplayParser::ParseFile(path);
+    }
+    return read;
+}
+
+bool CommitDetail(Database& db, const std::string& root, const ReplayScanEntry& item, DetailRead read) {
+    if (!read.current) return false;
+    auto& state = *read.current;
+    if (!state.SameFileVersion(item.state)) {
+        db.QueueReplayChanges(root, db.GetReplayScanWatermark(root), {{item.path, state}});
+        return false;
+    }
+    if (state.sha256 != item.state.sha256) {
+        // Same timestamp and size, but different contents. Retry this exact
+        // version on the next pass, without publishing the previous details.
+        state.outcome = "summary";
+        db.SaveReplayFileState(item.path, state);
+        return false;
+    }
+    if (!read.record || read.record->result == "Unknown") return false;
+    state.outcome = "parsed";
+    return db.SaveScannedReplay(*read.record, state, root);
+}
+
+} // namespace
 
 ReplayWatcher& ReplayWatcher::Instance() {
     static ReplayWatcher instance;
@@ -61,6 +108,9 @@ void ReplayWatcher::WatchLoop() {
     std::string watched_root;
     int64_t watermark = 0;
     std::vector<ReplayScanEntry> pending;
+    std::vector<ReplayScanEntry> details;
+    size_t next_detail = 0;
+    bool retry_details = false;
     size_t next = 0;
     bool reload_pending = false;
     bool run_immediately = true;
@@ -79,6 +129,9 @@ void ReplayWatcher::WatchLoop() {
         if (folder.empty()) {
             notifications.Close();
             watched_root.clear();
+            m_waiting_for_retry = false;
+            details.clear();
+            m_detail_progress = ImportProgress{};
             pending.clear();
             next = 0;
             m_import_progress = progress = {};
@@ -94,6 +147,7 @@ void ReplayWatcher::WatchLoop() {
                 // remain buffered by Windows for the next iteration.
                 notifications.Open(root_w);
                 watched_root = root;
+                m_waiting_for_retry = false;
                 m_import_progress = progress = {};
                 watermark = db.GetReplayScanWatermark(root);
                 reload_pending = true; // Recover work durably queued before exit.
@@ -115,6 +169,7 @@ void ReplayWatcher::WatchLoop() {
                 // the watermark past unreadable/unvisited directories.
                 const auto through = found.complete ? found.through : watermark;
                 if (!db.QueueReplayChanges(root, through, found.entries)) {
+                    m_waiting_for_retry = true;
                     notifications.Close(); // Retry from the unchanged durable cursor.
                     retry_watch_at = std::chrono::steady_clock::now() + std::chrono::seconds(1);
                     continue;
@@ -127,6 +182,11 @@ void ReplayWatcher::WatchLoop() {
                     notifications.Close();
                     retry_watch_at = std::chrono::steady_clock::now() + std::chrono::seconds(30);
                 }
+            }
+            if (!notifications.IsOpen() && GetFileAttributesW(root_w.c_str()) == INVALID_FILE_ATTRIBUTES) {
+                // A disconnected replay folder is not evidence that its queued files were deleted.
+                m_waiting_for_retry = true;
+                continue;
             }
             if (!changes.paths.empty()) {
                 std::unordered_set<std::wstring> seen;
@@ -142,6 +202,7 @@ void ReplayWatcher::WatchLoop() {
                 }
                 if (!entries.empty()) {
                     if (!db.QueueReplayChanges(root, watermark, entries)) {
+                        m_waiting_for_retry = true;
                         notifications.Close();
                         retry_watch_at = std::chrono::steady_clock::now() + std::chrono::seconds(1);
                         continue;
@@ -155,9 +216,19 @@ void ReplayWatcher::WatchLoop() {
             }
             if (reload_pending) {
                 pending = db.GetPendingReplayChanges(root);
+                details.clear();
+                next_detail = 0;
+                retry_details = false;
+                for (auto& entry : pending) {
+                    if (entry.state.outcome == "summary") details.push_back(entry);
+                }
+                std::erase_if(pending, [](const auto& entry) { return entry.state.outcome == "summary"; });
+                m_detail_progress = ImportProgress{0, static_cast<int>(details.size())};
                 next = 0;
                 reload_pending = false;
                 if (pending.empty()) progress = {};
+                else progress.completed = std::max(progress.completed, static_cast<int>(details.size()));
+                if (pending.empty() && details.empty()) m_waiting_for_retry = false;
                 progress.total = progress.completed + static_cast<int>(pending.size());
                 m_import_progress = progress;
             }
@@ -185,7 +256,8 @@ void ReplayWatcher::WatchLoop() {
                 const auto observed = ReadReplayFileState(wide);
                 if (!observed) {
                     const auto error = GetLastError();
-                    if (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND) {
+                    if ((error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND) &&
+                        GetFileAttributesW(root_w.c_str()) != INVALID_FILE_ATTRIBUTES) {
                         finish_item();
                     } else {
                         m_failed_retry_after[path] = std::chrono::steady_clock::now() + std::chrono::seconds(1);
@@ -200,14 +272,19 @@ void ReplayWatcher::WatchLoop() {
                 const bool needs_notification = is_recent &&
                     (notified == m_notified_recent_mtimes.end() || notified->second != disk_mtime);
 
+                if (!observed->SameFileVersion(item.state)) {
+                    reload_pending |= db.QueueReplayChanges(root, db.GetReplayScanWatermark(root), {{path, *observed}});
+                    continue;
+                }
                 const auto saved = db.GetReplayFileState(path);
                 const bool same_version = saved && observed->SameFileVersion(*saved);
                 const bool changed_version = saved && !same_version;
-                if (same_version && (saved->outcome == "failed" || !needs_notification)) {
+                const bool unfinished = saved && (saved->outcome == "summary" || saved->outcome == "reparse");
+                if (same_version && !unfinished && (saved->outcome == "failed" || !needs_notification)) {
                     finish_item();
                     continue;
                 }
-                const bool already_indexed = !changed_version && db.GetReplayMtime(path) >= disk_mtime && db.HasReplay(path);
+                const bool already_indexed = !unfinished && !changed_version && db.GetReplayMtime(path) >= disk_mtime && db.HasReplay(path);
                 if (!needs_notification && already_indexed && db.HasValidReplay(path)) {
                     finish_item();
                     continue;
@@ -234,8 +311,7 @@ void ReplayWatcher::WatchLoop() {
                 };
                 if (!needs_notification && already_indexed) { complete("parsed"); continue; }
                 if (db.HasFailedReplayHash(fingerprint->sha256)) { complete("failed"); continue; }
-                std::optional<ReplayRecord> parsed;
-                try { parsed = ReplayParser::ParseFile(wide); } catch (...) { parsed = std::nullopt; }
+                auto parsed = ReplayParser::ParseFile(wide, needs_notification ? ReplayParseDepth::Full : ReplayParseDepth::Summary);
                 const auto after = ReadReplayFileState(wide);
                 if (!after || !after->SameFileVersion(*fingerprint)) {
                     m_failed_retry_after[path] = std::chrono::steady_clock::now() + std::chrono::seconds(1);
@@ -249,7 +325,20 @@ void ReplayWatcher::WatchLoop() {
                     complete("failed");
                     continue;
                 }
-                const int best = needs_notification ? db.GetFastestSecondsForMap(parsed->map_name) : 0;
+                if (!needs_notification) {
+                    fingerprint->outcome = "summary";
+                    if (db.SaveScannedReplay(*parsed, *fingerprint, root)) {
+                        details.push_back({path, *fingerprint});
+                        ++progress.completed;
+                        m_import_progress = progress;
+                        m_detail_progress = ImportProgress{static_cast<int>(next_detail), static_cast<int>(details.size())};
+                        m_recent_retry_counts.erase(path);
+                        m_recent_retry_hashes.erase(path);
+                        m_failed_retry_after.erase(path);
+                    }
+                    continue;
+                }
+                const int best = db.GetFastestSecondsForMap(parsed->map_name);
                 const bool is_best = parsed->result == "Victory" && parsed->duration_seconds > 0 &&
                     (best <= 0 || parsed->duration_seconds < best);
                 if (!db.SaveReplay(*parsed) || !complete("parsed")) {
@@ -262,14 +351,44 @@ void ReplayWatcher::WatchLoop() {
                     m_on_new_match(*parsed, is_best);
                 }
             }
+            if (pending.empty() && next_detail < details.size()) {
+                // Workers only read files. Commit on the watcher thread under the
+                // scan lock, and poll notifications again after this small batch.
+                const size_t end = std::min(next_detail + 4, details.size());
+                std::vector<std::future<DetailRead>> jobs;
+                for (size_t i = next_detail; i < end; ++i) {
+                    jobs.push_back(std::async(std::launch::async, ReadDetail, std::cref(details[i])));
+                }
+                for (auto& job : jobs) {
+                    const auto& item = details[next_detail++];
+                    if (!CommitDetail(db, root, item, job.get())) {
+                        if (!m_waiting_for_retry.exchange(true)) LogDiagnostic("watcher", "Details pending retry: " + item.path);
+                        retry_details = true;
+                    }
+                }
+                m_detail_progress = ImportProgress{static_cast<int>(next_detail), static_cast<int>(details.size())};
+                run_immediately = next_detail < details.size();
+                if (!run_immediately) {
+                    m_detail_progress = ImportProgress{};
+                    details.clear();
+                    next_detail = 0;
+                    reload_pending = reload_pending || retry_details;
+                    m_waiting_for_retry = reload_pending;
+                }
+            }
             if (!pending.empty() && next == pending.size()) {
                 pending.clear();
                 next = 0;
                 // Revisit incomplete files at the normal polling interval.
-                reload_pending = progress.completed < progress.total;
-                if (!reload_pending) m_import_progress = progress = {};
+                const bool unfinished = progress.completed < progress.total;
+                if (!unfinished) m_import_progress = progress = {};
+                m_waiting_for_retry = unfinished;
+                if (details.empty()) reload_pending |= unfinished;
+                else retry_details |= unfinished;
+                run_immediately = !details.empty();
             }
         } catch (const std::exception& e) {
+            m_waiting_for_retry = true;
             reload_pending = true;
             LogDiagnostic("watcher", std::string("incremental scan error: ") + e.what());
             notifications.Close();
@@ -277,6 +396,8 @@ void ReplayWatcher::WatchLoop() {
         }
     }
     m_import_progress = ImportProgress{};
+    m_detail_progress = ImportProgress{};
+    m_waiting_for_retry = false;
 }
 
 } // namespace sc2

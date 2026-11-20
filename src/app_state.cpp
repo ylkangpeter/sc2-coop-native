@@ -22,12 +22,15 @@ AppState::~AppState() {
 }
 
 void AppState::Init() {
-    Database::Instance().Open("coop_data.db");
+    if (!Database::Instance().Open("coop_data.db")) {
+        throw std::runtime_error("Cannot open coop_data.db. Check disk space and write access. "
+                                 "If damaged, close the app and back up the database and its -wal/-shm files "
+                                 "before moving them aside to rebuild from the original replays.");
+    }
     LoadSettings();
 
-    // If account_folder is empty, auto-detect
-    std::string cur_folder = GetAccountFolder();
-    if (cur_folder.empty() || !std::filesystem::exists(Win32Utils::Utf8ToWide(cur_folder))) {
+    // Keep the configured root and its queue when a drive is temporarily offline.
+    if (GetAccountFolder().empty()) {
         SetAccountFolder(Win32Utils::FindDefaultAccountsFolder());
         SaveSettings();
     } else {

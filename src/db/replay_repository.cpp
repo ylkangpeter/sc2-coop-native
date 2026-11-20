@@ -27,10 +27,21 @@ static std::vector<std::string> SplitTerms(const std::string& query) {
 } // namespace
 
 bool Database::SaveReplay(const ReplayRecord& rec) {
-    return BatchSaveReplays({rec});
+    return WriteReplays({rec}, nullptr);
+}
+
+bool Database::SaveScannedReplay(const ReplayRecord& rec, const ReplayFileState& state,
+                                 const std::string& root) {
+    if (root.empty()) return false;
+    return WriteReplays({rec}, &state, root);
 }
 
 bool Database::BatchSaveReplays(const std::vector<ReplayRecord>& recs) {
+    return WriteReplays(recs, nullptr);
+}
+
+bool Database::WriteReplays(const std::vector<ReplayRecord>& recs, const ReplayFileState* state,
+                            const std::string& root) {
     std::lock_guard<std::recursive_mutex> lock(m_mutex);
     if (!m_db || recs.empty()) return false;
 
@@ -102,7 +113,11 @@ bool Database::BatchSaveReplays(const std::vector<ReplayRecord>& recs) {
 
             // Details compressed blob
             stmt.BindNull(28);
-            std::vector<uint8_t> details_blob = rec.DetailsToCompressedBlob();
+            std::vector<uint8_t> details_blob;
+            if (!state || state->outcome != "summary") {
+                details_blob = rec.DetailsToCompressedBlob();
+                if (details_blob.empty()) return false;
+            }
             if (details_blob.empty()) {
                 stmt.BindNull(29);
             } else {
@@ -115,6 +130,23 @@ bool Database::BatchSaveReplays(const std::vector<ReplayRecord>& recs) {
                 std::cerr << "[DB ERROR] BatchSaveReplays step failed: " << sqlite3_errmsg(m_db) << "\n";
                 txn.Rollback();
                 return false;
+            }
+            if (state) {
+                if (!SaveReplayFileState(rec.file_path, *state)) return false;
+                // The version we parsed must still own its durable queue entry.
+                // A stale worker must never overwrite a newer summary or remove its work.
+                if (state->outcome == "summary") {
+                    SqliteStmt queued(m_db, "SELECT 1 FROM replay_scan_pending WHERE root=? AND file_path=? "
+                                           "AND write_time=? AND file_size=?;");
+                    if (!queued.IsValid()) return false;
+                    queued.BindText(1, root);
+                    queued.BindText(2, rec.file_path);
+                    queued.BindInt64(3, state->write_time);
+                    queued.BindInt64(4, state->file_size);
+                    if (queued.Step() != SQLITE_ROW) return false;
+                } else if (!CompleteReplayChange(root, {rec.file_path, *state}) || sqlite3_changes(m_db) != 1) {
+                    return false;
+                }
             }
             stmt.Reset();
         }
@@ -273,7 +305,7 @@ int64_t Database::GetReplayScanWatermark(const std::string& root) {
 }
 
 bool Database::QueueReplayChanges(const std::string& root, int64_t through,
-                                  const std::vector<ReplayScanEntry>& entries) {
+                                  const std::vector<ReplayScanEntry>& entries, bool force_reparse) {
     std::lock_guard<std::recursive_mutex> lock(m_mutex);
     if (!m_db) return false;
     SqliteTransaction txn(m_db);
@@ -290,6 +322,17 @@ bool Database::QueueReplayChanges(const std::string& root, int64_t through,
         insert.BindInt64(4, entry.state.file_size);
         if (insert.Step() != SQLITE_DONE) return false;
     }
+    if (force_reparse) {
+        // Publish the forced queue and invalidate old markers in one commit.
+        // Preserve unfinished stages belonging to other account folders.
+        if (sqlite3_exec(m_db, "DELETE FROM replay_file_states WHERE outcome IN ('parsed','failed'); "
+                               "DELETE FROM replay_failed_hashes;", nullptr, nullptr, nullptr) != SQLITE_OK) return false;
+        SqliteStmt force(m_db, "INSERT OR REPLACE INTO replay_file_states(file_path,write_time,file_size,sha256,outcome) "
+            "SELECT file_path, write_time, file_size, '', 'reparse' FROM replay_scan_pending WHERE root=?;");
+        if (!force.IsValid()) return false;
+        force.BindText(1, root);
+        if (force.Step() != SQLITE_DONE) return false;
+    }
     SqliteStmt progress(m_db, "INSERT INTO replay_scan_progress (root, last_update) VALUES (?, ?) "
         "ON CONFLICT(root) DO UPDATE SET last_update=excluded.last_update;");
     if (!progress.IsValid()) return false;
@@ -301,13 +344,17 @@ bool Database::QueueReplayChanges(const std::string& root, int64_t through,
 std::vector<ReplayScanEntry> Database::GetPendingReplayChanges(const std::string& root) {
     std::lock_guard<std::recursive_mutex> lock(m_mutex);
     std::vector<ReplayScanEntry> result;
-    if (!m_db) return result;
-    SqliteStmt stmt(m_db, "SELECT file_path, write_time, file_size FROM replay_scan_pending WHERE root = ? ORDER BY write_time DESC, file_path;");
-    if (!stmt.IsValid()) return result;
+    if (!m_db) throw std::runtime_error("Replay database is closed");
+    SqliteStmt stmt(m_db, "SELECT p.file_path, p.write_time, p.file_size, s.sha256, s.outcome FROM replay_scan_pending p "
+        "LEFT JOIN replay_file_states s ON s.file_path=p.file_path AND s.write_time=p.write_time AND s.file_size=p.file_size "
+        "WHERE p.root = ? ORDER BY p.write_time DESC, p.file_path;");
+    if (!stmt.IsValid()) throw std::runtime_error(sqlite3_errmsg(m_db));
     stmt.BindText(1, root);
-    while (stmt.Step() == SQLITE_ROW) {
-        result.push_back({stmt.ColumnText(0), {stmt.ColumnInt64(1), stmt.ColumnInt64(2), {}, {}}});
+    int rc;
+    while ((rc = stmt.Step()) == SQLITE_ROW) {
+        result.push_back({stmt.ColumnText(0), {stmt.ColumnInt64(1), stmt.ColumnInt64(2), stmt.ColumnText(3), stmt.ColumnText(4)}});
     }
+    if (rc != SQLITE_DONE) throw std::runtime_error(sqlite3_errmsg(m_db));
     return result;
 }
 
@@ -418,6 +465,13 @@ std::unordered_set<std::string> Database::GetDifficultyRepairPaths() {
         }
     }
     return paths;
+}
+
+int Database::GetFailedReplayCount() {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    if (!m_db) return 0;
+    SqliteStmt stmt(m_db, "SELECT COUNT(*) FROM replay_file_states WHERE outcome='failed';");
+    return stmt.IsValid() && stmt.Step() == SQLITE_ROW ? stmt.ColumnInt(0) : 0;
 }
 
 int Database::GetTotalReplayCount() {

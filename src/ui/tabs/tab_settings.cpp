@@ -1,3 +1,4 @@
+#include "../../replay/replay_watcher.h"
 #include "tab_settings.h"
 #include "../../app_state.h"
 #include "../../i18n/i18n.h"
@@ -84,16 +85,22 @@ void TabSettings::Render(AppState& state) {
     ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "%s", TR("Replay Library & Database"));
     ImGui::Spacing();
 
+    static int failed_replays = 0;
     static int s_cached_total_db_replays = 0;
     static double s_last_count_check = 0.0;
     double current_time = ImGui::GetTime();
     if (current_time - s_last_count_check > 1.5 || s_last_count_check == 0.0) {
         s_cached_total_db_replays = Database::Instance().GetTotalReplayCount();
+        failed_replays = Database::Instance().GetFailedReplayCount();
         s_last_count_check = current_time;
     }
     int total_db_replays = s_cached_total_db_replays;
     ImGui::Text(I18n::GetFormat("Total Replays Indexed in Database: %d", "Total Replays Indexed in Database: %d"), total_db_replays);
 
+    if (failed_replays > 0) ImGui::TextWrapped(I18n::GetFormat("Failed replay count", "%d replay files failed to parse."), failed_replays);
+    if (ReplayWatcher::Instance().IsWaitingForRetry()) {
+        ImGui::TextWrapped("%s", TR("Replay retry help"));
+    }
     if (state.is_scanning) {
         int prog = state.scan_progress.load();
         int tot = state.scan_total.load();
@@ -271,7 +278,7 @@ void TabSettings::Render(AppState& state) {
     ImGui::Spacing();
 
     // 6. About & Version Info
-    ImGui::TextDisabled("StarCraft II Co-op Native v1.0.17 (DirectX 11 + Dear ImGui + SQLite3)");
+    ImGui::TextDisabled("StarCraft II Co-op Native v1.0.18 (DirectX 11 + Dear ImGui + SQLite3)");
     ImGui::TextDisabled("%s", TR("About_Description"));
 }
 

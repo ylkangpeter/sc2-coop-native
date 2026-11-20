@@ -87,7 +87,7 @@ However, running a full web runtime inside an overlay poses noticeable drawbacks
 
 ## 📥 Download & Usage
 
-1. Go to the [**Releases**](https://github.com/ylkangpeter/sc2-coop-native/releases) page and download `sc2-coop-native-v1.0.17-windows-x64.zip`.
+1. Go to the [**Releases**](https://github.com/ylkangpeter/sc2-coop-native/releases) page and download `sc2-coop-native-v1.0.18-windows-x64.zip`.
 2. Extract the archive anywhere on your PC (e.g. `D:\Tools\SC2_Coop_Native\`).
 3. Run `sc2_coop.exe`.
 4. Launch **StarCraft II** in **Windowed (Fullscreen)** or **Windowed** mode.
@@ -108,7 +108,7 @@ winget install MartinStorsjo.LLVM-MinGW.UCRT
 .\build.ps1 -Package
 ```
 
-`build.bat` and `package.bat` invoke the same PowerShell entry point. If local script execution is restricted, invoke `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 -Package` (this applies only to that process). Use `-CompilerBin` for a custom LLVM-MinGW location, `-Clean` to rebuild dependencies, or `-OutputDirectory dist/sc2_coop_v1.0.17` to build alongside a running version. The build never kills the running app.
+`build.bat` and `package.bat` invoke the same PowerShell entry point. If local script execution is restricted, invoke `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 -Package` (this applies only to that process). Use `-CompilerBin` for a custom LLVM-MinGW location, `-Clean` to rebuild dependencies, or `-OutputDirectory dist/sc2_coop_v1.0.18` to build alongside a running version. The build never kills the running app.
 
 Packaging includes only the executable and asset files, with a SHA-256 checksum beside the ZIP. Databases, personal settings, logs, dumps and old executables are excluded. `-PackageOnly` packages an existing build.
 
@@ -116,7 +116,11 @@ Packaging includes only the executable and asset files, with a SHA-256 checksum 
 
 Startup and explicit scans read their last discovery watermark from the local SQLite database; an existing installation without a watermark uses its latest indexed replay timestamp, while an empty database returns zero. The same timestamp filter handles all cases. Replay creation time is included so files copied in with preserved modification times can be found. Equal timestamps are included and file version markers prevent duplicate parsing.
 
-Changed paths are durably queued in the same transaction that advances the discovery watermark. Interruptions, active writers and failed database saves leave work queued for the next run. During normal operation, Windows `ReadDirectoryChangesW` supplies changed paths directly: idle ticks do not enumerate the library or reload whole-library indexes. New or renamed directories are checked for contained replays. A notification overflow or unavailable watch falls back to timestamp-based catch-up; the watermark is conservatively advanced only after a complete enumeration, never merely because a notification arrived. “Re-parse All Replays” resets the watermark to zero and uses that same pipeline.
+Changed paths are durably queued in the same transaction that advances the discovery watermark. Interruptions, active writers and failed database saves leave work queued for the next run. During normal operation, Windows `ReadDirectoryChangesW` supplies changed paths directly: idle ticks do not enumerate the library or reload whole-library indexes. New or renamed directories are checked for contained replays. A notification overflow or unavailable watch falls back to timestamp-based catch-up; the watermark is conservatively advanced only after a complete enumeration, never merely because a notification arrived. “Re-parse All Replays” enumerates the whole folder and queues a durable request to rebuild each file.
+
+Historical matches appear in the list as soon as their summaries are saved. The header then shows **Analyzing details** while up to four workers calculate unit statistics and refine match durations. Closing the app during either stage leaves unfinished files queued for the next launch. Recent matches still receive full analysis for their post-game popups.
+
+**Pending retry** means some work could not be saved or a replay could not be read. Check that the replay folder is accessible and the database drive has free space. Settings shows the count of files that failed to parse and offers **Re-parse All Replays** to rebuild from the original files.
 
 ### Keyboard and overlay overhead
 

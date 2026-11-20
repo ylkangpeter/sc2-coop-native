@@ -20,6 +20,10 @@ public:
     struct ImportProgress { int completed; int total; };
     ImportProgress GetImportProgress() const { return m_import_progress.load(); }
 
+    ImportProgress GetDetailProgress() const { return m_detail_progress.load(); }
+
+    bool IsWaitingForRetry() const { return m_waiting_for_retry.load(); }
+
     void Start();
     void Stop();
     bool IsRunning() const { return m_running.load(); }
@@ -37,6 +41,8 @@ private:
     bool InterruptibleSleep(std::chrono::milliseconds ms);
 
     std::atomic<ImportProgress> m_import_progress{ImportProgress{0, 0}};
+    std::atomic<ImportProgress> m_detail_progress{ImportProgress{0, 0}};
+    std::atomic<bool> m_waiting_for_retry{false};
     std::thread m_thread;
     std::atomic<bool> m_running{false};
     std::atomic<uint64_t> m_discovery_count{0};

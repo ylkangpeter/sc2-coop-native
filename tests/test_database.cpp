@@ -415,6 +415,17 @@ int main() {
         std::cout << "Compressed details round-trip verified." << std::endl;
     }
 
+    // Legacy epoch placeholders must not move the career calendar to 1970.
+    const auto original_calendar = db.CalculateStats(sc2::StatsFilter{});
+    auto epoch = recs.front();
+    epoch.file_path = "missing-date.SC2Replay";
+    epoch.game_date = "1970-01-01 08:00";
+    assert(db.SaveReplay(epoch));
+    const auto with_epoch = db.CalculateStats(sc2::StatsFilter{});
+    assert(with_epoch.total_games == original_calendar.total_games + 1);
+    assert(with_epoch.first_game_date == original_calendar.first_game_date);
+    assert(with_epoch.daily_activity.front().day_epoch_seconds == original_calendar.daily_activity.front().day_epoch_seconds);
+
     db.Close();
     std::filesystem::remove(test_db);
 

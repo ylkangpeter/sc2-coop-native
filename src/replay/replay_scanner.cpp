@@ -85,16 +85,14 @@ void ReplayScanner::RunScan(bool force_reparse, bool auto_repair_after) {
         if (!folder.empty()) {
             const auto root_w = Win32Utils::Utf8ToWide(folder);
             const auto root = ReplayScanRoot(root_w);
-            if (force_reparse && (!db.ClearReplayFileStates() || !db.ResetReplayScan(root))) {
-                throw std::runtime_error("Cannot reset replay scan state");
-            }
             set_status("Finding changed replay files...");
-            const auto since = db.GetReplayScanWatermark(root);
+            const auto since = force_reparse ? 0 : db.GetReplayScanWatermark(root);
             auto found = DiscoverReplayChanges(root_w, since, m_stop_flag);
             if (!m_stop_flag.load()) {
-                if (!db.QueueReplayChanges(root, found.complete ? found.through : since, found.entries)) {
+                if (!db.QueueReplayChanges(root, found.complete ? found.through : since, found.entries, force_reparse)) {
                     throw std::runtime_error("Cannot save replay discovery progress");
                 }
+                ReplayWatcher::Instance().CheckPendingChanges();
                 const auto pending = db.GetPendingReplayChanges(root);
                 app.scan_total = static_cast<int>(pending.size());
                 for (const auto& item : pending) {
@@ -120,7 +118,7 @@ void ReplayScanner::RunScan(bool force_reparse, bool auto_repair_after) {
                             db.CompleteReplayChange(root, item);
                         }
                     };
-                    if (saved && observed->SameFileVersion(*saved)) {
+                    if (saved && saved->outcome != "summary" && saved->outcome != "reparse" && observed->SameFileVersion(*saved)) {
                         if (saved->outcome == "failed" || (!recent && db.HasReplay(item.path))) {
                             db.CompleteReplayChange(root, item);
                         }

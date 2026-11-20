@@ -85,6 +85,7 @@ static LONG WINAPI CrashHandler(EXCEPTION_POINTERS* pException) {
 }
 
 static void CleanAppShutdown() {
+    if (!sc2::Database::Instance().IsOpen()) return;
     static std::atomic<bool> s_cleaned{false};
     bool expected = false;
     if (!s_cleaned.compare_exchange_strong(expected, true)) {

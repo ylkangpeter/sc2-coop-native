@@ -1,4 +1,9 @@
 {
+  "Import resume help": "导入和详情计算会在下次启动时继续。补全前列表显示录像记录的时长。",
+  "Failed replay count": "有 %d 个录像文件解析失败。可检查原文件后使用“重新解析所有录像”重试。",
+  "Pending retry": "等待重试",
+  "Replay retry help": "有录像尚未处理完成，程序会自动重试。请检查录像目录是否可访问、数据库所在磁盘是否有剩余空间。也可以使用“重新解析所有录像”从原文件重建记录。",
+  "Analyzing details": "补全详情",
   "_meta": {
     "name": "简体中文",
     "code": "zh_CN"

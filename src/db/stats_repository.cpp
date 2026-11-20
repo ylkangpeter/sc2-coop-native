@@ -24,7 +24,7 @@ std::optional<int64_t> CareerDayEpoch(const std::string& date) {
     const unsigned month = (date[5] - '0') * 10 + date[6] - '0';
     const unsigned day = (date[8] - '0') * 10 + date[9] - '0';
     const auto calendar_date = std::chrono::year{year} / month / day;
-    if (year == 0 || !calendar_date.ok()) return std::nullopt;
+    if (year <= 1970 || !calendar_date.ok()) return std::nullopt;
     return std::chrono::sys_seconds{std::chrono::sys_days{calendar_date}}.time_since_epoch().count();
 }
 } // namespace
@@ -224,8 +224,6 @@ StatsSummary Database::CalculateStats(const StatsFilter& filter) {
             daily.day_epoch_seconds = *day;
             daily.total_duration_seconds += valid_duration;
             daily.total_games++;
-        }
-        if (!date_str.empty()) {
             if (sum.first_game_date.empty() || date_str < sum.first_game_date) sum.first_game_date = date_str;
             if (sum.last_game_date.empty() || date_str > sum.last_game_date) sum.last_game_date = date_str;
             active_dates.insert(date_str.size() >= 10 ? date_str.substr(0, 10) : date_str);
