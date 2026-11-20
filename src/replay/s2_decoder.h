@@ -6,6 +6,7 @@
 #include <optional>
 #include "bit_buffer.h"
 #include "replay_types.h"
+#include "replay_duration.h"
 
 namespace sc2 {
 
@@ -47,6 +48,7 @@ struct TrackerSummary {
     std::string enemy_comp;
     int p1_kills = 0;
     int p2_kills = 0;
+    ReplayObjectives objectives;
 };
 
 class S2Decoder {

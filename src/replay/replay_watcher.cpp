@@ -55,24 +55,35 @@ void ReplayWatcher::SetOnNewMatchCallback(std::function<void(const ReplayRecord&
 }
 
 void ReplayWatcher::WatchLoop() {
-    if (!InterruptibleSleep(std::chrono::seconds(2))) return;
     const int64_t watcher_start_epoch = ReplayEpochSeconds(ReplayFileTimeNow());
     auto& db = Database::Instance();
     ReplayDirectoryNotifications notifications;
     std::string watched_root;
     int64_t watermark = 0;
-    bool has_pending = false;
+    std::vector<ReplayScanEntry> pending;
+    size_t next = 0;
+    bool reload_pending = false;
+    bool run_immediately = true;
+    ImportProgress progress{};
     auto retry_watch_at = std::chrono::steady_clock::time_point{};
 
     while (m_running.load()) {
         const int interval = std::clamp(AppState::Instance().scan_interval_seconds, 1, 10);
-        if (!InterruptibleSleep(std::chrono::seconds(interval))) break;
+        if (!run_immediately && !InterruptibleSleep(std::chrono::seconds(interval))) break;
+        run_immediately = false;
         // Explicit scans and the live watcher share one durable queue. Do not
         // race a forced reset or parse the same replay on two threads.
         std::unique_lock<std::mutex> scan_lock(ReplayScanMutex());
         if (!m_running.load()) break;
         const auto folder = AppState::Instance().GetAccountFolder();
-        if (folder.empty()) { notifications.Close(); watched_root.clear(); continue; }
+        if (folder.empty()) {
+            notifications.Close();
+            watched_root.clear();
+            pending.clear();
+            next = 0;
+            m_import_progress = progress = {};
+            continue;
+        }
         const auto root_w = Win32Utils::Utf8ToWide(folder);
         try {
             const auto root = ReplayScanRoot(root_w);
@@ -83,8 +94,9 @@ void ReplayWatcher::WatchLoop() {
                 // remain buffered by Windows for the next iteration.
                 notifications.Open(root_w);
                 watched_root = root;
+                m_import_progress = progress = {};
                 watermark = db.GetReplayScanWatermark(root);
-                has_pending = true; // Recover work durably queued before exit.
+                reload_pending = true; // Recover work durably queued before exit.
                 retry_watch_at = std::chrono::steady_clock::now() + std::chrono::seconds(30);
                 LogDiagnostic("watcher", "watching " + folder + "; last_update=" + std::to_string(watermark));
             }
@@ -108,7 +120,7 @@ void ReplayWatcher::WatchLoop() {
                     continue;
                 }
                 watermark = through;
-                has_pending = true;
+                reload_pending = true;
                 LogDiagnostic("watcher", "incremental discovery; candidates=" + std::to_string(found.entries.size()) +
                     "; complete=" + std::to_string(found.complete));
                 if (!found.complete) {
@@ -134,20 +146,38 @@ void ReplayWatcher::WatchLoop() {
                         retry_watch_at = std::chrono::steady_clock::now() + std::chrono::seconds(1);
                         continue;
                     }
-                    has_pending = true;
+                    reload_pending = true;
                 }
             }
             if (m_check_pending.exchange(false)) {
                 watermark = db.GetReplayScanWatermark(root);
-                has_pending = true;
+                reload_pending = true;
             }
-            if (!has_pending) continue; // No filesystem enumeration or database reads while idle.
-            auto pending = db.GetPendingReplayChanges(root);
-            has_pending = !pending.empty();
+            if (reload_pending) {
+                pending = db.GetPendingReplayChanges(root);
+                next = 0;
+                reload_pending = false;
+                if (pending.empty()) progress = {};
+                progress.total = progress.completed + static_cast<int>(pending.size());
+                m_import_progress = progress;
+            }
+            // Keep our place across batches. Release the scan lock and poll for
+            // new games between them, without sleeping while historical work remains.
             const auto batch_start = std::chrono::steady_clock::now();
-            size_t processed = 0;
-            for (const auto& item : pending) {
-                if (!m_running.load()) break;
+            const auto batch_first = next;
+            for (; next < pending.size() && m_running.load(); ++next) {
+                if (next > batch_first && (next - batch_first >= 16 ||
+                    std::chrono::steady_clock::now() - batch_start >= std::chrono::milliseconds(250))) {
+                    run_immediately = true;
+                    break;
+                }
+                const auto& item = pending[next];
+                const auto finish_item = [&] {
+                    if (!db.CompleteReplayChange(root, item)) return false;
+                    ++progress.completed;
+                    m_import_progress = progress;
+                    return true;
+                };
                 const auto& path = item.path;
                 const auto wide = Win32Utils::Utf8ToWide(path);
                 auto retry = m_failed_retry_after.find(path);
@@ -156,7 +186,7 @@ void ReplayWatcher::WatchLoop() {
                 if (!observed) {
                     const auto error = GetLastError();
                     if (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND) {
-                        db.CompleteReplayChange(root, item);
+                        finish_item();
                     } else {
                         m_failed_retry_after[path] = std::chrono::steady_clock::now() + std::chrono::seconds(1);
                     }
@@ -169,20 +199,17 @@ void ReplayWatcher::WatchLoop() {
                 const auto notified = m_notified_recent_mtimes.find(path);
                 const bool needs_notification = is_recent &&
                     (notified == m_notified_recent_mtimes.end() || notified->second != disk_mtime);
-                if (!needs_notification && (processed >= 16 ||
-                    std::chrono::steady_clock::now() - batch_start >= std::chrono::milliseconds(250))) break;
-                ++processed;
 
                 const auto saved = db.GetReplayFileState(path);
                 const bool same_version = saved && observed->SameFileVersion(*saved);
                 const bool changed_version = saved && !same_version;
                 if (same_version && (saved->outcome == "failed" || !needs_notification)) {
-                    db.CompleteReplayChange(root, item);
+                    finish_item();
                     continue;
                 }
                 const bool already_indexed = !changed_version && db.GetReplayMtime(path) >= disk_mtime && db.HasReplay(path);
                 if (!needs_notification && already_indexed && db.HasValidReplay(path)) {
-                    db.CompleteReplayChange(root, item);
+                    finish_item();
                     continue;
                 }
                 auto fingerprint = ReadReplayFileState(wide, true);
@@ -196,8 +223,7 @@ void ReplayWatcher::WatchLoop() {
                 }
                 auto complete = [&](const std::string& outcome) {
                     fingerprint->outcome = outcome;
-                    if (db.SaveReplayFileState(path, *fingerprint)) {
-                        db.CompleteReplayChange(root, item);
+                    if (db.SaveReplayFileState(path, *fingerprint) && finish_item()) {
                         m_failed_retry_after.erase(path);
                         m_recent_retry_counts.erase(path);
                         m_recent_retry_hashes.erase(path);
@@ -223,7 +249,7 @@ void ReplayWatcher::WatchLoop() {
                     complete("failed");
                     continue;
                 }
-                const int best = db.GetFastestSecondsForMap(parsed->map_name);
+                const int best = needs_notification ? db.GetFastestSecondsForMap(parsed->map_name) : 0;
                 const bool is_best = parsed->result == "Victory" && parsed->duration_seconds > 0 &&
                     (best <= 0 || parsed->duration_seconds < best);
                 if (!db.SaveReplay(*parsed) || !complete("parsed")) {
@@ -236,12 +262,21 @@ void ReplayWatcher::WatchLoop() {
                     m_on_new_match(*parsed, is_best);
                 }
             }
+            if (!pending.empty() && next == pending.size()) {
+                pending.clear();
+                next = 0;
+                // Revisit incomplete files at the normal polling interval.
+                reload_pending = progress.completed < progress.total;
+                if (!reload_pending) m_import_progress = progress = {};
+            }
         } catch (const std::exception& e) {
+            reload_pending = true;
             LogDiagnostic("watcher", std::string("incremental scan error: ") + e.what());
             notifications.Close();
             retry_watch_at = std::chrono::steady_clock::now() + std::chrono::seconds(1);
         }
     }
+    m_import_progress = ImportProgress{};
 }
 
 } // namespace sc2

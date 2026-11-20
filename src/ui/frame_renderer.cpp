@@ -1,4 +1,5 @@
 #include "frame_renderer.h"
+#include "../replay/replay_watcher.h"
 #include "../app_state.h"
 #include "../i18n/i18n.h"
 #include "tabs/tab_settings.h"
@@ -50,7 +51,7 @@ void FrameRenderer::RenderFrame() {
     // Header Navigation Bar
     ImGui::TextColored(ImVec4(0.0f, 0.75f, 1.0f, 1.0f), "SC2 CO-OP NATIVE");
     ImGui::SameLine();
-    ImGui::TextDisabled("v1.0.16");
+    ImGui::TextDisabled("v1.0.17");
     ImGui::SameLine(0, 16.0f);
 
     // Tab Buttons
@@ -114,30 +115,25 @@ void FrameRenderer::RenderFrame() {
     ImGui::PopStyleColor(5);
 
     // Right side: Scanner status & Rescan indicator
-    if (state.is_scanning) {
-        char scan_buf[128];
-        std::snprintf(scan_buf, sizeof(scan_buf), "%s (%d/%d)...",
-                      TR("Scanning"),
-                      state.scan_progress.load(), state.scan_total.load());
-        float text_w = ImGui::CalcTextSize(scan_buf).x;
-        float target_x = ImGui::GetWindowWidth() - text_w - ImGui::GetStyle().WindowPadding.x - 10.0f;
-        if (target_x > ImGui::GetCursorPosX()) {
-            ImGui::SameLine(target_x);
-        } else {
-            ImGui::SameLine();
-        }
-        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "%s", scan_buf);
-    } else {
-        const char* idle_txt = TR("Idle");
-        float text_w = ImGui::CalcTextSize(idle_txt).x;
-        float target_x = ImGui::GetWindowWidth() - text_w - ImGui::GetStyle().WindowPadding.x - 10.0f;
-        if (target_x > ImGui::GetCursorPosX()) {
-            ImGui::SameLine(target_x);
-        } else {
-            ImGui::SameLine();
-        }
-        ImGui::TextDisabled("%s", idle_txt);
+    const auto imported = ReplayWatcher::Instance().GetImportProgress();
+    const bool manual_scan = state.is_scanning.load();
+    const bool scanning = manual_scan || imported.total > 0;
+    char scan_buf[128];
+    const char* status = TR("Idle");
+    if (scanning) {
+        std::snprintf(scan_buf, sizeof(scan_buf), "%s (%d/%d)...", TR("Scanning"),
+                      manual_scan ? state.scan_progress.load() : imported.completed,
+                      manual_scan ? state.scan_total.load() : imported.total);
+        status = scan_buf;
     }
+    const float target_x = ImGui::GetWindowContentRegionMax().x - ImGui::CalcTextSize(status).x;
+    if (target_x >= ImGui::GetItemRectMax().x - ImGui::GetWindowPos().x + ImGui::GetStyle().ItemSpacing.x) {
+        ImGui::SameLine(target_x);
+    } else {
+        ImGui::SetCursorPosX(target_x);
+    }
+    if (scanning) ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "%s", status);
+    else ImGui::TextDisabled("%s", status);
 
     ImGui::Spacing();
     ImGui::Separator();

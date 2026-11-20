@@ -87,7 +87,7 @@ However, running a full web runtime inside an overlay poses noticeable drawbacks
 
 ## 📥 Download & Usage
 
-1. Go to the [**Releases**](https://github.com/ylkangpeter/sc2-coop-native/releases) page and download `sc2-coop-native-v1.0.16-windows-x64.zip`.
+1. Go to the [**Releases**](https://github.com/ylkangpeter/sc2-coop-native/releases) page and download `sc2-coop-native-v1.0.17-windows-x64.zip`.
 2. Extract the archive anywhere on your PC (e.g. `D:\Tools\SC2_Coop_Native\`).
 3. Run `sc2_coop.exe`.
 4. Launch **StarCraft II** in **Windowed (Fullscreen)** or **Windowed** mode.
@@ -108,7 +108,7 @@ winget install MartinStorsjo.LLVM-MinGW.UCRT
 .\build.ps1 -Package
 ```
 
-`build.bat` and `package.bat` invoke the same PowerShell entry point. If local script execution is restricted, invoke `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 -Package` (this applies only to that process). Use `-CompilerBin` for a custom LLVM-MinGW location, `-Clean` to rebuild dependencies, or `-OutputDirectory dist/sc2_coop_v1.0.16` to build alongside a running version. The build never kills the running app.
+`build.bat` and `package.bat` invoke the same PowerShell entry point. If local script execution is restricted, invoke `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 -Package` (this applies only to that process). Use `-CompilerBin` for a custom LLVM-MinGW location, `-Clean` to rebuild dependencies, or `-OutputDirectory dist/sc2_coop_v1.0.17` to build alongside a running version. The build never kills the running app.
 
 Packaging includes only the executable and asset files, with a SHA-256 checksum beside the ZIP. Databases, personal settings, logs, dumps and old executables are excluded. `-PackageOnly` packages an existing build.
 

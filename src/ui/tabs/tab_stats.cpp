@@ -1,11 +1,14 @@
 #include "tab_stats.h"
+#include "career_chart.h"
 #include "../../app_state.h"
 #include "../../db/database.h"
 #include "../../i18n/i18n.h"
+#include "../../replay/replay_parser.h"
 #include "../texture_loader.h"
 
 #include <imgui.h>
 #include <implot.h>
+#include <algorithm>
 #include <vector>
 #include <string>
 #include <cstdio>
@@ -33,6 +36,7 @@ StatsFilter TabStats::s_last_filter;
 StatsSummary TabStats::s_cached_summary;
 
 void TabStats::Render(AppState& state) {
+    static CareerChart career_chart;
     // 1. Top Filters Bar
     ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "%s:", TR("Filters"));
     ImGui::SameLine();
@@ -73,14 +77,11 @@ void TabStats::Render(AppState& state) {
     bool filter_changed = (s_last_revision != current_rev) || (s_last_filter != state.stats_filter);
     if (filter_changed) {
         s_cached_summary = Database::Instance().CalculateStats(state.stats_filter);
+        career_chart.SetActivity(s_cached_summary.daily_activity);
         s_last_filter = state.stats_filter;
         s_last_revision = current_rev;
     }
     const auto& summary = s_cached_summary;
-
-    // Games found count
-    ImGui::TextColored(ImVec4(0.3f, 0.9f, 0.4f, 1.0f), I18n::GetFormat("Games found: %d", "Games found: %d"), summary.total_games);
-    ImGui::Spacing();
 
     // 3. Stats Sub-Navigation
     auto SubTabBtn = [&](const char* label, int tab_idx) {
@@ -107,6 +108,10 @@ void TabStats::Render(AppState& state) {
     SubTabBtn(TR("Career Summary"), 4);
 
     ImGui::Spacing();
+    if (s_sub_tab != 4) {
+        ImGui::TextColored(ImVec4(0.3f, 0.9f, 0.4f, 1.0f), I18n::GetFormat("Games found: %d", "Games found: %d"), summary.total_games);
+        ImGui::Spacing();
+    }
 
     if (s_sub_tab == 0) {
         // --- Maps Tab ---
@@ -411,65 +416,38 @@ void TabStats::Render(AppState& state) {
 
     } else if (s_sub_tab == 4) {
         // --- Career Summary Tab ---
-        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "%s", TR("Career Overview & Match Progression"));
-        ImGui::Spacing();
+        const float available_width = ImGui::GetContentRegionAvail().x;
+        const float spacing = ImGui::GetStyle().ItemSpacing.x;
+        const float card_width = std::min(180.0f, available_width);
+        const int columns = std::clamp(static_cast<int>((available_width + spacing) / (card_width + spacing)), 1, 5);
+        int index = 0;
+        auto card = [&](const char* id, const char* label, const ImVec4& color, const char* format, auto value) {
+            if (index++ % columns != 0) ImGui::SameLine();
+            ImGui::BeginChild(id, ImVec2(card_width, 90), true);
+            ImGui::TextDisabled("%s", label);
+            ImGui::TextColored(color, format, value);
+            ImGui::EndChild();
+        };
 
-        ImGui::BeginChild("CardGames", ImVec2(180, 90), true);
-        ImGui::TextDisabled("%s", TR("TOTAL GAMES"));
-        ImGui::TextColored(ImVec4(1.0f, 1.0f, 1.0f, 1.0f), "%d", summary.total_games);
-        ImGui::EndChild();
-
-        ImGui::SameLine();
-        ImGui::BeginChild("CardWins", ImVec2(180, 90), true);
-        ImGui::TextDisabled("%s", TR("VICTORIES"));
-        ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.4f, 1.0f), "%d", summary.total_wins);
-        ImGui::EndChild();
-
-        ImGui::SameLine();
-        ImGui::BeginChild("CardLosses", ImVec2(180, 90), true);
-        ImGui::TextDisabled("%s", TR("DEFEATS"));
-        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%d", summary.total_losses);
-        ImGui::EndChild();
-
-        ImGui::SameLine();
-        ImGui::BeginChild("CardWinrate", ImVec2(180, 90), true);
-        ImGui::TextDisabled("%s", TR("OVERALL WINRATE"));
-        ImGui::TextColored(ImVec4(0.3f, 0.8f, 1.0f, 1.0f), "%.1f%%", summary.overall_winrate);
-        ImGui::EndChild();
-
-        ImGui::NewLine();
-
-        ImGui::BeginChild("CardTotalTime", ImVec2(180, 90), true);
-        ImGui::TextDisabled("%s", TR("TOTAL PLAY TIME"));
+        const ImVec4 time_color(0.3f, 0.9f, 1.0f, 1.0f);
         const std::string total_time = FormatHoursMinutes(summary.total_duration_seconds);
-        ImGui::TextColored(ImVec4(0.3f, 0.9f, 1.0f, 1.0f), "%s", total_time.c_str());
-        ImGui::EndChild();
+        const std::string average_time = ReplayParser::FormatDuration(summary.avg_duration_seconds);
+        const std::string longest_time = ReplayParser::FormatDuration(summary.longest_duration_seconds);
+        const std::string shortest_time = summary.shortest_duration_seconds > 0
+            ? ReplayParser::FormatDuration(summary.shortest_duration_seconds) : "-";
 
-        ImGui::SameLine();
-        ImGui::BeginChild("CardAverageTime", ImVec2(180, 90), true);
-        ImGui::TextDisabled("%s", TR("AVERAGE GAME TIME"));
-        const std::string average_time = FormatHoursMinutes(summary.avg_duration_seconds);
-        ImGui::TextColored(ImVec4(0.3f, 0.9f, 1.0f, 1.0f), "%s", average_time.c_str());
-        ImGui::EndChild();
-
-        ImGui::SameLine();
-        ImGui::BeginChild("CardLongestTime", ImVec2(180, 90), true);
-        ImGui::TextDisabled("%s", TR("LONGEST GAME"));
-        const std::string longest_time = FormatHoursMinutes(summary.longest_duration_seconds);
-        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "%s", longest_time.c_str());
-        ImGui::EndChild();
-
-        ImGui::SameLine();
-        ImGui::BeginChild("CardActiveDays", ImVec2(180, 90), true);
-        ImGui::TextDisabled("%s", TR("ACTIVE DAYS"));
-        ImGui::TextColored(ImVec4(0.8f, 0.7f, 1.0f, 1.0f), "%d", summary.active_days);
-        ImGui::EndChild();
+        card("CardGames", TR("TOTAL GAMES"), ImVec4(1, 1, 1, 1), "%d", summary.total_games);
+        card("CardWins", TR("VICTORIES"), ImVec4(0.3f, 1, 0.4f, 1), "%d", summary.total_wins);
+        card("CardLosses", TR("DEFEATS"), ImVec4(1, 0.4f, 0.4f, 1), "%d", summary.total_losses);
+        card("CardWinrate", TR("OVERALL WINRATE"), ImVec4(0.3f, 0.8f, 1, 1), "%.1f%%", summary.overall_winrate);
+        card("CardActiveDays", TR("ACTIVE DAYS"), ImVec4(0.8f, 0.7f, 1, 1), "%d", summary.active_days);
+        card("CardTotalTime", TR("TOTAL PLAY TIME"), time_color, "%s", total_time.c_str());
+        card("CardAverageTime", TR("AVERAGE GAME TIME"), time_color, "%s", average_time.c_str());
+        card("CardLongestTime", TR("LONGEST GAME"), ImVec4(1, 0.8f, 0.2f, 1), "%s", longest_time.c_str());
+        card("CardShortestTime", TR("SHORTEST GAME"), time_color, "%s", shortest_time.c_str());
 
         ImGui::Spacing();
-        ImGui::Text("%s: %s", TR("FIRST RECORDED GAME"),
-                    summary.first_game_date.empty() ? "-" : summary.first_game_date.c_str());
-        ImGui::Text("%s: %s", TR("LAST RECORDED GAME"),
-                    summary.last_game_date.empty() ? "-" : summary.last_game_date.c_str());
+        career_chart.Render();
     }
 }
 

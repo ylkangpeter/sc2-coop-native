@@ -115,6 +115,12 @@ struct RegionStat {
     double winrate = 0.0;
 };
 
+struct DailyCareerStat {
+    int64_t day_epoch_seconds = 0;
+    int64_t total_duration_seconds = 0;
+    int total_games = 0;
+};
+
 struct StatsSummary {
     int total_games = 0;
     int total_wins = 0;
@@ -123,9 +129,11 @@ struct StatsSummary {
     int64_t total_duration_seconds = 0;
     int avg_duration_seconds = 0;
     int longest_duration_seconds = 0;
+    int shortest_duration_seconds = 0;
     std::string first_game_date;
     std::string last_game_date;
     int active_days = 0;
+    std::vector<DailyCareerStat> daily_activity;
     std::vector<DifficultyStat> difficulties;
     std::vector<RegionStat> regions;
     std::vector<MapStat> maps;

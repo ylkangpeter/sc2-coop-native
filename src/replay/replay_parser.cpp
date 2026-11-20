@@ -80,7 +80,6 @@ std::optional<ReplayRecord> ReplayParser::ParseFile(const std::wstring& replay_p
             if (meta_json.contains("Duration") && meta_json["Duration"].is_number()) {
                 record.duration_seconds = meta_json["Duration"].get<int>();
             }
-            record.form_length = FormatDuration(record.duration_seconds);
 
             // Parse players from metadata
             if (meta_json.contains("Players") && meta_json["Players"].is_array() && !meta_json["Players"].empty()) {
@@ -227,6 +226,7 @@ std::optional<ReplayRecord> ReplayParser::ParseFile(const std::wstring& replay_p
     record.bonus_earned = (record.result == "Victory") ? record.bonus_total : 0;
 
     // 4. Read replay.tracker.events (Player Stats, Units, Enemy Comps)
+    ReplayObjectives objectives;
     std::vector<uint8_t> tracker_bytes;
     if (MpqReader::ReadFile(replay_path, "replay.tracker.events", tracker_bytes)) {
         auto summary = S2Decoder::DecodeTrackerEvents(tracker_bytes,
@@ -240,7 +240,20 @@ std::optional<ReplayRecord> ReplayParser::ParseFile(const std::wstring& replay_p
         record.enemy_comp = std::move(summary.enemy_comp);
         if (record.p1.kills <= 0) record.p1.kills = summary.p1_kills;
         if (record.p2.kills <= 0) record.p2.kills = summary.p2_kills;
+        objectives = summary.objectives;
     }
+
+    const bool victory = record.result == "Victory";
+    if (CanEstimateReplayDuration(record.raw_map_name, victory, record.duration_seconds)) {
+        const auto build = meta_json.find("BaseBuild");
+        std::vector<uint8_t> game_bytes;
+        if (build != meta_json.end() && build->is_string() &&
+            MpqReader::ReadFile(replay_path, "replay.game.events", game_bytes)) {
+            record.duration_seconds = EstimateReplayDuration(record.duration_seconds, build->get_ref<const std::string&>(),
+                                                            record.raw_map_name, victory, game_bytes, objectives);
+        }
+    }
+    record.form_length = FormatDuration(record.duration_seconds);
 
     // Fallback series if tracker events were missing or empty
     if (record.p1_series.time_stamps.empty()) {

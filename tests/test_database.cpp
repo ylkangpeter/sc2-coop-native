@@ -1,5 +1,6 @@
 #include <iostream>
 #include <cassert>
+#include <chrono>
 #include <vector>
 #include <filesystem>
 #include "../src/db/database.h"
@@ -87,6 +88,18 @@ int main() {
     assert(!stats.maps.empty());
     assert(!stats.my_commanders.empty());
     assert(!stats.ally_commanders.empty());
+    assert(stats.shortest_duration_seconds == 900);
+    assert(stats.longest_duration_seconds == 1390);
+    assert(stats.daily_activity.size() == 20);
+    const auto march_10 = std::chrono::sys_seconds{
+        std::chrono::sys_days{std::chrono::year{2024} / 3 / 10}
+    }.time_since_epoch().count();
+    for (std::size_t day = 0; day < stats.daily_activity.size(); ++day) {
+        const auto& activity = stats.daily_activity[day];
+        assert(activity.day_epoch_seconds == march_10 + static_cast<int64_t>(day) * 86400);
+        assert(activity.total_games == (day < 10 ? 3 : 2));
+    }
+    assert(stats.daily_activity.front().total_duration_seconds == 3300);
 
     // 5.1 Test Difficulty Filters
     sc2::StatsFilter filter_casual = filter;
@@ -118,6 +131,8 @@ int main() {
     auto stats_no_diff = db.CalculateStats(filter_none_diff);
     std::cout << "No difficulty selected games: " << stats_no_diff.total_games << std::endl;
     assert(stats_no_diff.total_games == 0);
+    assert(stats_no_diff.shortest_duration_seconds == 0);
+    assert(stats_no_diff.daily_activity.empty());
 
     // 5.2 Test Region Filters
     sc2::StatsFilter filter_eu = filter;
@@ -311,6 +326,10 @@ int main() {
         assert(st.total_games == 1);
         assert(st.total_wins == 1);
         assert(st.total_losses == 0);
+        assert(st.shortest_duration_seconds == 300);
+        assert(st.daily_activity.size() == 1);
+        assert(st.daily_activity.front().total_games == 1);
+        assert(st.daily_activity.front().total_duration_seconds == 300);
         std::cout << "CalculateStats completely skips Unknown result games!" << std::endl;
     }
 

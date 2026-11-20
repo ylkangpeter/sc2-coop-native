@@ -21,6 +21,8 @@ TrackerSummary S2Decoder::DecodeTrackerEvents(const std::vector<uint8_t>& tracke
         int owner = 0;
     };
     std::unordered_map<int64_t, UnitInfo> live_units;
+    enum class Objective { Boss, Train };
+    std::unordered_map<int64_t, Objective> objective_units;
 
     struct StatCounter {
         int created = 0;
@@ -114,7 +116,7 @@ TrackerSummary S2Decoder::DecodeTrackerEvents(const std::vector<uint8_t>& tracke
                 summary.p2_series.collection_rate.push_back(collection_rate);
             }
         }
-        else if (event_id == 1 || event_id == 6) { // SUnitBornEvent or SUnitInitEvent
+        else if (event_id == 1 || event_id == 6 || event_id == 4) { // Born, init, or type change
             int64_t tag_idx = 0;
             int64_t tag_recycle = 0;
             std::string unit_type;
@@ -138,6 +140,14 @@ TrackerSummary S2Decoder::DecodeTrackerEvents(const std::vector<uint8_t>& tracke
             }
 
             int64_t unit_id = (tag_idx << 18) | tag_recycle;
+            if (unit_type == "HybridDominatorCoopBoss") {
+                objective_units[unit_id] = Objective::Boss;
+            } else if (unit_type == "TarsonisEngine" || unit_type == "TarsonisEngineFast") {
+                objective_units[unit_id] = Objective::Train;
+            } else if (event_id == 4) {
+                objective_units.erase(unit_id);
+            }
+            if (event_id == 4) continue;
             live_units[unit_id] = { unit_type, control_pid };
 
             if (control_pid == 1) {
@@ -227,6 +237,12 @@ TrackerSummary S2Decoder::DecodeTrackerEvents(const std::vector<uint8_t>& tracke
             }
 
             int64_t unit_id = (tag_idx << 18) | tag_recycle;
+            if (const auto objective = objective_units.find(unit_id); objective != objective_units.end()) {
+                auto& deaths = objective->second == Objective::Boss ? summary.objectives.bosses : summary.objectives.trains;
+                ++deaths.count;
+                deaths.last_loop = current_gameloop;
+                objective_units.erase(objective);
+            }
             auto it = live_units.find(unit_id);
             if (it != live_units.end()) {
                 const auto& uinfo = it->second;
@@ -272,6 +288,7 @@ TrackerSummary S2Decoder::DecodeTrackerEvents(const std::vector<uint8_t>& tracke
         }
     }
 
+    if (!buf.Done()) summary.objectives = {};
     if (current_wave_units.size() >= 4) {
         identified_waves.push_back(current_wave_units);
     }

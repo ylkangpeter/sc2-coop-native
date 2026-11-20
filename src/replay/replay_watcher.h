@@ -17,6 +17,9 @@ class ReplayWatcher {
 public:
     static ReplayWatcher& Instance();
 
+    struct ImportProgress { int completed; int total; };
+    ImportProgress GetImportProgress() const { return m_import_progress.load(); }
+
     void Start();
     void Stop();
     bool IsRunning() const { return m_running.load(); }
@@ -33,6 +36,7 @@ private:
     void WatchLoop();
     bool InterruptibleSleep(std::chrono::milliseconds ms);
 
+    std::atomic<ImportProgress> m_import_progress{ImportProgress{0, 0}};
     std::thread m_thread;
     std::atomic<bool> m_running{false};
     std::atomic<uint64_t> m_discovery_count{0};

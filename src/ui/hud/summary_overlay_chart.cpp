@@ -47,8 +47,13 @@ void DrawSummaryChart(HDC hdc, const SummaryOverlayFonts& fonts,
     if (max_time < 60.0f) max_time = 60.0f;
 
     float max_val = 10.0f;
-    for (float v : vals1) if (v > max_val) max_val = v;
-    for (float v : vals2) if (v > max_val) max_val = v;
+    auto measure = [&](const std::vector<float>& times, const std::vector<float>& values) {
+        for (size_t k = 0; k < times.size() && k < values.size(); ++k) {
+            if (times[k] <= max_time && values[k] > max_val) max_val = values[k];
+        }
+    };
+    measure(times1, vals1);
+    measure(times2, vals2);
 
     // Clean round Y intervals matching reference screenshot
     if (max_val > 10000.0f) max_val = std::ceil(max_val / 4000.0f) * 4000.0f;
@@ -113,6 +118,7 @@ void DrawSummaryChart(HDC hdc, const SummaryOverlayFonts& fonts,
         pts.reserve(times.size());
         for (size_t k = 0; k < times.size() && k < vals.size(); ++k) {
             float t = times[k];
+            if (t > max_time) continue;
             float v = vals[k];
             int sx = px + (int)((t / max_time) * pw);
             int sy = py + ph - (int)((v / max_val) * ph);

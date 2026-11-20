@@ -2,13 +2,32 @@
 #include "sqlite_raii.h"
 #include <sqlite3.h>
 #include <algorithm>
+#include <chrono>
 #include <cstring>
+#include <map>
 #include <unordered_map>
 #include <unordered_set>
 #include "../replay/replay_parser.h"
 #include "../app_state.h"
 
 namespace sc2 {
+
+namespace {
+// Interpret the replay's calendar date directly, without local timezone conversion.
+std::optional<int64_t> CareerDayEpoch(const std::string& date) {
+    if (date.size() < 10 || date[4] != '-' || date[7] != '-') return std::nullopt;
+    for (int i : {0, 1, 2, 3, 5, 6, 8, 9}) {
+        if (date[i] < '0' || date[i] > '9') return std::nullopt;
+    }
+    const int year = (date[0] - '0') * 1000 + (date[1] - '0') * 100 +
+                     (date[2] - '0') * 10 + date[3] - '0';
+    const unsigned month = (date[5] - '0') * 10 + date[6] - '0';
+    const unsigned day = (date[8] - '0') * 10 + date[9] - '0';
+    const auto calendar_date = std::chrono::year{year} / month / day;
+    if (year == 0 || !calendar_date.ok()) return std::nullopt;
+    return std::chrono::sys_seconds{std::chrono::sys_days{calendar_date}}.time_since_epoch().count();
+}
+} // namespace
 
 StatsSummary Database::CalculateStats(const StatsFilter& filter) {
     std::lock_guard<std::recursive_mutex> lock(m_mutex);
@@ -146,6 +165,7 @@ StatsSummary Database::CalculateStats(const StatsFilter& filter) {
     };
     std::unordered_map<std::string, RegAcc> reg_map;
     std::unordered_set<std::string> active_dates;
+    std::map<int64_t, DailyCareerStat> daily_activity;
 
     static const std::unordered_set<std::string> kKnownCommanders = {
         "Raynor", "Kerrigan", "Artanis", "Swann", "Zagara", "Vorazun",
@@ -196,6 +216,15 @@ StatsSummary Database::CalculateStats(const StatsFilter& filter) {
         const int valid_duration = std::max(dur, 0);
         sum.total_duration_seconds += valid_duration;
         sum.longest_duration_seconds = std::max(sum.longest_duration_seconds, valid_duration);
+        if (dur > 0 && (sum.shortest_duration_seconds == 0 || dur < sum.shortest_duration_seconds)) {
+            sum.shortest_duration_seconds = dur;
+        }
+        if (auto day = CareerDayEpoch(date_str)) {
+            auto& daily = daily_activity[*day];
+            daily.day_epoch_seconds = *day;
+            daily.total_duration_seconds += valid_duration;
+            daily.total_games++;
+        }
         if (!date_str.empty()) {
             if (sum.first_game_date.empty() || date_str < sum.first_game_date) sum.first_game_date = date_str;
             if (sum.last_game_date.empty() || date_str > sum.last_game_date) sum.last_game_date = date_str;
@@ -259,6 +288,10 @@ StatsSummary Database::CalculateStats(const StatsFilter& filter) {
         ? static_cast<int>(sum.total_duration_seconds / sum.total_games)
         : 0;
     sum.active_days = static_cast<int>(active_dates.size());
+    sum.daily_activity.reserve(daily_activity.size());
+    for (const auto& [day, activity] : daily_activity) {
+        sum.daily_activity.push_back(activity);
+    }
 
     if (sum.total_games > 0) {
         sum.overall_winrate = (100.0 * sum.total_wins) / sum.total_games;

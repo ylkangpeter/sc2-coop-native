@@ -24,6 +24,25 @@ public:
         return m_used < m_size ? (m_size - m_used) : 0;
     }
 
+    size_t RemainingBits() const {
+        return RemainingBytes() * 8 + m_nextbits;
+    }
+
+    // Skip fixed-width bit-packed fields without decoding their values.
+    bool SkipBits(size_t count) {
+        if (count > RemainingBits()) return false;
+        if (count < static_cast<size_t>(m_nextbits)) {
+            m_next >>= count;
+            m_nextbits -= static_cast<int>(count);
+            return true;
+        }
+        count -= m_nextbits;
+        ByteAlign();
+        m_used += count / 8;
+        if (count % 8 != 0) ReadBits(static_cast<int>(count % 8));
+        return true;
+    }
+
     void ByteAlign() {
         m_nextbits = 0;
         m_next = 0;
