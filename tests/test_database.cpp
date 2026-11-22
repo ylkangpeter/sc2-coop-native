@@ -402,7 +402,9 @@ int main() {
         detailed.p2.commander_level = 12;
         detailed.p2.commander_mastery_level = 0;
         assert(detailed.p1.FormatLevel() == "{523}");
+        assert(detailed.p1.IsLevelMaxed() == true);
         assert(detailed.p2.FormatLevel() == "{12}");
+        assert(detailed.p2.IsLevelMaxed() == false);
         for (int i = 0; i < 1024; ++i) {
             detailed.p1_series.time_stamps.push_back(static_cast<float>(i));
             detailed.p1_series.army_value.push_back(static_cast<float>(i * 2));
@@ -424,7 +426,9 @@ int main() {
         assert(loaded.p2.commander_level == 12);
         assert(loaded.p2.commander_mastery_level == 0);
         assert(loaded.p1.FormatLevel() == "{523}");
+        assert(loaded.p1.IsLevelMaxed() == true);
         assert(loaded.p2.FormatLevel() == "{12}");
+        assert(loaded.p2.IsLevelMaxed() == false);
         assert(loaded.p1_series.time_stamps.size() == sc2::ReplayRecord::kMaxStoredSeriesPoints);
         std::cout << "Compressed details round-trip verified." << std::endl;
     }

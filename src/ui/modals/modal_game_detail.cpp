@@ -61,7 +61,10 @@ void ModalGameDetail::Render(AppState& state) {
         ImGui::BeginGroup();
         std::string p1_lvl = r.p1.FormatLevel();
         if (!p1_lvl.empty()) {
-            ImGui::Text("%s: %s %s", TR("Commander"), TR(r.p1.commander.c_str()), p1_lvl.c_str());
+            ImGui::Text("%s: %s", TR("Commander"), TR(r.p1.commander.c_str()));
+            ImGui::SameLine();
+            ImVec4 lvl_col1 = r.p1.IsLevelMaxed() ? ImVec4(1.0f, 0.75f, 0.0f, 1.0f) : ImVec4(0.31f, 0.71f, 1.0f, 1.0f);
+            ImGui::TextColored(lvl_col1, "%s", p1_lvl.c_str());
         } else {
             ImGui::Text("%s: %s", TR("Commander"), TR(r.p1.commander.c_str()));
         }
@@ -101,7 +104,10 @@ void ModalGameDetail::Render(AppState& state) {
         ImGui::BeginGroup();
         std::string p2_lvl = r.p2.FormatLevel();
         if (!p2_lvl.empty()) {
-            ImGui::Text("%s: %s %s", TR("Commander"), TR(r.p2.commander.c_str()), p2_lvl.c_str());
+            ImGui::Text("%s: %s", TR("Commander"), TR(r.p2.commander.c_str()));
+            ImGui::SameLine();
+            ImVec4 lvl_col2 = r.p2.IsLevelMaxed() ? ImVec4(1.0f, 0.75f, 0.0f, 1.0f) : ImVec4(0.31f, 0.71f, 1.0f, 1.0f);
+            ImGui::TextColored(lvl_col2, "%s", p2_lvl.c_str());
         } else {
             ImGui::Text("%s: %s", TR("Commander"), TR(r.p2.commander.c_str()));
         }

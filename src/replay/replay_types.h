@@ -56,6 +56,13 @@ struct PlayerInfo {
         }
         return "";
     }
+
+    bool IsLevelMaxed() const {
+        if (commander_level > 0 && commander_level < 15) {
+            return false;
+        }
+        return (commander_mastery_level > 0 || commander_level >= 15);
+    }
 };
 
 struct ChatRecord {

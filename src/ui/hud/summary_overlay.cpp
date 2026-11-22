@@ -223,8 +223,8 @@ void SummaryOverlay::ShowLatest() {
         };
         demo.p2.name = "Player 2";
         demo.p2.commander = "Artanis";
-        demo.p2.commander_level = 15;
-        demo.p2.commander_mastery_level = 90;
+        demo.p2.commander_level = 12;
+        demo.p2.commander_mastery_level = 0;
         demo.p2.prestige = 0;
         demo.p2.prestige_name = "Hierarch of the Daelaam";
         demo.p2.apm = 142;
