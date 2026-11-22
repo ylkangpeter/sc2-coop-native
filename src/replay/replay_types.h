@@ -157,7 +157,8 @@ struct ReplayRecord {
             return arr;
         };
 
-        j["has_level_data"] = true;
+        j["level_cache_version"] = 2;
+        j["has_level_data"] = has_level_data;
         j["p1_commander_level"] = p1.commander_level;
         j["p1_commander_mastery_level"] = p1.commander_mastery_level;
         j["p1_prestige_name"] = p1.prestige_name;
@@ -248,14 +249,28 @@ struct ReplayRecord {
                 return out;
             };
 
-            if (j.contains("has_level_data") || j.contains("p1_commander_level")) {
-                has_level_data = true;
-            }
-            if (j.contains("p1_commander_level") && j["p1_commander_level"].is_number_integer()) {
-                p1.commander_level = j["p1_commander_level"].get<int>();
-            }
-            if (j.contains("p1_commander_mastery_level") && j["p1_commander_mastery_level"].is_number_integer()) {
-                p1.commander_mastery_level = j["p1_commander_mastery_level"].get<int>();
+            const bool legacy_defaults = !j.contains("has_level_data");
+            auto read_levels = [&](PlayerInfo& player, const char* level_key, const char* mastery_key) {
+                const auto level = j.find(level_key);
+                const auto mastery = j.find(mastery_key);
+                const bool valid = level != j.end() && level->is_number_integer() &&
+                                   mastery != j.end() && mastery->is_number_integer();
+                player.commander_level = valid ? level->get<int>() : 0;
+                player.commander_mastery_level = valid ? mastery->get<int>() : 0;
+                // Before 1.0.21 the heuristic decoder supplied 15 for missing levels.
+                if (legacy_defaults && player.commander_level == 15 && player.commander_mastery_level == 0) {
+                    player.commander_level = 0;
+                    return false;
+                }
+                return valid;
+            };
+            const bool p1_valid = read_levels(p1, "p1_commander_level", "p1_commander_mastery_level");
+            const bool p2_valid = read_levels(p2, "p2_commander_level", "p2_commander_mastery_level");
+            has_level_data = p1_valid && p2_valid && j.value("has_level_data", true);
+            // 1.0.21 also marked old JSON converted to blobs as checked, with four zeroes.
+            if (!j.contains("level_cache_version") && p1.commander_level == 0 && p2.commander_level == 0 &&
+                p1.commander_mastery_level == 0 && p2.commander_mastery_level == 0) {
+                has_level_data = false;
             }
             if (j.contains("p1_prestige_name")) p1.prestige_name = j["p1_prestige_name"];
             if (j.contains("p1_masteries") && j["p1_masteries"].is_array()) {
@@ -263,12 +278,6 @@ struct ReplayRecord {
             }
             if (j.contains("p1_units")) p1.units = DeserializeUnits(j["p1_units"]);
 
-            if (j.contains("p2_commander_level") && j["p2_commander_level"].is_number_integer()) {
-                p2.commander_level = j["p2_commander_level"].get<int>();
-            }
-            if (j.contains("p2_commander_mastery_level") && j["p2_commander_mastery_level"].is_number_integer()) {
-                p2.commander_mastery_level = j["p2_commander_mastery_level"].get<int>();
-            }
             if (j.contains("p2_prestige_name")) p2.prestige_name = j["p2_prestige_name"];
             if (j.contains("p2_masteries") && j["p2_masteries"].is_array()) {
                 p2.masteries = j["p2_masteries"].get<std::vector<int>>();

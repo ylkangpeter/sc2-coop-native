@@ -47,6 +47,29 @@ std::string ReplayParser::FormatTimestamp(int64_t mtime) {
     return oss.str();
 }
 
+static void ApplyCommanderLevels(ReplayRecord& record, const std::vector<DecodedSlot>& slots) {
+    auto apply = [&](PlayerInfo& player, size_t index) {
+        if (index < slots.size() && slots[index].commander_level > 0) {
+            player.commander_level = slots[index].commander_level;
+            player.commander_mastery_level = slots[index].commander_mastery_level;
+        }
+    };
+    apply(record.p1, 0);
+    apply(record.p2, 1);
+    record.has_level_data = true; // This initData was checked, even if levels are unavailable.
+}
+
+bool ReplayParser::RefreshCommanderLevels(ReplayRecord& record) {
+    std::vector<uint8_t> bytes;
+    auto path = Win32Utils::Utf8ToWide(record.file_path);
+    struct _stat64 st;
+    if (_wstat64(path.c_str(), &st) != 0 || st.st_mtime != record.file_mtime ||
+        !MpqReader::ReadFile(path, "replay.initData", bytes) || bytes.empty()) return false;
+    std::vector<std::string> handles;
+    ApplyCommanderLevels(record, S2Decoder::DecodeInitDataSlots(bytes, handles));
+    return true;
+}
+
 static void DecodeMatchEvents(const std::wstring& replay_path, const nlohmann::json& meta_json, ReplayRecord& record) {
     // 4. Read replay.tracker.events (Player Stats, Units, Enemy Comps)
     ReplayObjectives objectives;
@@ -190,6 +213,7 @@ std::optional<ReplayRecord> ReplayParser::ParseFile(const std::wstring& replay_p
     std::vector<DecodedSlot> slots;
     if (MpqReader::ReadFile(replay_path, "replay.initData", initdata_bytes)) {
         slots = S2Decoder::DecodeInitDataSlots(initdata_bytes, cache_handles, init_mutators, is_weekly);
+        ApplyCommanderLevels(record, slots);
         if (is_weekly) {
             record.is_weekly = true;
             record.mutators = init_mutators;
@@ -200,8 +224,6 @@ std::optional<ReplayRecord> ReplayParser::ParseFile(const std::wstring& replay_p
             record.p1.prestige = (slots[0].prestige >= 0 && slots[0].prestige <= 3) ? slots[0].prestige : 0;
             record.p1.prestige_name = slots[0].prestige_name;
             record.p1.masteries = slots[0].masteries;
-            record.p1.commander_level = slots[0].commander_level;
-            record.p1.commander_mastery_level = slots[0].commander_mastery_level;
             if (slots[0].brutal_plus >= 1 && slots[0].brutal_plus <= 6) {
                 bp0 = slots[0].brutal_plus;
             }
@@ -211,8 +233,6 @@ std::optional<ReplayRecord> ReplayParser::ParseFile(const std::wstring& replay_p
             record.p2.prestige = (slots[1].prestige >= 0 && slots[1].prestige <= 3) ? slots[1].prestige : 0;
             record.p2.prestige_name = slots[1].prestige_name;
             record.p2.masteries = slots[1].masteries;
-            record.p2.commander_level = slots[1].commander_level;
-            record.p2.commander_mastery_level = slots[1].commander_mastery_level;
             if (slots[1].brutal_plus >= 1 && slots[1].brutal_plus <= 6) {
                 bp1 = slots[1].brutal_plus;
             }

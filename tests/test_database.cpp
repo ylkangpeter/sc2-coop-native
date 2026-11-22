@@ -395,6 +395,7 @@ int main() {
         detailed.difficulty = "Brutal";
         detailed.p1.name = "MyPlayer";
         detailed.p1.commander = "Raynor";
+        detailed.has_level_data = true;
         detailed.p1.commander_level = 15;
         detailed.p1.commander_mastery_level = 523;
         detailed.p2.name = "Ally_Alice";
@@ -431,6 +432,33 @@ int main() {
         assert(loaded.p2.FormatLevel() == "{12}");
         assert(loaded.p2.IsLevelMaxed() == false);
         assert(loaded.p1_series.time_stamps.size() == sc2::ReplayRecord::kMaxStoredSeriesPoints);
+        int64_t row_id = 0;
+        assert(db.LoadReplayDetails(loaded, &row_id));
+        loaded.p2.commander_level = 13;
+        assert(db.UpdateReplayDetails(loaded, row_id));
+        sc2::ReplayRecord updated;
+        updated.file_path = loaded.file_path;
+        assert(db.LoadReplayDetails(updated) && updated.p2.commander_level == 13);
+        assert(db.SaveReplay(detailed));
+        assert(!db.UpdateReplayDetails(loaded, row_id));
+        sc2::ReplayRecord legacy;
+        assert(legacy.DetailsFromJson("{}") && !legacy.has_level_data);
+        auto blob = legacy.DetailsToCompressedBlob();
+        assert(legacy.DetailsFromCompressedBlob(blob.data(), blob.size()) && !legacy.has_level_data);
+        auto json = nlohmann::json::parse(detailed.DetailsToJson());
+        json.erase("level_cache_version");
+        json.erase("has_level_data");
+        json["p1_commander_mastery_level"] = 0;
+        assert(legacy.DetailsFromJson(json.dump()) && !legacy.has_level_data);
+        assert(legacy.p1.commander_level == 0 && legacy.p2.commander_level == 12);
+        json["has_level_data"] = true;
+        assert(legacy.DetailsFromJson(json.dump()) && legacy.has_level_data && legacy.p1.commander_level == 15);
+        json["p1_commander_level"] = json["p2_commander_level"] = 0;
+        assert(legacy.DetailsFromJson(json.dump()) && !legacy.has_level_data);
+        json["level_cache_version"] = 2;
+        assert(legacy.DetailsFromJson(json.dump()) && legacy.has_level_data);
+        json["has_level_data"] = false;
+        assert(legacy.DetailsFromJson(json.dump()) && !legacy.has_level_data);
         std::cout << "Compressed details round-trip verified." << std::endl;
     }
 

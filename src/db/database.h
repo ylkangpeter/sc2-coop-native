@@ -186,7 +186,8 @@ public:
                                           int& out_total_count);
 
     // Loads the optional compressed post-game details for an already queried replay.
-    bool LoadReplayDetails(ReplayRecord& replay);
+    bool LoadReplayDetails(ReplayRecord& replay, int64_t* row_id = nullptr);
+    bool UpdateReplayDetails(const ReplayRecord& replay, int64_t row_id);
     // Removes cached details while retaining the historical summary row.
     bool ClearReplayDetails(const std::string& file_path);
 

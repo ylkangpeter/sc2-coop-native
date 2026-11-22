@@ -14,6 +14,8 @@ public:
     static std::optional<ReplayRecord> ParseFile(const std::wstring& replay_path,
                                                  ReplayParseDepth depth = ReplayParseDepth::Full);
 
+    static bool RefreshCommanderLevels(ReplayRecord& record);
+
     // Format seconds into "MM:SS" or "HH:MM:SS"
     static std::string FormatDuration(int seconds);
 

@@ -10,6 +10,16 @@
 
 namespace sc2 {
 
+static void DrawCommander(const PlayerInfo& player) {
+    ImGui::Text("%s: %s", TR("Commander"), TR(player.commander.c_str()));
+    const auto level = player.FormatLevel();
+    if (level.empty()) return;
+    ImGui::SameLine();
+    const ImVec4 color = player.IsLevelMaxed() ? ImVec4(1.0f, 0.75f, 0.0f, 1.0f)
+                                              : ImVec4(0.31f, 0.71f, 1.0f, 1.0f);
+    ImGui::TextColored(color, "%s", level.c_str());
+}
+
 void ModalGameDetail::Render(AppState& state) {
     std::string modal_title = std::string(TR("Match Details")) + "###ModalGameDetail";
     if (state.show_detail_modal) {
@@ -59,15 +69,7 @@ void ModalGameDetail::Render(AppState& state) {
             ImGui::SameLine();
         }
         ImGui::BeginGroup();
-        std::string p1_lvl = r.p1.FormatLevel();
-        if (!p1_lvl.empty()) {
-            ImGui::Text("%s: %s", TR("Commander"), TR(r.p1.commander.c_str()));
-            ImGui::SameLine();
-            ImVec4 lvl_col1 = r.p1.IsLevelMaxed() ? ImVec4(1.0f, 0.75f, 0.0f, 1.0f) : ImVec4(0.31f, 0.71f, 1.0f, 1.0f);
-            ImGui::TextColored(lvl_col1, "%s", p1_lvl.c_str());
-        } else {
-            ImGui::Text("%s: %s", TR("Commander"), TR(r.p1.commander.c_str()));
-        }
+        DrawCommander(r.p1);
 
         std::string p1_pres_name = "Default";
         auto it1 = kPrestiges.find(r.p1.commander);
@@ -102,15 +104,7 @@ void ModalGameDetail::Render(AppState& state) {
             ImGui::SameLine();
         }
         ImGui::BeginGroup();
-        std::string p2_lvl = r.p2.FormatLevel();
-        if (!p2_lvl.empty()) {
-            ImGui::Text("%s: %s", TR("Commander"), TR(r.p2.commander.c_str()));
-            ImGui::SameLine();
-            ImVec4 lvl_col2 = r.p2.IsLevelMaxed() ? ImVec4(1.0f, 0.75f, 0.0f, 1.0f) : ImVec4(0.31f, 0.71f, 1.0f, 1.0f);
-            ImGui::TextColored(lvl_col2, "%s", p2_lvl.c_str());
-        } else {
-            ImGui::Text("%s: %s", TR("Commander"), TR(r.p2.commander.c_str()));
-        }
+        DrawCommander(r.p2);
 
         std::string p2_pres_name = "Default";
         auto it2 = kPrestiges.find(r.p2.commander);

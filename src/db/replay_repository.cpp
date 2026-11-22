@@ -578,15 +578,16 @@ std::vector<ReplayRecord> Database::QueryReplays(const std::string& search_query
     return results;
 }
 
-bool Database::LoadReplayDetails(ReplayRecord& replay) {
+bool Database::LoadReplayDetails(ReplayRecord& replay, int64_t* row_id) {
     std::lock_guard<std::recursive_mutex> lock(m_mutex);
     if (!m_db || replay.file_path.empty()) return false;
 
-    SqliteStmt stmt(m_db, "SELECT details_blob, details_format, details_json FROM replays WHERE file_path = ? LIMIT 1;");
+    SqliteStmt stmt(m_db, "SELECT details_blob, details_format, details_json, rowid FROM replays WHERE file_path = ? LIMIT 1;");
     if (!stmt.IsValid()) return false;
     stmt.BindText(1, replay.file_path);
     bool loaded = false;
     if (stmt.Step() == SQLITE_ROW) {
+        if (row_id) *row_id = stmt.ColumnInt64(3);
         const void* blob = stmt.ColumnBlob(0);
         const int blob_size = stmt.ColumnBytes(0);
         const int format = stmt.ColumnInt(1);
@@ -601,6 +602,21 @@ bool Database::LoadReplayDetails(ReplayRecord& replay) {
         }
     }
     return loaded;
+}
+
+bool Database::UpdateReplayDetails(const ReplayRecord& replay, int64_t row_id) {
+    auto blob = replay.DetailsToCompressedBlob();
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    if (!m_db || blob.empty()) return false;
+    // Imports replace the entire row. Only update the version we originally loaded.
+    SqliteStmt stmt(m_db, "UPDATE replays SET details_blob=?, details_format=1, details_json=NULL "
+                          "WHERE file_path=? AND rowid=? AND file_mtime=? AND (details_blob IS NOT NULL OR details_json IS NOT NULL);");
+    if (!stmt.IsValid()) return false;
+    stmt.BindBlob(1, blob);
+    stmt.BindText(2, replay.file_path);
+    stmt.BindInt64(3, row_id);
+    stmt.BindInt64(4, replay.file_mtime);
+    return stmt.Step() == SQLITE_DONE && sqlite3_changes(m_db) == 1;
 }
 
 bool Database::ClearReplayDetails(const std::string& file_path) {

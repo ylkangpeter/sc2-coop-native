@@ -106,6 +106,20 @@ int main(int argc, char** argv) {
     }
 
     const auto& rec = *rec_opt;
+    if (rec.has_level_data) {
+        sc2::ReplayRecord cached;
+        cached.file_path = rec.file_path;
+        cached.file_mtime = rec.file_mtime;
+        cached.enemy_comp = "already cached";
+        assert(sc2::ReplayParser::RefreshCommanderLevels(cached));
+        assert(cached.has_level_data && cached.enemy_comp == "already cached");
+        assert(cached.p1.commander_level == rec.p1.commander_level);
+        assert(cached.p1.commander_mastery_level == rec.p1.commander_mastery_level);
+        assert(cached.p2.commander_level == rec.p2.commander_level);
+        assert(cached.p2.commander_mastery_level == rec.p2.commander_mastery_level);
+        ++cached.file_mtime;
+        assert(!sc2::ReplayParser::RefreshCommanderLevels(cached));
+    }
     std::cout << "\n=== PARSED REPLAY SUMMARY ===" << std::endl;
     std::cout << "Map: " << rec.map_name << " (Raw: " << rec.raw_map_name << ")" << std::endl;
     std::cout << "Date: " << rec.game_date << std::endl;

@@ -22,6 +22,7 @@ int main() {
     // Insert mock matches
     sc2::ReplayRecord r1;
     r1.file_path = "C:\\Replays\\game1.SC2Replay";
+    r1.file_mtime = 2;
     r1.map_name = "Dead of Night";
     r1.result = "Victory";
     r1.difficulty = "Brutal+1";
@@ -42,6 +43,7 @@ int main() {
 
     sc2::ReplayRecord r2 = r1;
     r2.file_path = "C:\\Replays\\game2.SC2Replay";
+    r2.file_mtime = 1;
     r2.map_name = "Void Thrashing";
     r2.result = "Defeat";
     r2.form_length = "12:10";
@@ -59,14 +61,19 @@ int main() {
     assert(summary.IsActive());
     std::cout << "[OK] SummaryOverlay::ShowMatch active.\n";
 
-    // Test Navigation
-    summary.ShowPrevious();
-    assert(summary.IsActive());
-    std::cout << "[OK] SummaryOverlay::ShowPrevious works.\n";
-
+    // Selecting an older match directly must preserve the newer history entry.
+    summary.ShowMatch(r2);
     summary.ShowNext();
-    assert(summary.IsActive());
-    std::cout << "[OK] SummaryOverlay::ShowNext works.\n";
+    summary.ToggleMatch(r1);
+    summary.Update(1.0f);
+    assert(!summary.IsActive()); // Toggling the currently shown match dismissed it.
+
+    summary.ShowMatch(r1);
+    summary.ShowPrevious();
+    summary.ToggleMatch(r2);
+    summary.Update(1.0f);
+    assert(!summary.IsActive());
+    summary.ShowMatch(r1);
 
     // Test timer update
     for (int i = 0; i < 5; ++i) {

@@ -228,66 +228,33 @@ void DrawSummaryBanner(HDC hdc, uint32_t* pixels, int width, int height,
     SelectObject(hdc, fonts.hFontMap);
     SetTextColor(hdc, RGB(220, 220, 220));
 
-    // Left: Commander & APM
-    std::wstring p1_cmdr_w = ToWide(TR(r.p1.commander.c_str()));
-    std::string p1_lvl = r.p1.FormatLevel();
-    int side_w = std::max(160, (int)(rw * 0.32f));
-
-    if (p1_lvl.empty()) {
+    const int side_w = std::max(160, (int)(rw * 0.32f));
+    auto draw_player = [&](const PlayerInfo& player, int x, bool right) {
+        const UINT flags = (right ? DT_RIGHT : DT_LEFT) | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS;
+        const auto name = ToWide(TR(player.commander.c_str()));
+        const auto level = ToWide(player.FormatLevel());
+        RECT name_rect = {x, sub_y, x + side_w, sub_y + 20};
         SetTextColor(hdc, RGB(220, 220, 220));
-        RECT rcCmdr1 = { rx, sub_y, rx + side_w, sub_y + 20 };
-        DrawTextW(hdc, p1_cmdr_w.c_str(), -1, &rcCmdr1, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
-    } else {
-        std::wstring p1_lvl_w = ToWide(p1_lvl);
-        SIZE szCmdr = { 0, 0 };
-        GetTextExtentPoint32W(hdc, p1_cmdr_w.c_str(), (int)p1_cmdr_w.length(), &szCmdr);
-        SIZE szSpace = { 0, 0 };
-        GetTextExtentPoint32W(hdc, L" ", 1, &szSpace);
-
+        DrawTextW(hdc, name.c_str(), -1, &name_rect, flags);
+        if (!level.empty()) {
+            const auto spaced = name + L" ";
+            SIZE extent{};
+            GetTextExtentPoint32W(hdc, spaced.c_str(), (int)spaced.size(), &extent);
+            RECT level_rect = name_rect;
+            if (right) level_rect.right -= extent.cx;
+            else level_rect.left += extent.cx;
+            if (level_rect.left < level_rect.right) {
+                SetTextColor(hdc, player.IsLevelMaxed() ? RGB(255, 192, 0) : RGB(80, 180, 255));
+                DrawTextW(hdc, level.c_str(), -1, &level_rect, flags);
+            }
+        }
         SetTextColor(hdc, RGB(220, 220, 220));
-        RECT rcCmdr1 = { rx, sub_y, rx + szCmdr.cx, sub_y + 20 };
-        DrawTextW(hdc, p1_cmdr_w.c_str(), -1, &rcCmdr1, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
-
-        COLORREF lvl_col1 = r.p1.IsLevelMaxed() ? RGB(255, 192, 0) : RGB(80, 180, 255);
-        SetTextColor(hdc, lvl_col1);
-        RECT rcLvl1 = { rx + szCmdr.cx + szSpace.cx, sub_y, rx + side_w, sub_y + 20 };
-        DrawTextW(hdc, p1_lvl_w.c_str(), -1, &rcLvl1, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
-    }
-
-    SetTextColor(hdc, RGB(220, 220, 220));
-    std::wstring p1_apm_w = std::to_wstring(r.p1.apm) + L" APM";
-    RECT rcApm1 = { rx, sub_y + 22, rx + side_w, sub_y + 42 };
-    DrawTextW(hdc, p1_apm_w.c_str(), -1, &rcApm1, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
-
-    // Right: Commander & APM
-    std::wstring p2_cmdr_w = ToWide(TR(r.p2.commander.c_str()));
-    std::string p2_lvl = r.p2.FormatLevel();
-
-    if (p2_lvl.empty()) {
-        SetTextColor(hdc, RGB(220, 220, 220));
-        RECT rcCmdr2 = { rx + rw - side_w, sub_y, rx + rw, sub_y + 20 };
-        DrawTextW(hdc, p2_cmdr_w.c_str(), -1, &rcCmdr2, DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
-    } else {
-        std::wstring p2_lvl_w = ToWide(p2_lvl);
-        SIZE szCmdr = { 0, 0 };
-        GetTextExtentPoint32W(hdc, p2_cmdr_w.c_str(), (int)p2_cmdr_w.length(), &szCmdr);
-        SIZE szSpace = { 0, 0 };
-        GetTextExtentPoint32W(hdc, L" ", 1, &szSpace);
-
-        SetTextColor(hdc, RGB(220, 220, 220));
-        RECT rcCmdr2 = { rx + rw - szCmdr.cx, sub_y, rx + rw, sub_y + 20 };
-        DrawTextW(hdc, p2_cmdr_w.c_str(), -1, &rcCmdr2, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
-
-        COLORREF lvl_col2 = r.p2.IsLevelMaxed() ? RGB(255, 192, 0) : RGB(80, 180, 255);
-        SetTextColor(hdc, lvl_col2);
-        RECT rcLvl2 = { rx + rw - side_w, sub_y, rx + rw - szCmdr.cx - szSpace.cx, sub_y + 20 };
-        DrawTextW(hdc, p2_lvl_w.c_str(), -1, &rcLvl2, DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
-    }
-
-    SetTextColor(hdc, RGB(220, 220, 220));
-    std::wstring p2_apm_w = std::to_wstring(r.p2.apm) + L" APM";
-    RECT rcApm2 = { rx + rw - side_w, sub_y + 22, rx + rw, sub_y + 42 };
-    DrawTextW(hdc, p2_apm_w.c_str(), -1, &rcApm2, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
+        auto apm = std::to_wstring(player.apm) + L" APM";
+        OffsetRect(&name_rect, 0, 22);
+        DrawTextW(hdc, apm.c_str(), -1, &name_rect, flags);
+    };
+    draw_player(r.p1, rx, false);
+    draw_player(r.p2, rx + rw - side_w, true);
 
     // Center: Map Name [MM:SS] [b_earned/b_total] & Difficulty
     int b_earned = r.bonus_earned;

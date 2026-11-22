@@ -146,41 +146,35 @@ void SummaryOverlay::ShowMatch(const ReplayRecord& rec, bool is_best_time, float
 
     // Details are intentionally loaded separately from the history list. Prefer the
     // compact database cache, then fall back to parsing the original replay.
-    bool details_loaded = false;
+    auto& db = Database::Instance();
     if (!m_current_record.file_path.empty()) {
-        details_loaded = Database::Instance().LoadReplayDetails(m_current_record);
-    }
-    if ((!details_loaded || !m_current_record.has_level_data) && !m_current_record.file_path.empty()) {
-        std::wstring wpath = Win32Utils::Utf8ToWide(m_current_record.file_path);
         try {
-            auto full_rec = ReplayParser::ParseFile(wpath);
-            if (full_rec.has_value()) {
-                m_current_record = full_rec.value();
-                m_current_record.has_level_data = true;
-                Database::Instance().SaveReplay(m_current_record);
+            int64_t row_id = 0;
+            if (db.LoadReplayDetails(m_current_record, &row_id)) {
+                if (!m_current_record.has_level_data && ReplayParser::RefreshCommanderLevels(m_current_record)) {
+                    db.UpdateReplayDetails(m_current_record, row_id);
+                }
+            } else if (auto full = ReplayParser::ParseFile(ToWide(m_current_record.file_path))) {
+                m_current_record = std::move(*full);
+                db.SaveReplay(m_current_record);
             }
         } catch (const std::exception& e) {
-            std::cerr << "SummaryOverlay fallback parse error: " << e.what() << std::endl;
-        } catch (...) {
-            std::cerr << "SummaryOverlay fallback parse unknown error" << std::endl;
+            std::cerr << "SummaryOverlay fallback parse error: " << e.what() << "\n";
         }
     }
 
-    if (m_browse_index >= 0 && m_browse_index < static_cast<int>(m_cached_recent.size())) {
-        m_cached_recent[m_browse_index] = m_current_record;
-    }
-
-    // Refresh cache of recent matches if empty
-    if (m_cached_recent.empty()) {
+    auto find_current = [&] {
+        return std::find_if(m_cached_recent.begin(), m_cached_recent.end(), [&](const ReplayRecord& entry) {
+            return entry.file_path == m_current_record.file_path;
+        });
+    };
+    auto found = find_current();
+    if (found == m_cached_recent.end()) {
         int total = 0;
-        m_cached_recent = Database::Instance().QueryReplays("", 30, 0, total);
+        m_cached_recent = db.QueryReplays("", 30, 0, total);
+        found = find_current();
     }
-    for (size_t i = 0; i < m_cached_recent.size(); ++i) {
-        if (m_cached_recent[i].file_path == rec.file_path) {
-            m_browse_index = static_cast<int>(i);
-            break;
-        }
-    }
+    m_browse_index = found == m_cached_recent.end() ? -1 : static_cast<int>(found - m_cached_recent.begin());
 
     // Start slide-in animation from right edge
     m_anim_state = OverlayAnimState::SlidingIn;
@@ -272,7 +266,7 @@ void SummaryOverlay::ShowPrevious() {
     }
     if (m_cached_recent.empty()) return;
 
-    if (m_browse_index + 1 < static_cast<int>(m_cached_recent.size())) {
+    if (m_browse_index >= 0 && m_browse_index + 1 < static_cast<int>(m_cached_recent.size())) {
         m_browse_index++;
         ShowMatch(m_cached_recent[m_browse_index], false, (float)AppState::Instance().hud_duration_seconds);
     }
