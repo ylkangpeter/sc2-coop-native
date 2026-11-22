@@ -35,7 +35,7 @@ struct PlayerInfo {
     std::string commander = "Unknown";
     int prestige = 0;
     std::string prestige_name;
-    int commander_level = 15;
+    int commander_level = 0;
     int commander_mastery_level = 0;
     int apm = 0;
     int kills = 0;
@@ -94,6 +94,7 @@ struct ReplayRecord {
     std::vector<ChatRecord> chat;
 
     // Detailed Post-Game Summary Fields
+    bool has_level_data = false;
     std::string enemy_comp;
     std::vector<UnitStat> amon_units;
     int bonus_earned = 0;
@@ -156,6 +157,7 @@ struct ReplayRecord {
             return arr;
         };
 
+        j["has_level_data"] = true;
         j["p1_commander_level"] = p1.commander_level;
         j["p1_commander_mastery_level"] = p1.commander_mastery_level;
         j["p1_prestige_name"] = p1.prestige_name;
@@ -246,6 +248,9 @@ struct ReplayRecord {
                 return out;
             };
 
+            if (j.contains("has_level_data") || j.contains("p1_commander_level")) {
+                has_level_data = true;
+            }
             if (j.contains("p1_commander_level") && j["p1_commander_level"].is_number_integer()) {
                 p1.commander_level = j["p1_commander_level"].get<int>();
             }

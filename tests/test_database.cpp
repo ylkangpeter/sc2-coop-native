@@ -420,6 +420,7 @@ int main() {
         loaded.p1.commander = detailed.p1.commander;
         loaded.p2.commander = detailed.p2.commander;
         assert(db.LoadReplayDetails(loaded));
+        assert(loaded.has_level_data == true);
         assert(loaded.p1.units.size() == 1);
         assert(loaded.p1.commander_level == 15);
         assert(loaded.p1.commander_mastery_level == 523);

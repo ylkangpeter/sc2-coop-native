@@ -150,12 +150,13 @@ void SummaryOverlay::ShowMatch(const ReplayRecord& rec, bool is_best_time, float
     if (!m_current_record.file_path.empty()) {
         details_loaded = Database::Instance().LoadReplayDetails(m_current_record);
     }
-    if (!details_loaded && m_current_record.p1.units.empty() && !m_current_record.file_path.empty()) {
+    if ((!details_loaded || !m_current_record.has_level_data) && !m_current_record.file_path.empty()) {
         std::wstring wpath = Win32Utils::Utf8ToWide(m_current_record.file_path);
         try {
             auto full_rec = ReplayParser::ParseFile(wpath);
             if (full_rec.has_value()) {
                 m_current_record = full_rec.value();
+                m_current_record.has_level_data = true;
                 Database::Instance().SaveReplay(m_current_record);
             }
         } catch (const std::exception& e) {
@@ -163,6 +164,10 @@ void SummaryOverlay::ShowMatch(const ReplayRecord& rec, bool is_best_time, float
         } catch (...) {
             std::cerr << "SummaryOverlay fallback parse unknown error" << std::endl;
         }
+    }
+
+    if (m_browse_index >= 0 && m_browse_index < static_cast<int>(m_cached_recent.size())) {
+        m_cached_recent[m_browse_index] = m_current_record;
     }
 
     // Refresh cache of recent matches if empty
