@@ -112,8 +112,8 @@ int main(int argc, char** argv) {
     std::cout << "Duration: " << rec.form_length << std::endl;
     std::cout << "Result: " << rec.result << std::endl;
     std::cout << "Difficulty: " << rec.difficulty << std::endl;
-    std::cout << "Player 1: " << rec.p1.name << " (" << rec.p1.commander << " P" << rec.p1.prestige << ") APM: " << rec.p1.apm << std::endl;
-    std::cout << "Player 2: " << rec.p2.name << " (" << rec.p2.commander << " P" << rec.p2.prestige << ") APM: " << rec.p2.apm << std::endl;
+    std::cout << "Player 1: " << rec.p1.name << " (" << rec.p1.commander << " " << rec.p1.FormatLevel() << " P" << rec.p1.prestige << ") APM: " << rec.p1.apm << std::endl;
+    std::cout << "Player 2: " << rec.p2.name << " (" << rec.p2.commander << " " << rec.p2.FormatLevel() << " P" << rec.p2.prestige << ") APM: " << rec.p2.apm << std::endl;
     std::cout << "Chat Messages: " << rec.chat.size() << std::endl;
     for (const auto& c : rec.chat) {
         std::cout << "  [" << c.time_seconds << "s] " << c.player_name << ": " << c.text << std::endl;

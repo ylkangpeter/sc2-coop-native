@@ -209,6 +209,8 @@ void SummaryOverlay::ShowLatest() {
         demo.bonus_total = 1;
         demo.p1.name = "Player 1";
         demo.p1.commander = "Raynor";
+        demo.p1.commander_level = 15;
+        demo.p1.commander_mastery_level = 523;
         demo.p1.prestige = 1;
         demo.p1.prestige_name = "Backwater Sheriff";
         demo.p1.apm = 165;
@@ -221,6 +223,8 @@ void SummaryOverlay::ShowLatest() {
         };
         demo.p2.name = "Player 2";
         demo.p2.commander = "Artanis";
+        demo.p2.commander_level = 15;
+        demo.p2.commander_mastery_level = 90;
         demo.p2.prestige = 0;
         demo.p2.prestige_name = "Hierarch of the Daelaam";
         demo.p2.apm = 142;

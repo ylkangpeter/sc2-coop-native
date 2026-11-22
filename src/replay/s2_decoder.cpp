@@ -22,6 +22,7 @@ std::vector<DecodedSlot> S2Decoder::DecodeInitDataSlots(const std::vector<uint8_
             s.control = rs.control;
             s.commander = rs.commander;
             s.commander_level = rs.commander_level;
+            s.commander_mastery_level = rs.commander_mastery_level;
             s.prestige = rs.prestige;
             s.brutal_plus = rs.brutal_plus;
             s.difficulty = rs.difficulty;

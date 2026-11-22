@@ -201,6 +201,7 @@ std::optional<ReplayRecord> ReplayParser::ParseFile(const std::wstring& replay_p
             record.p1.prestige_name = slots[0].prestige_name;
             record.p1.masteries = slots[0].masteries;
             record.p1.commander_level = slots[0].commander_level;
+            record.p1.commander_mastery_level = slots[0].commander_mastery_level;
             if (slots[0].brutal_plus >= 1 && slots[0].brutal_plus <= 6) {
                 bp0 = slots[0].brutal_plus;
             }
@@ -211,6 +212,7 @@ std::optional<ReplayRecord> ReplayParser::ParseFile(const std::wstring& replay_p
             record.p2.prestige_name = slots[1].prestige_name;
             record.p2.masteries = slots[1].masteries;
             record.p2.commander_level = slots[1].commander_level;
+            record.p2.commander_mastery_level = slots[1].commander_mastery_level;
             if (slots[1].brutal_plus >= 1 && slots[1].brutal_plus <= 6) {
                 bp1 = slots[1].brutal_plus;
             }

@@ -230,20 +230,29 @@ void DrawSummaryBanner(HDC hdc, uint32_t* pixels, int width, int height,
 
     // Left: Commander & APM
     std::wstring p1_cmdr_w = ToWide(TR(r.p1.commander.c_str()));
-    RECT rcCmdr1 = { rx, sub_y, rx + 160, sub_y + 20 };
-    DrawTextW(hdc, p1_cmdr_w.c_str(), -1, &rcCmdr1, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+    std::string p1_lvl = r.p1.FormatLevel();
+    if (!p1_lvl.empty()) {
+        p1_cmdr_w += L" " + ToWide(p1_lvl);
+    }
+    int side_w = std::max(160, (int)(rw * 0.32f));
+    RECT rcCmdr1 = { rx, sub_y, rx + side_w, sub_y + 20 };
+    DrawTextW(hdc, p1_cmdr_w.c_str(), -1, &rcCmdr1, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
 
     std::wstring p1_apm_w = std::to_wstring(r.p1.apm) + L" APM";
-    RECT rcApm1 = { rx, sub_y + 22, rx + 160, sub_y + 42 };
+    RECT rcApm1 = { rx, sub_y + 22, rx + side_w, sub_y + 42 };
     DrawTextW(hdc, p1_apm_w.c_str(), -1, &rcApm1, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
 
     // Right: Commander & APM
     std::wstring p2_cmdr_w = ToWide(TR(r.p2.commander.c_str()));
-    RECT rcCmdr2 = { rx + rw - 160, sub_y, rx + rw, sub_y + 20 };
-    DrawTextW(hdc, p2_cmdr_w.c_str(), -1, &rcCmdr2, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
+    std::string p2_lvl = r.p2.FormatLevel();
+    if (!p2_lvl.empty()) {
+        p2_cmdr_w = ToWide(p2_lvl) + L" " + p2_cmdr_w;
+    }
+    RECT rcCmdr2 = { rx + rw - side_w, sub_y, rx + rw, sub_y + 20 };
+    DrawTextW(hdc, p2_cmdr_w.c_str(), -1, &rcCmdr2, DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
 
     std::wstring p2_apm_w = std::to_wstring(r.p2.apm) + L" APM";
-    RECT rcApm2 = { rx + rw - 160, sub_y + 22, rx + rw, sub_y + 42 };
+    RECT rcApm2 = { rx + rw - side_w, sub_y + 22, rx + rw, sub_y + 42 };
     DrawTextW(hdc, p2_apm_w.c_str(), -1, &rcApm2, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
 
     // Center: Map Name [MM:SS] [b_earned/b_total] & Difficulty
@@ -251,11 +260,12 @@ void DrawSummaryBanner(HDC hdc, uint32_t* pixels, int width, int height,
     int b_total = r.bonus_total > 0 ? r.bonus_total : 3;
     std::wstring map_str = ToWide(TR(r.map_name.c_str())) + L" [" + ToWide(r.form_length) + L"] [" +
                            std::to_wstring(b_earned) + L"/" + std::to_wstring(b_total) + L"]";
-    RECT rcMapCenter = { rx + 140, sub_y, rx + rw - 140, sub_y + 20 };
+    int center_inset = std::max(120, side_w - 20);
+    RECT rcMapCenter = { rx + center_inset, sub_y, rx + rw - center_inset, sub_y + 20 };
     DrawTextW(hdc, map_str.c_str(), -1, &rcMapCenter, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
     std::wstring diff_str = ToWide(TR(r.difficulty.c_str()));
-    RECT rcDiff = { rx + 140, sub_y + 22, rx + rw - 140, sub_y + 42 };
+    RECT rcDiff = { rx + center_inset, sub_y + 22, rx + rw - center_inset, sub_y + 42 };
     DrawTextW(hdc, diff_str.c_str(), -1, &rcDiff, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 }
 

@@ -36,11 +36,26 @@ struct PlayerInfo {
     int prestige = 0;
     std::string prestige_name;
     int commander_level = 15;
+    int commander_mastery_level = 0;
     int apm = 0;
     int kills = 0;
     std::string result; // "Win" or "Loss"
     std::vector<int> masteries = {0, 0, 0, 0, 0, 0}; // 6 mastery values
     std::vector<UnitStat> units;
+
+    std::string FormatLevel() const {
+        if (commander.empty() || commander == "Unknown") return "";
+        if (commander_level > 0 && commander_level < 15) {
+            return "{" + std::to_string(commander_level) + "}";
+        } else if (commander_level >= 15) {
+            if (commander_mastery_level > 0) {
+                return "{" + std::to_string(commander_mastery_level) + "}";
+            } else {
+                return "{15}";
+            }
+        }
+        return "";
+    }
 };
 
 struct ChatRecord {
@@ -134,10 +149,14 @@ struct ReplayRecord {
             return arr;
         };
 
+        j["p1_commander_level"] = p1.commander_level;
+        j["p1_commander_mastery_level"] = p1.commander_mastery_level;
         j["p1_prestige_name"] = p1.prestige_name;
         j["p1_masteries"] = p1.masteries;
         j["p1_units"] = SerializeUnits(p1.units);
 
+        j["p2_commander_level"] = p2.commander_level;
+        j["p2_commander_mastery_level"] = p2.commander_mastery_level;
         j["p2_prestige_name"] = p2.prestige_name;
         j["p2_masteries"] = p2.masteries;
         j["p2_units"] = SerializeUnits(p2.units);
@@ -220,12 +239,24 @@ struct ReplayRecord {
                 return out;
             };
 
+            if (j.contains("p1_commander_level") && j["p1_commander_level"].is_number_integer()) {
+                p1.commander_level = j["p1_commander_level"].get<int>();
+            }
+            if (j.contains("p1_commander_mastery_level") && j["p1_commander_mastery_level"].is_number_integer()) {
+                p1.commander_mastery_level = j["p1_commander_mastery_level"].get<int>();
+            }
             if (j.contains("p1_prestige_name")) p1.prestige_name = j["p1_prestige_name"];
             if (j.contains("p1_masteries") && j["p1_masteries"].is_array()) {
                 p1.masteries = j["p1_masteries"].get<std::vector<int>>();
             }
             if (j.contains("p1_units")) p1.units = DeserializeUnits(j["p1_units"]);
 
+            if (j.contains("p2_commander_level") && j["p2_commander_level"].is_number_integer()) {
+                p2.commander_level = j["p2_commander_level"].get<int>();
+            }
+            if (j.contains("p2_commander_mastery_level") && j["p2_commander_mastery_level"].is_number_integer()) {
+                p2.commander_mastery_level = j["p2_commander_mastery_level"].get<int>();
+            }
             if (j.contains("p2_prestige_name")) p2.prestige_name = j["p2_prestige_name"];
             if (j.contains("p2_masteries") && j["p2_masteries"].is_array()) {
                 p2.masteries = j["p2_masteries"].get<std::vector<int>>();

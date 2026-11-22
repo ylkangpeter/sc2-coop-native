@@ -395,8 +395,14 @@ int main() {
         detailed.difficulty = "Brutal";
         detailed.p1.name = "MyPlayer";
         detailed.p1.commander = "Raynor";
+        detailed.p1.commander_level = 15;
+        detailed.p1.commander_mastery_level = 523;
         detailed.p2.name = "Ally_Alice";
         detailed.p2.commander = "Karax";
+        detailed.p2.commander_level = 12;
+        detailed.p2.commander_mastery_level = 0;
+        assert(detailed.p1.FormatLevel() == "{523}");
+        assert(detailed.p2.FormatLevel() == "{12}");
         for (int i = 0; i < 1024; ++i) {
             detailed.p1_series.time_stamps.push_back(static_cast<float>(i));
             detailed.p1_series.army_value.push_back(static_cast<float>(i * 2));
@@ -409,8 +415,16 @@ int main() {
 
         sc2::ReplayRecord loaded;
         loaded.file_path = detailed.file_path;
+        loaded.p1.commander = detailed.p1.commander;
+        loaded.p2.commander = detailed.p2.commander;
         assert(db.LoadReplayDetails(loaded));
         assert(loaded.p1.units.size() == 1);
+        assert(loaded.p1.commander_level == 15);
+        assert(loaded.p1.commander_mastery_level == 523);
+        assert(loaded.p2.commander_level == 12);
+        assert(loaded.p2.commander_mastery_level == 0);
+        assert(loaded.p1.FormatLevel() == "{523}");
+        assert(loaded.p2.FormatLevel() == "{12}");
         assert(loaded.p1_series.time_stamps.size() == sc2::ReplayRecord::kMaxStoredSeriesPoints);
         std::cout << "Compressed details round-trip verified." << std::endl;
     }

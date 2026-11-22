@@ -24,6 +24,7 @@ struct DecodedSlot {
     int control = 0; // 2=Human, 3=Computer
     std::string commander;
     int commander_level = 15;
+    int commander_mastery_level = 0;
     int prestige = 0;
     std::string prestige_name;
     int brutal_plus = 0;

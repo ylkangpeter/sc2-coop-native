@@ -59,7 +59,12 @@ void ModalGameDetail::Render(AppState& state) {
             ImGui::SameLine();
         }
         ImGui::BeginGroup();
-        ImGui::Text("%s: %s", TR("Commander"), TR(r.p1.commander.c_str()));
+        std::string p1_lvl = r.p1.FormatLevel();
+        if (!p1_lvl.empty()) {
+            ImGui::Text("%s: %s %s", TR("Commander"), TR(r.p1.commander.c_str()), p1_lvl.c_str());
+        } else {
+            ImGui::Text("%s: %s", TR("Commander"), TR(r.p1.commander.c_str()));
+        }
 
         std::string p1_pres_name = "Default";
         auto it1 = kPrestiges.find(r.p1.commander);
@@ -94,7 +99,12 @@ void ModalGameDetail::Render(AppState& state) {
             ImGui::SameLine();
         }
         ImGui::BeginGroup();
-        ImGui::Text("%s: %s", TR("Commander"), TR(r.p2.commander.c_str()));
+        std::string p2_lvl = r.p2.FormatLevel();
+        if (!p2_lvl.empty()) {
+            ImGui::Text("%s: %s %s", TR("Commander"), TR(r.p2.commander.c_str()), p2_lvl.c_str());
+        } else {
+            ImGui::Text("%s: %s", TR("Commander"), TR(r.p2.commander.c_str()));
+        }
 
         std::string p2_pres_name = "Default";
         auto it2 = kPrestiges.find(r.p2.commander);
