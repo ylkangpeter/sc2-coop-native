@@ -6,7 +6,7 @@
 #include "../../utils/win32_utils.h"
 #include "../../utils/diagnostics.h"
 #include "../../data/sc2_constants.h"
-#include "../../replay/replay_parser.h"
+#include "../../replay/replay_summary_cache.h"
 #include "../../i18n/i18n.h"
 #include "../../utils/hotkey_manager.h"
 #include <stb/stb_image.h>
@@ -138,7 +138,14 @@ void SummaryOverlay::Shutdown() {
     HotkeyManager::Instance().UpdateContext();
 }
 
-void SummaryOverlay::ShowMatch(const ReplayRecord& rec, bool is_best_time, float duration) {
+void SummaryOverlay::ShowMatch(const ReplayRecord& rec, bool is_best_time, float duration, bool live) {
+    m_live = live;
+    const auto& state = AppState::Instance();
+    m_show_session = live && state.hud_show_session;
+    m_session_wins = state.session_wins;
+    m_session_games = state.session_games;
+    m_random_commander = live ? state.session_random_commander : "";
+    m_random_prestige = live ? state.session_random_prestige : "";
     m_current_record = rec;
     m_is_best_time = is_best_time;
     m_total_duration = duration > 0.0f ? duration : (float)AppState::Instance().hud_duration_seconds;
@@ -149,15 +156,7 @@ void SummaryOverlay::ShowMatch(const ReplayRecord& rec, bool is_best_time, float
     auto& db = Database::Instance();
     if (!m_current_record.file_path.empty()) {
         try {
-            int64_t row_id = 0;
-            if (db.LoadReplayDetails(m_current_record, &row_id)) {
-                if (!m_current_record.has_level_data && ReplayParser::RefreshCommanderLevels(m_current_record)) {
-                    db.UpdateReplayDetails(m_current_record, row_id);
-                }
-            } else if (auto full = ReplayParser::ParseFile(ToWide(m_current_record.file_path))) {
-                m_current_record = std::move(*full);
-                db.SaveReplay(m_current_record);
-            }
+            LoadSummaryDetails(m_current_record, db);
         } catch (const std::exception& e) {
             std::cerr << "SummaryOverlay fallback parse error: " << e.what() << "\n";
         }
@@ -199,11 +198,20 @@ void SummaryOverlay::ShowLatest() {
         m_browse_index = 0;
         ShowMatch(m_cached_recent[0], false, (float)AppState::Instance().hud_duration_seconds);
     } else {
+        ShowPreview();
+    }
+}
+
+void SummaryOverlay::ShowPreview() {
         ReplayRecord demo;
         demo.result = "Victory";
         demo.map_name = "Dead of Night";
         demo.form_length = "22:15";
-        demo.difficulty = "Brutal";
+        demo.difficulty = "Hard";
+        demo.ally_difficulty = "Brutal";
+        demo.is_custom_mutation = true;
+        demo.mutators = {"Avenger", "Black Death", "Void Rifts"};
+        demo.game_date = "2026-11-23 18:42";
         demo.bonus_earned = 1;
         demo.bonus_total = 1;
         demo.p1.name = "Player 1";
@@ -215,24 +223,26 @@ void SummaryOverlay::ShowLatest() {
         demo.p1.apm = 165;
         demo.p1.kills = 480;
         demo.p1.masteries = { 30, 0, 0, 30, 30, 0 };
+        demo.p1.contributions = {{"MULE", 20}, {"voidrifts", 3}, {"propagators", 2}, {"killbots", 4}};
         demo.p1.units = {
             { "Marine", 85, 20, 260, 0.54f },
             { "Firebat", 24, 4, 140, 0.29f },
             { "Medic", 18, 2, 0, 0.0f }
         };
         demo.p2.name = "Player 2";
-        demo.p2.commander = "Artanis";
+        demo.p2.commander = "Tychus";
         demo.p2.commander_level = 12;
         demo.p2.commander_mastery_level = 0;
         demo.p2.prestige = 0;
-        demo.p2.prestige_name = "Hierarch of the Daelaam";
+        demo.p2.prestige_name = "Legendary Outlaw";
         demo.p2.apm = 142;
         demo.p2.kills = 320;
         demo.p2.masteries = { 30, 0, 30, 0, 30, 0 };
+        demo.p2.contributions = {{"TychusCoop", 0}, {"TychusReaper", 0}, {"TychusMedic", 0}, {"TychusWarhound", 0}, {"deadofnight", 17}};
         demo.p2.units = {
-            { "Zealot", 50, 15, 180, 0.56f },
-            { "Dragoon", 28, 6, 110, 0.34f },
-            { "Immortal", 8, 1, 30, 0.10f }
+            { "Tychus", 1, 0, 180, 0.56f },
+            { "Sirius", 1, 0, 110, 0.34f },
+            { "Nikara", 1, 0, 30, 0.10f }
         };
         demo.enemy_comp = "Swarm Hosts & Mutalisks";
         demo.amon_units = {
@@ -255,8 +265,7 @@ void SummaryOverlay::ShowLatest() {
             demo.p2_series.kill_count.push_back(frac * 320.0f);
             demo.p2_series.collection_rate.push_back(700.0f + frac * 1000.0f);
         }
-        ShowMatch(demo, false, (float)AppState::Instance().hud_duration_seconds);
-    }
+        ShowMatch(demo, true, (float)AppState::Instance().hud_duration_seconds);
 }
 
 void SummaryOverlay::ShowPrevious() {
@@ -548,28 +557,30 @@ void SummaryOverlay::Render() {
     const auto& r = m_current_record;
 
     // 2. Render Left Column (4 Line Charts)
-    const auto& s1 = r.p1_series;
-    const auto& s2 = r.p2_series;
-    int chart_w = (int)(height * 0.38f);
-    int chart_h = (int)((height - height * 0.10f) / 4);
-    int chart_x = width - (int)(height * 0.88f);
-    int top_margin = (int)(height * 0.045f);
+    if (AppState::Instance().hud_show_charts) {
+        const auto& s1 = r.p1_series;
+        const auto& s2 = r.p2_series;
+        int chart_w = (int)(height * 0.38f);
+        int chart_h = (int)((height - height * 0.10f) / 4);
+        int chart_x = width - (int)(height * 0.88f);
+        int top_margin = (int)(height * 0.045f);
 
-    float dur = (float)r.duration_seconds;
-    DrawSummaryChart(hdcMem, fonts, chart_x, top_margin, chart_w, chart_h, ToWide(TR("Army value")),
-                     dur, s1.time_stamps, s1.army_value, s2.time_stamps, s2.army_value, RGB(0, 128, 248), RGB(0, 213, 50));
-    DrawSummaryChart(hdcMem, fonts, chart_x, top_margin + chart_h, chart_w, chart_h, ToWide(TR("Supply used")),
-                     dur, s1.time_stamps, s1.supply_used, s2.time_stamps, s2.supply_used, RGB(0, 128, 248), RGB(0, 213, 50));
-    DrawSummaryChart(hdcMem, fonts, chart_x, top_margin + chart_h * 2, chart_w, chart_h, ToWide(TR("Kill count")),
-                     dur, s1.time_stamps, s1.kill_count, s2.time_stamps, s2.kill_count, RGB(0, 128, 248), RGB(0, 213, 50));
-    DrawSummaryChart(hdcMem, fonts, chart_x, top_margin + chart_h * 3, chart_w, chart_h, ToWide(TR("Resource collection rate")),
-                     dur, s1.time_stamps, s1.collection_rate, s2.time_stamps, s2.collection_rate, RGB(0, 128, 248), RGB(0, 213, 50));
+        float dur = (float)r.duration_seconds;
+        DrawSummaryChart(hdcMem, fonts, chart_x, top_margin, chart_w, chart_h, ToWide(TR("Army value")),
+                         dur, s1.time_stamps, s1.army_value, s2.time_stamps, s2.army_value, RGB(0, 128, 248), RGB(0, 213, 50));
+        DrawSummaryChart(hdcMem, fonts, chart_x, top_margin + chart_h, chart_w, chart_h, ToWide(TR("Supply used")),
+                         dur, s1.time_stamps, s1.supply_used, s2.time_stamps, s2.supply_used, RGB(0, 128, 248), RGB(0, 213, 50));
+        DrawSummaryChart(hdcMem, fonts, chart_x, top_margin + chart_h * 2, chart_w, chart_h, ToWide(TR("Kill count")),
+                         dur, s1.time_stamps, s1.kill_count, s2.time_stamps, s2.kill_count, RGB(0, 128, 248), RGB(0, 213, 50));
+        DrawSummaryChart(hdcMem, fonts, chart_x, top_margin + chart_h * 3, chart_w, chart_h, ToWide(TR("Resource collection rate")),
+                         dur, s1.time_stamps, s1.collection_rate, s2.time_stamps, s2.collection_rate, RGB(0, 128, 248), RGB(0, 213, 50));
+    }
 
     // 3. Render Right Column (Top Banner & Sections)
     int rw = (int)(height * 0.48f);
     int rx = width - rw - (int)(height * 0.015f);
 
-    DrawSummaryBanner(hdcMem, pixels, width, height, fonts, r, rx, rw);
+    DrawSummaryBanner(hdcMem, pixels, width, height, fonts, r, rx, rw, m_is_best_time, m_show_session, m_session_wins, m_session_games, m_random_commander, m_random_prestige);
 
     int bar_y = (int)(height * 0.076f);
     int bar_h = (int)(height * 0.040f);
@@ -583,24 +594,82 @@ void SummaryOverlay::Render() {
     }
     int total_kills = p1_kills + p2_kills;
 
-    int p1_y = sub_y + 52;
-    int p2_y = p1_y + (int)(height * 0.28f);
-    int amon_y = p2_y + (int)(height * 0.28f);
+    // Card geometry is expressed in 1080p logical pixels. At higher
+    // resolutions use matching logical fonts so adjacent rows do not overlap.
+    SummaryOverlayFonts card_fonts = fonts;
+    std::vector<HFONT> card_font_copies;
+    if (height > 1080) {
+        auto logical_font = [&](HFONT original) {
+            LOGFONTW lf{};
+            if (!original || !GetObjectW(original, sizeof(lf), &lf)) return original;
+            lf.lfHeight = MulDiv(lf.lfHeight, 1080, height);
+            HFONT copy = CreateFontIndirectW(&lf);
+            if (copy) card_font_copies.push_back(copy);
+            return copy ? copy : original;
+        };
+        card_fonts.hFontPlayerName = logical_font(fonts.hFontPlayerName);
+        card_fonts.hFontPrestige = logical_font(fonts.hFontPrestige);
+        card_fonts.hFontTimestamp = logical_font(fonts.hFontTimestamp);
+        card_fonts.hFontMastery = logical_font(fonts.hFontMastery);
+        card_fonts.hFontUnit = logical_font(fonts.hFontUnit);
+        card_fonts.hFontUnitBold = logical_font(fonts.hFontUnitBold);
+    }
+    auto section_height = [&](const PlayerInfo& player) {
+        int badge_rows = 0, x = 0;
+        SelectObject(hdcMem, card_fonts.hFontUnitBold);
+        const int badge_h = 32;
+        for (const auto& item : player.contributions) {
+            std::wstring label;
+            if (item.count > 0) label = L" +" + std::to_wstring(item.count);
+            SIZE extent{};
+            if (!label.empty()) GetTextExtentPoint32W(hdcMem, label.c_str(), (int)label.size(), &extent);
+            int w = std::min(rw, 34 + (label.empty() ? 0 : (int)extent.cx + 8)) + 4;
+            if (!badge_rows || x + w - 4 > rw) { ++badge_rows; x = 0; }
+            x += w;
+        }
+        bool mastery = kCommanderMasteries.find(player.commander) != kCommanderMasteries.end() &&
+            std::any_of(player.masteries.begin(), player.masteries.end(), [](int n) { return n > 0; });
+        int rows = std::min(5, (int)std::count_if(player.units.begin(), player.units.end(), [](const UnitStat& u) { return u.kills > 0; }));
+        return 52 + (badge_rows ? badge_rows * (badge_h + 4) + 2 : 0) + (mastery ? 114 : 0) + 20 + rows * 22 + 8;
+    };
+    int p1_y = sub_y + SummaryHeaderHeight(height, m_is_best_time);
+    int p2_y = p1_y + section_height(r.p1);
+    int amon_y = p2_y + section_height(r.p2);
+
+    // Fit all three cards into the available height, including unusually long
+    // contribution lists. Keep the banner and session footer at their size.
+    const int amon_rows = std::min(5, (int)std::count_if(r.amon_units.begin(), r.amon_units.end(),
+        [](const UnitStat& u) { return u.kills > 0; }));
+    const int content_bottom = amon_y + 52 + (amon_rows ? 20 + amon_rows * 22 : 0);
+    const int available_bottom = height - ((m_show_session || !m_random_commander.empty()) ? 35 : 8);
+    const int content_height = std::max(1, content_bottom - p1_y);
+    const int available_height = std::max(1, available_bottom - p1_y);
+    const int card_scale = std::max(1, std::min(1000, 1000 * available_height / content_height));
+    const int card_dc = SaveDC(hdcMem);
+    if (card_dc && card_scale != 1000) {
+        SetMapMode(hdcMem, MM_ANISOTROPIC);
+        SetWindowExtEx(hdcMem, 1000, 1000, nullptr);
+        SetViewportExtEx(hdcMem, card_scale, card_scale, nullptr);
+        SetWindowOrgEx(hdcMem, rx, p1_y, nullptr);
+        SetViewportOrgEx(hdcMem, rx, p1_y, nullptr);
+    }
 
     // Draw P1 (Blue #0080F8)
-    DrawSummarySection(hdcMem, fonts, rx, rw, height, total_kills,
+    DrawSummarySection(hdcMem, card_fonts, rx, rw, std::min(height, 1080), total_kills,
                        p1_y, r.p1.commander, r.p1.name, r.p1.prestige, r.p1.prestige_name,
-                       r.p1.masteries, r.p1.units, p1_kills, RGB(0, 128, 248), false, "");
+                       r.p1.masteries, r.p1.units, r.p1.contributions, p1_kills, RGB(0, 128, 248), false, "");
 
     // Draw P2 (Green #00D532)
-    DrawSummarySection(hdcMem, fonts, rx, rw, height, total_kills,
+    DrawSummarySection(hdcMem, card_fonts, rx, rw, std::min(height, 1080), total_kills,
                        p2_y, r.p2.commander, r.p2.name, r.p2.prestige, r.p2.prestige_name,
-                       r.p2.masteries, r.p2.units, p2_kills, RGB(0, 213, 50), false, "");
+                       r.p2.masteries, r.p2.units, r.p2.contributions, p2_kills, RGB(0, 213, 50), false, "");
 
     // Draw Amon (Red #FF3333)
-    DrawSummarySection(hdcMem, fonts, rx, rw, height, total_kills,
+    DrawSummarySection(hdcMem, card_fonts, rx, rw, std::min(height, 1080), total_kills,
                        amon_y, "", "", 0, "",
-                       {}, r.amon_units, 0, RGB(255, 51, 51), true, r.enemy_comp);
+                       {}, r.amon_units, {}, 0, RGB(255, 51, 51), true, r.enemy_comp);
+    if (card_dc) RestoreDC(hdcMem, card_dc);
+    for (HFONT font : card_font_copies) DeleteObject(font);
 
     // 4. Alpha Post-Processing Pass
     for (int i = 0; i < width * height; ++i) {

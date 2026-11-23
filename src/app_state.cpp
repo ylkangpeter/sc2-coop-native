@@ -5,6 +5,8 @@
 #include "replay/replay_scanner.h"
 #include "utils/win32_utils.h"
 
+#include "data/sc2_constants.h"
+#include <random>
 #include <windows.h>
 #include <filesystem>
 #include <algorithm>
@@ -15,6 +17,22 @@ namespace sc2 {
 AppState& AppState::Instance() {
     static AppState state;
     return state;
+}
+
+void AppState::RollRandomCommander() {
+    if (!hud_randomizer) {
+        session_random_commander.clear();
+        session_random_prestige.clear();
+        return;
+    }
+    static std::mt19937 generator(std::random_device{}());
+    std::uniform_int_distribution<size_t> pick(0, kCommanders.size() - 1);
+    do {
+        session_random_commander = kCommanders[pick(generator)];
+    } while (session_random_commander == "Horner"); // Alias of HanHorner.
+    const auto& names = kPrestiges.at(session_random_commander);
+    const std::array prestiges{names.p0, names.p1, names.p2, names.p3};
+    session_random_prestige = prestiges[std::uniform_int_distribution<int>(0, 3)(generator)];
 }
 
 AppState::~AppState() {
@@ -107,6 +125,11 @@ void AppState::LoadSettings() {
     std::string fs = db.GetSetting("font_scale", "1.0");
     try { font_scale = std::stof(fs); } catch (...) { font_scale = 1.0f; }
 
+    hud_show_charts = db.GetSetting("hud_show_charts", "1") == "1";
+    hud_show_total_kills = db.GetSetting("hud_show_total_kills", "0") == "1";
+    hud_show_session = db.GetSetting("hud_show_session", "1") == "1";
+    hud_randomizer = db.GetSetting("hud_randomizer", "0") == "1";
+    RollRandomCommander();
     std::string hd = db.GetSetting("hud_duration", "15");
     try { hud_duration_seconds = std::stoi(hd); } catch (...) { hud_duration_seconds = 15; }
 
@@ -150,6 +173,10 @@ void AppState::SaveSettings() {
     db.SetSetting("hotkey_ally_vk", std::to_string(hotkey_ally_vk));
 
     db.SetSetting("font_scale", std::to_string(font_scale));
+    db.SetSetting("hud_show_charts", hud_show_charts ? "1" : "0");
+    db.SetSetting("hud_show_total_kills", hud_show_total_kills ? "1" : "0");
+    db.SetSetting("hud_show_session", hud_show_session ? "1" : "0");
+    db.SetSetting("hud_randomizer", hud_randomizer ? "1" : "0");
     db.SetSetting("hud_duration", std::to_string(hud_duration_seconds));
     db.SetSetting("toast_show_border", toast_show_border ? "1" : "0");
     db.SetSetting("toast_opacity_percent", std::to_string(std::clamp(toast_opacity_percent, 0, 100)));

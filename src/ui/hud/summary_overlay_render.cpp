@@ -1,6 +1,7 @@
 #include "summary_overlay_render.h"
 #include "../../utils/win32_utils.h"
 #include "../../i18n/i18n.h"
+#include "../../app_state.h"
 #include "../../data/sc2_constants.h"
 #include <stb_image.h>
 #include <algorithm>
@@ -11,6 +12,50 @@ namespace {
 
 inline std::wstring ToWide(const std::string& str) {
     return Win32Utils::Utf8ToWide(str);
+}
+
+bool LoadContributionIcon(const std::string& name, std::vector<uint32_t>& pixels, int& width, int& height) {
+    if (name.find_first_of("/\\") != std::string::npos || name == "." || name == "..") return false;
+    std::string path = "assets/icons/contributions/" + name + ".png";
+    int channels = 0;
+    unsigned char* img = stbi_load(path.c_str(), &width, &height, &channels, 4);
+    if (!img) img = stbi_load(("dist/sc2_coop/" + path).c_str(), &width, &height, &channels, 4);
+    if (!img || width <= 0 || height <= 0) { if (img) stbi_image_free(img); return false; }
+    pixels.resize((size_t)width * height);
+    for (size_t i = 0; i < pixels.size(); ++i) {
+        unsigned a = img[i * 4 + 3];
+        unsigned r = (img[i * 4] * a + 42 * (255 - a)) / 255;
+        unsigned g = (img[i * 4 + 1] * a + 48 * (255 - a)) / 255;
+        unsigned b = (img[i * 4 + 2] * a + 58 * (255 - a)) / 255;
+        pixels[i] = (r << 16) | (g << 8) | b;
+    }
+    stbi_image_free(img);
+    return true;
+}
+
+// Composite an existing game icon into the 32-bit DIB used by the overlay.
+void DrawIconPixels(uint32_t* pixels, int width, int height, const std::string& name, int x, int y, int size) {
+    if (name.find_first_of("/\\") != std::string::npos || name == "." || name == "..") return;
+    const std::string path = "assets/icons/mutators/" + name + ".png";
+    const std::string dist = "dist/sc2_coop/" + path;
+    int iw = 0, ih = 0, channels = 0;
+    unsigned char* img = stbi_load(path.c_str(), &iw, &ih, &channels, 4);
+    if (!img) img = stbi_load(dist.c_str(), &iw, &ih, &channels, 4);
+    if (!img) img = stbi_load(("assets/Icons/mutators/" + name + ".png").c_str(), &iw, &ih, &channels, 4);
+    if (!img || iw <= 0 || ih <= 0) { if (img) stbi_image_free(img); return; }
+    GdiFlush();
+    for (int dy = 0; dy < size; ++dy) for (int dx = 0; dx < size; ++dx) {
+        int px = x + dx, py = y + dy;
+        if (px < 0 || px >= width || py < 0 || py >= height) continue;
+        int i = ((dy * ih / size) * iw + dx * iw / size) * 4;
+        unsigned a = img[i + 3];
+        uint32_t bg = pixels[py * width + px];
+        unsigned r = (img[i] * a + ((bg >> 16) & 255) * (255 - a)) / 255;
+        unsigned g = (img[i + 1] * a + ((bg >> 8) & 255) * (255 - a)) / 255;
+        unsigned b = (img[i + 2] * a + (bg & 255) * (255 - a)) / 255;
+        pixels[py * width + px] = 0xff000000 | (r << 16) | (g << 8) | b;
+    }
+    stbi_image_free(img);
 }
 
 } // namespace
@@ -63,7 +108,15 @@ void BlendCommanderImage(uint32_t* pixels, int width, int height,
 
 void DrawSummaryBanner(HDC hdc, uint32_t* pixels, int width, int height,
                        const SummaryOverlayFonts& fonts,
-                       const ReplayRecord& r, int rx, int rw) {
+                       const ReplayRecord& r, int rx, int rw, bool is_best_time, bool show_session, int session_wins, int session_games,
+                       const std::string& random_commander, const std::string& random_prestige) {
+    // Mutators occupy their own row so that long player names stay legible.
+    int icon_size = std::max(16, (int)(height * 0.030f));
+    int icon_count = std::min((int)r.mutators.size(), std::max(1, rw / (icon_size + 2)));
+    int icon_x = rx + (rw - icon_count * (icon_size + 2)) / 2;
+    for (int i = 0; i < icon_count; ++i)
+        DrawIconPixels(pixels, width, height, r.mutators[i], icon_x + i * (icon_size + 2), 2, icon_size);
+
     // --- Row 1: Player Names, Victory Banner & Match Timestamp ---
     bool is_win = (r.result == "Victory");
     COLORREF color_result = is_win ? RGB(225, 225, 225) : RGB(231, 76, 60);
@@ -186,14 +239,14 @@ void DrawSummaryBanner(HDC hdc, uint32_t* pixels, int width, int height,
     int total_kills = p1_kills + p2_kills;
     float p1_frac = 0.5f;
     if (total_kills > 0) p1_frac = (float)p1_kills / (float)total_kills;
-    else if (r.p1.apm + r.p2.apm > 0) p1_frac = (float)r.p1.apm / (float)(r.p1.apm + r.p2.apm);
+
 
     int p1_bw = (int)(rw * p1_frac);
     if (p1_bw < 12) p1_bw = 12;
     if (p1_bw > rw - 12) p1_bw = rw - 12;
 
-    HBRUSH hBrushP1 = CreateSolidBrush(RGB(0, 128, 248));
-    HBRUSH hBrushP2 = CreateSolidBrush(RGB(0, 213, 50));
+    HBRUSH hBrushP1 = CreateSolidBrush(total_kills > 0 ? RGB(0, 128, 248) : RGB(102, 102, 102));
+    HBRUSH hBrushP2 = CreateSolidBrush(total_kills > 0 ? RGB(0, 213, 50) : RGB(68, 68, 68));
     RECT rcBar1 = { rx, bar_y, rx + p1_bw, bar_y + bar_h };
     FillRect(hdc, &rcBar1, hBrushP1);
     RECT rcBar2 = { rx + p1_bw, bar_y, rx + rw, bar_y + bar_h };
@@ -206,16 +259,20 @@ void DrawSummaryBanner(HDC hdc, uint32_t* pixels, int width, int height,
 
     SelectObject(hdc, fonts.hFontPlayerName);
     SetTextColor(hdc, RGB(255, 255, 255));
-    int pct1 = (int)(p1_frac * 100.0f + 0.5f);
-    int pct2 = 100 - pct1;
+    int pct1 = total_kills > 0 ? (int)(p1_frac * 100.0f + 0.5f) : 0;
+    int pct2 = total_kills > 0 ? (int)((1.0f - p1_frac) * 100.0f + 0.5f) : 0;
     std::wstring pct1_str = std::to_wstring(pct1) + L"%";
     std::wstring pct2_str = std::to_wstring(pct2) + L"%";
+    if (AppState::Instance().hud_show_total_kills && total_kills > 0) {
+        pct1_str += L" (" + std::to_wstring(p1_kills) + L")";
+        pct2_str += L" (" + std::to_wstring(p2_kills) + L")";
+    }
 
-    RECT rcPct1 = { rx + 12, bar_y, rx + p1_bw - 8, bar_y + bar_h };
-    DrawTextW(hdc, pct1_str.c_str(), -1, &rcPct1, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+    RECT rcPct1 = { rx + 8, bar_y, rx + rw / 2 - 30, bar_y + bar_h };
+    DrawTextW(hdc, pct1_str.c_str(), -1, &rcPct1, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
 
-    RECT rcPct2 = { rx + p1_bw + 8, bar_y, rx + rw - 12, bar_y + bar_h };
-    DrawTextW(hdc, pct2_str.c_str(), -1, &rcPct2, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
+    RECT rcPct2 = { rx + rw / 2 + 30, bar_y, rx + rw - 8, bar_y + bar_h };
+    DrawTextW(hdc, pct2_str.c_str(), -1, &rcPct2, DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
 
     SelectObject(hdc, fonts.hFontMap);
     RECT rcKillsCenter = { rx, bar_y, rx + rw, bar_y + bar_h };
@@ -228,12 +285,26 @@ void DrawSummaryBanner(HDC hdc, uint32_t* pixels, int width, int height,
     SelectObject(hdc, fonts.hFontMap);
     SetTextColor(hdc, RGB(220, 220, 220));
 
-    const int side_w = std::max(160, (int)(rw * 0.32f));
-    auto draw_player = [&](const PlayerInfo& player, int x, bool right) {
+    const int line_h = SummaryHeaderLineHeight(height);
+    auto measure_player = [&](const PlayerInfo& p) {
+        SIZE szCmd{}, szLvl{}, szApm{};
+        std::wstring cname = ToWide(TR(p.commander.c_str())) + L" ";
+        GetTextExtentPoint32W(hdc, cname.c_str(), (int)cname.size(), &szCmd);
+        std::wstring lvl = ToWide(p.FormatLevel());
+        if (!lvl.empty()) GetTextExtentPoint32W(hdc, lvl.c_str(), (int)lvl.size(), &szLvl);
+        std::wstring apm = std::to_wstring(p.apm) + L" APM";
+        GetTextExtentPoint32W(hdc, apm.c_str(), (int)apm.size(), &szApm);
+        return std::max((int)(szCmd.cx + szLvl.cx), (int)szApm.cx) + 8;
+    };
+    int max_side = (int)(rw * 0.32f);
+    int side_w_left = std::clamp(measure_player(r.p1), 70, max_side);
+    int side_w_right = std::clamp(measure_player(r.p2), 70, max_side);
+
+    auto draw_player = [&](const PlayerInfo& player, int x, int side_w, bool right) {
         const UINT flags = (right ? DT_RIGHT : DT_LEFT) | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS;
         const auto name = ToWide(TR(player.commander.c_str()));
         const auto level = ToWide(player.FormatLevel());
-        RECT name_rect = {x, sub_y, x + side_w, sub_y + 20};
+        RECT name_rect = {x, sub_y, x + side_w, sub_y + line_h};
         SetTextColor(hdc, RGB(220, 220, 220));
         DrawTextW(hdc, name.c_str(), -1, &name_rect, flags);
         if (!level.empty()) {
@@ -250,24 +321,108 @@ void DrawSummaryBanner(HDC hdc, uint32_t* pixels, int width, int height,
         }
         SetTextColor(hdc, RGB(220, 220, 220));
         auto apm = std::to_wstring(player.apm) + L" APM";
-        OffsetRect(&name_rect, 0, 22);
+        OffsetRect(&name_rect, 0, line_h);
         DrawTextW(hdc, apm.c_str(), -1, &name_rect, flags);
     };
-    draw_player(r.p1, rx, false);
-    draw_player(r.p2, rx + rw - side_w, true);
+    draw_player(r.p1, rx, side_w_left, false);
+    draw_player(r.p2, rx + rw - side_w_right, side_w_right, true);
 
-    // Center: Map Name [MM:SS] [b_earned/b_total] & Difficulty
-    int b_earned = r.bonus_earned;
-    int b_total = r.bonus_total > 0 ? r.bonus_total : 3;
-    std::wstring map_str = ToWide(TR(r.map_name.c_str())) + L" [" + ToWide(r.form_length) + L"] [" +
-                           std::to_wstring(b_earned) + L"/" + std::to_wstring(b_total) + L"]";
-    int center_inset = std::max(120, side_w - 20);
-    RECT rcMapCenter = { rx + center_inset, sub_y, rx + rw - center_inset, sub_y + 20 };
-    DrawTextW(hdc, map_str.c_str(), -1, &rcMapCenter, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    const int center_left = rx + side_w_left + 4;
+    const int center_right = rx + rw - side_w_right - 4;
+    const int center_w = std::max(0, center_right - center_left);
+    const int center_mid = center_left + center_w / 2;
 
+    // Row 1 Center: Map name (duration) (bonus)
+    std::wstring map_str = ToWide(TR(r.map_name.c_str()));
+    std::wstring dur_str = !r.form_length.empty() ? (L"  (" + ToWide(r.form_length) + L")") : L"";
+    std::wstring bonus_str;
+    if (r.bonus_earned >= 0 && r.bonus_total > 0) {
+        bonus_str = L"  (" + std::to_wstring(r.bonus_earned) + L"/" + std::to_wstring(r.bonus_total) + L")";
+    }
+
+    SIZE szMap = {0, 0}, szDur = {0, 0}, szBonus = {0, 0};
+    GetTextExtentPoint32W(hdc, map_str.c_str(), (int)map_str.size(), &szMap);
+    if (!dur_str.empty()) GetTextExtentPoint32W(hdc, dur_str.c_str(), (int)dur_str.size(), &szDur);
+    if (!bonus_str.empty()) GetTextExtentPoint32W(hdc, bonus_str.c_str(), (int)bonus_str.size(), &szBonus);
+
+    int fixed_w = szDur.cx + szBonus.cx;
+    int total_map_w = szMap.cx + fixed_w;
+
+    RECT rcMapPart, rcDurPart, rcBonusPart;
+    if (total_map_w <= center_w) {
+        int start_x = center_mid - total_map_w / 2;
+        rcMapPart = {start_x, sub_y, start_x + (int)szMap.cx, sub_y + line_h};
+        rcDurPart = {rcMapPart.right, sub_y, rcMapPart.right + (int)szDur.cx, sub_y + line_h};
+        rcBonusPart = {rcDurPart.right, sub_y, rcDurPart.right + (int)szBonus.cx, sub_y + line_h};
+    } else {
+        // Reserve width for bonus and duration on the right, truncate map name
+        rcBonusPart = {center_right - (int)szBonus.cx, sub_y, center_right, sub_y + line_h};
+        rcDurPart = {rcBonusPart.left - (int)szDur.cx, sub_y, rcBonusPart.left, sub_y + line_h};
+        rcMapPart = {center_left, sub_y, std::max<int>(center_left, (int)rcDurPart.left), sub_y + line_h};
+    }
+
+    SetTextColor(hdc, RGB(220, 220, 220));
+    DrawTextW(hdc, map_str.c_str(), -1, &rcMapPart, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+
+    if (!dur_str.empty() && rcDurPart.left < rcDurPart.right) {
+        DrawTextW(hdc, dur_str.c_str(), -1, &rcDurPart, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+    }
+    if (!bonus_str.empty() && rcBonusPart.left < rcBonusPart.right) {
+        SetTextColor(hdc, RGB(255, 230, 112)); // Maguro gold for bonus objective
+        DrawTextW(hdc, bonus_str.c_str(), -1, &rcBonusPart, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+    }
+
+    // Row 2 Center: Difficulty + [BEST TIME!]
     std::wstring diff_str = ToWide(TR(r.difficulty.c_str()));
-    RECT rcDiff = { rx + center_inset, sub_y + 22, rx + rw - center_inset, sub_y + 42 };
-    DrawTextW(hdc, diff_str.c_str(), -1, &rcDiff, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    if (!r.ally_difficulty.empty() && r.ally_difficulty != r.difficulty)
+        diff_str += L" / " + ToWide(TR(r.ally_difficulty.c_str()));
+    if (r.is_weekly) diff_str = ToWide(TR("Weekly")) + L" (" + diff_str + L")";
+    else if (r.is_custom_mutation) diff_str = ToWide(TR("Custom")) + L" (" + diff_str + L")";
+
+    std::wstring best_str = is_best_time ? (L"  " + ToWide(TR("BEST TIME!"))) : L"";
+
+    SIZE szDiff = {0, 0}, szBest = {0, 0};
+    GetTextExtentPoint32W(hdc, diff_str.c_str(), (int)diff_str.size(), &szDiff);
+    if (!best_str.empty()) {
+        SelectObject(hdc, fonts.hFontTimestamp);
+        GetTextExtentPoint32W(hdc, best_str.c_str(), (int)best_str.size(), &szBest);
+        SelectObject(hdc, fonts.hFontMap);
+    }
+    int total_diff_w = (int)szDiff.cx + (int)szBest.cx;
+
+    RECT rcDiffPart, rcBestPart;
+    if (total_diff_w <= center_w) {
+        int diff_x = center_mid - total_diff_w / 2;
+        rcDiffPart = {diff_x, sub_y + line_h, diff_x + (int)szDiff.cx, sub_y + 2 * line_h};
+        rcBestPart = {diff_x + (int)szDiff.cx, sub_y + line_h, diff_x + total_diff_w, sub_y + 2 * line_h};
+    } else {
+        // Reserve width for BEST TIME! on the right, truncate difficulty if needed
+        rcBestPart = {center_right - (int)szBest.cx, sub_y + line_h, center_right, sub_y + 2 * line_h};
+        rcDiffPart = {center_left, sub_y + line_h, std::max<int>(center_left, (int)rcBestPart.left), sub_y + 2 * line_h};
+    }
+
+    SetTextColor(hdc, RGB(220, 220, 220));
+    DrawTextW(hdc, diff_str.c_str(), -1, &rcDiffPart, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+
+    if (!best_str.empty() && rcBestPart.left < rcBestPart.right) {
+        SelectObject(hdc, fonts.hFontTimestamp);
+        SetTextColor(hdc, RGB(255, 192, 0)); // Gold for BEST TIME!
+        DrawTextW(hdc, best_str.c_str(), -1, &rcBestPart, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+        SelectObject(hdc, fonts.hFontMap);
+    }
+    if (show_session || !random_commander.empty()) {
+        SelectObject(hdc, fonts.hFontTimestamp);
+        SetTextColor(hdc, RGB(190, 190, 190));
+        std::wstring session = ToWide(TR("Session")) + L": " + std::to_wstring(session_wins) + L" " + ToWide(TR("wins")) + L" / " + std::to_wstring(session_games) + L" " + ToWide(TR("games"));
+        RECT rcSession = {rx, height - 30, rx + rw, height - 15};
+        if (show_session) DrawTextW(hdc, session.c_str(), -1, &rcSession, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+        if (!random_commander.empty()) {
+            std::wstring random = ToWide(TR("Randomized commander")) + L": " + ToWide(TR(random_commander.c_str()));
+            if (!random_prestige.empty()) random += L" (" + ToWide(TR(random_prestige.c_str())) + L")";
+            RECT rcRandom = {rx, height - 15, rx + rw, height};
+            DrawTextW(hdc, random.c_str(), -1, &rcRandom, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+        }
+    }
 }
 
 void DrawSummarySection(HDC hdc, const SummaryOverlayFonts& fonts,
@@ -276,6 +431,7 @@ void DrawSummarySection(HDC hdc, const SummaryOverlayFonts& fonts,
                         int prestige_idx, const std::string& prestige_str,
                         const std::vector<int>& masteries,
                         const std::vector<UnitStat>& units,
+                        const std::vector<Contribution>& contributions,
                         int p_kills,
                         COLORREF theme_col, bool is_amon, const std::string& enemy_comp_name) {
     // Name (Large, Bold)
@@ -289,7 +445,7 @@ void DrawSummarySection(HDC hdc, const SummaryOverlayFonts& fonts,
     SelectObject(hdc, fonts.hFontPrestige);
     std::wstring sub_title;
     if (is_amon) {
-        std::string comp_to_trans = enemy_comp_name.empty() ? "Ravaging Infestation" : enemy_comp_name;
+        std::string comp_to_trans = enemy_comp_name.empty() ? "Unknown" : enemy_comp_name;
         sub_title = ToWide(TR(comp_to_trans.c_str()));
     } else {
         if (!prestige_str.empty()) {
@@ -308,20 +464,87 @@ void DrawSummarySection(HDC hdc, const SummaryOverlayFonts& fonts,
     }
     SetTextColor(hdc, theme_col);
     RECT rcPres = { rx, card_y + 28, rx + rw, card_y + 48 };
-    DrawTextW(hdc, sub_title.c_str(), -1, &rcPres, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+    DrawTextW(hdc, sub_title.c_str(), -1, &rcPres, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
 
     int cur_y = card_y + 52;
+
+    // Ordered contribution badges preserve the replay's outlaw order and counts.
+    if (!is_amon && !contributions.empty()) {
+        SelectObject(hdc, fonts.hFontUnitBold);
+        const int icon_sz = 30;
+        const int badge_h = 32;
+        int x = rx;
+        for (const auto& contribution : contributions) {
+            std::vector<uint32_t> icon;
+            int icon_w = 0, icon_h = 0;
+            bool has_icon = LoadContributionIcon(contribution.icon, icon, icon_w, icon_h);
+            std::wstring label = has_icon ? L"" : ToWide(TR(contribution.icon.c_str()));
+            COLORREF text_color = RGB(245, 245, 245);
+            if (contribution.count > 0) {
+                const bool plain = contribution.icon == "hfts" || contribution.icon == "tus" ||
+                                   contribution.icon == "propagators" || contribution.icon == "voidrifts" ||
+                                   contribution.icon == "turkey" || contribution.icon == "voidreanimators" ||
+                                   contribution.icon == "deadofnight" || contribution.icon == "minesweeper" ||
+                                   contribution.icon == "missilecommand";
+                if (contribution.icon == "killbots") {
+                    label += L" -" + std::to_wstring(contribution.count);
+                    text_color = RGB(255, 60, 60);
+                } else if (plain) {
+                    label += L" " + std::to_wstring(contribution.count);
+                    text_color = RGB(240, 240, 240);
+                } else {
+                    label += L" +" + std::to_wstring(contribution.count);
+                    text_color = RGB(35, 220, 80);
+                }
+            } else if (!has_icon) {
+                text_color = theme_col;
+            }
+
+            SIZE size{};
+            if (!label.empty()) {
+                GetTextExtentPoint32W(hdc, label.c_str(), (int)label.size(), &size);
+            }
+            int badge_w = std::min(rw, (has_icon ? icon_sz + 4 : 8) + (label.empty() ? 0 : (int)size.cx + 8));
+            if (x + badge_w > rx + rw) { x = rx; cur_y += badge_h + 4; }
+            HBRUSH brush = CreateSolidBrush(RGB(38, 44, 54));
+            RECT badge = {x, cur_y, x + badge_w, cur_y + badge_h};
+            FillRect(hdc, &badge, brush);
+            DeleteObject(brush);
+            if (has_icon) {
+                BITMAPINFO bmi{};
+                bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+                bmi.bmiHeader.biWidth = icon_w;
+                bmi.bmiHeader.biHeight = -icon_h;
+                bmi.bmiHeader.biPlanes = 1;
+                bmi.bmiHeader.biBitCount = 32;
+                bmi.bmiHeader.biCompression = BI_RGB;
+                int old_mode = SetStretchBltMode(hdc, COLORONCOLOR);
+                int icon_y_offset = (badge_h - icon_sz) / 2;
+                StretchDIBits(hdc, x + 2, cur_y + icon_y_offset, icon_sz, icon_sz, 0, 0, icon_w, icon_h,
+                              icon.data(), &bmi, DIB_RGB_COLORS, SRCCOPY);
+                SetStretchBltMode(hdc, old_mode);
+            }
+            if (!label.empty()) {
+                RECT rcText = badge;
+                if (has_icon) rcText.left += icon_sz + 2;
+                SetTextColor(hdc, text_color);
+                DrawTextW(hdc, label.c_str(), -1, &rcText, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+            }
+            x += badge_w + 4;
+        }
+        cur_y += badge_h + 6;
+    }
 
     // 6 Masteries (P1 and P2 only, 6 lines)
     if (!is_amon) {
         auto m_it = kCommanderMasteries.find(cmdr_name);
-        if (m_it != kCommanderMasteries.end()) {
+        if (m_it != kCommanderMasteries.end() && std::any_of(masteries.begin(), masteries.end(), [](int n) { return n > 0; })) {
             SelectObject(hdc, fonts.hFontMastery);
             for (int m_idx = 0; m_idx < 6; ++m_idx) {
                 int pts = (m_idx < (int)masteries.size()) ? masteries[m_idx] : 0;
                 std::wstring mname = ToWide(TR(m_it->second[m_idx]));
 
-                COLORREF mcol = (pts > 0) ? RGB(255, 255, 255) : RGB(120, 130, 145);
+                COLORREF mcol = (pts > 0) ? RGB(255, 220, 135) : RGB(130, 125, 110);
                 SetTextColor(hdc, mcol);
 
                 RECT rcPts = { rx, cur_y + m_idx * 18, rx + 24, cur_y + (m_idx + 1) * 18 };
@@ -329,11 +552,13 @@ void DrawSummarySection(HDC hdc, const SummaryOverlayFonts& fonts,
                 DrawTextW(hdc, pts_str.c_str(), -1, &rcPts, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
 
                 RECT rcMName = { rx + 30, cur_y + m_idx * 18, rx + rw, cur_y + (m_idx + 1) * 18 };
-                DrawTextW(hdc, mname.c_str(), -1, &rcMName, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+                DrawTextW(hdc, mname.c_str(), -1, &rcMName, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
             }
             cur_y += 6 * 18 + 6;
         }
     }
+
+    if (std::none_of(units.begin(), units.end(), [](const UnitStat& u) { return u.kills > 0; })) return;
 
     // Units Breakdown Table
     SelectObject(hdc, fonts.hFontUnit);
@@ -380,6 +605,7 @@ void DrawSummarySection(HDC hdc, const SummaryOverlayFonts& fonts,
         return a.lost > b.lost;
     });
 
+    proc_units.erase(std::remove_if(proc_units.begin(), proc_units.end(), [](const UnitStat& u) { return u.kills <= 0; }), proc_units.end());
     int p_tot = p_kills;
     if (p_tot <= 0) {
         for (const auto& u : proc_units) p_tot += u.kills;
@@ -400,7 +626,7 @@ void DrawSummarySection(HDC hdc, const SummaryOverlayFonts& fonts,
         SetTextColor(hdc, theme_col);
         std::wstring uname = ToWide(TR(u.name.c_str()));
         RECT rcUName = { rx, row_y, rx + (int)(rw * 0.38f), row_y + 20 };
-        DrawTextW(hdc, uname.c_str(), -1, &rcUName, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+        DrawTextW(hdc, uname.c_str(), -1, &rcUName, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
 
         // Proportional Kill Bar
         int kbar_x = rx + (int)(rw * 0.38f);
@@ -416,7 +642,7 @@ void DrawSummarySection(HDC hdc, const SummaryOverlayFonts& fonts,
         // Kills Text
         SelectObject(hdc, fonts.hFontUnitBold);
         SetTextColor(hdc, RGB(255, 255, 255));
-        int pct = (int)(((float)u.kills / p_tot) * 100.0f + 0.5f);
+        int pct = (int)((is_amon ? u.kill_fraction : (float)u.kills / p_tot) * 100.0f + 0.5f);
         std::wstring ktext = std::to_wstring(pct) + L"% | " + std::to_wstring(u.kills);
         RECT rcKText = { kbar_x + 6, row_y, kbar_x + kbar_w - 6, row_y + 20 };
         DrawTextW(hdc, ktext.c_str(), -1, &rcKText, DT_LEFT | DT_VCENTER | DT_SINGLELINE);

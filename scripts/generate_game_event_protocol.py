@@ -4,7 +4,8 @@
 from functools import lru_cache
 from pathlib import Path
 
-from s2protocol import versions
+import importlib.util
+import s2protocol
 
 
 def generate():
@@ -20,12 +21,20 @@ def generate():
         nodes.append(f"{{Kind::{kind}, {bits}, {offset}LL, {index}, {len(links)}}}")
         return len(nodes) - 1
 
-    for name in versions.list_all():
+    # Load the protocol modules directly. Older s2protocol dispatchers use imp,
+    # which Python 3.12 removed.
+    directory = Path(s2protocol.__file__).parent / "versions"
+    for file in sorted(directory.glob("protocol[0-9]*.py")):
+        name = file.name
         build = int(name[8:-3])
         if build < 51702:
             continue
-        source = versions.build(build)
+        spec = importlib.util.spec_from_file_location(file.stem, file)
+        source = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(source)
 
+        fields = {"m_abilLink": "Ability", "m_tag": "Target", "m_controlId": "Control",
+                  "m_eventType": "EventType", "m_eventData": "Choice"}
         @lru_cache(maxsize=None)
         def layout_type(type_id):
             kind, args = source.typeinfos[type_id]
@@ -42,7 +51,8 @@ def generate():
                 (lower, width), element = args
                 return node("Array", width, lower, ((0, layout_type(element)),))
             if kind == "_struct":
-                return node("Struct", links=tuple((0, layout_type(field_type)) for _, field_type, _ in args[0]))
+                return node("Struct", links=tuple((0, layout_type(field_type), fields.get(field_name, "Ignore"))
+                                                  for field_name, field_type, _ in args[0]))
             if kind == "_choice":
                 (lower, width), options = args
                 return node("Choice", width, lower, tuple((tag, layout_type(field_type))
@@ -50,7 +60,8 @@ def generate():
             raise ValueError(kind)
 
         observed = {
-            "SCmdEvent": "Order", "STriggerTransmissionCompleteEvent": "Dialogue",
+            "SCmdEvent": "Order", "SCmdUpdateTargetUnitEvent": "Retarget",
+            "STriggerDialogControlEvent": "Control", "STriggerTransmissionCompleteEvent": "Dialogue",
             "SAchievementAwardedEvent": "Achievement", "SGameUserLeaveEvent": "Leave",
         }
         events = tuple((code, layout_type(typ), observed.get(event.rsplit(".", 1)[-1], "Other"))
@@ -66,7 +77,9 @@ def generate():
              "constexpr LayoutNode kNodes[] = {"]
     lines.extend(f"    {value}," for value in nodes)
     lines.append("};\nconstexpr LayoutChild kChildren[] = {")
-    lines.extend(f"    {{{tag}, {target}}}," for tag, target in children)
+    for tag, target, *field in children:
+        suffix = f", Field::{field[0]}" if field and field[0] != "Ignore" else ""
+        lines.append(f"    {{{tag}, {target}{suffix}}},")
     lines.append("};")
     for index, (_, _, _, events) in enumerate(layouts):
         lines.append(f"constexpr EventLayout kEvents{index}[] = {{")

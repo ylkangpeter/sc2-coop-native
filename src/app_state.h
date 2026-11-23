@@ -41,6 +41,15 @@ public:
     unsigned int hotkey_ally_mod = 0x0002 | 0x0001;    // Ctrl + Alt
     unsigned int hotkey_ally_vk = 'W';                 // 'W'
 
+    bool hud_show_charts = true;
+    bool hud_show_total_kills = false;
+    bool hud_show_session = true;
+    bool hud_randomizer = false;
+    int session_wins = 0;
+    int session_games = 0;
+    std::string session_random_commander;
+    std::string session_random_prestige;
+    void RollRandomCommander();
     int hud_duration_seconds = 15;
     bool toast_show_border = true;
     int toast_opacity_percent = 88;

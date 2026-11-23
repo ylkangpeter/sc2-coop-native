@@ -41,8 +41,9 @@ However, running a full web runtime inside an overlay poses noticeable drawbacks
 - Borderless, transparent, non-intrusive click-through HUD that seamlessly overlays StarCraft II.
 - Full match statistics:
   - Game duration, difficulty, map, victory/defeat status.
-  - Performance metrics: Total Kills, Effective APM, Masteries allocated, and active Mutators.
-  - Interactive kills and performance breakdown graphs rendered via Direct3D/ImPlot.
+  - Player slots stay in replay order. The HUD includes mutation icons, player contributions, allocated masteries and a per-unit kill breakdown.
+  - Bonus counts use map objective events. Missing tracker samples are shown as unavailable.
+  - Army value, supply, kills and resource collection charts can be toggled in Settings, along with total kills, the session record and a randomized commander/prestige suggestion.
 
 ### 3. Match History & Replay Analyzer (`Games`)
 - Automatically monitors StarCraft II Accounts replay directories in real-time.
@@ -107,6 +108,8 @@ winget install MartinStorsjo.LLVM-MinGW.UCRT
 .\build.ps1 -Test -TestFilter test_replay_notifications
 .\build.ps1 -Package
 ```
+
+To include the optional private replay audit in the test run, set `$env:SC2_AUDIT_REPLAY_DIR` to the directory containing the named audit recordings. The audit reports missing files individually and fails if a present recording cannot be parsed or its statistics differ from the expected values.
 
 `build.bat` and `package.bat` invoke the same PowerShell entry point. If local script execution is restricted, invoke `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 -Package` (this applies only to that process). Use `-CompilerBin` for a custom LLVM-MinGW location, `-Clean` to rebuild dependencies, or `-OutputDirectory dist/sc2_coop_v1.0.18` to build alongside a running version. The build never kills the running app.
 

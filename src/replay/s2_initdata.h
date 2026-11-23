@@ -10,6 +10,8 @@
 namespace sc2 {
 
 struct DecodedInitSlot {
+    int user_id = -1;
+    std::vector<int> retry_mutators;
     int control = 0; // 2=Human, 3=Computer
     std::string commander;
     int commander_level = 0;
@@ -67,19 +69,22 @@ public:
 
 thread_local inline std::vector<std::string>* s_current_mutators = nullptr;
 thread_local inline bool* s_current_is_weekly = nullptr;
+thread_local inline bool* s_current_extension = nullptr;
 
 class S2InitDataDecoder {
 public:
     static bool Decode(const std::vector<uint8_t>& bytes,
                        std::vector<DecodedInitSlot>& out_slots,
                        std::vector<std::string>& out_mutators,
-                       bool& out_is_weekly) {
+                       bool& out_is_weekly, bool* out_extension = nullptr) {
         out_slots.clear();
         out_mutators.clear();
         out_is_weekly = false;
+        if (out_extension) *out_extension = false;
         if (bytes.empty()) return false;
         s_current_mutators = &out_mutators;
         s_current_is_weekly = &out_is_weekly;
+        s_current_extension = out_extension;
         S2BitPackedBuffer buf(bytes.data(), bytes.size());
         bool ok = false;
         try {
@@ -90,6 +95,7 @@ public:
         }
         s_current_mutators = nullptr;
         s_current_is_weekly = nullptr;
+        s_current_extension = nullptr;
         return ok;
     }
 
@@ -337,7 +343,7 @@ private:
                 DecodeType(3, buf, out_slots); // m_defaultDifficulty
                 DecodeType(10, buf, out_slots); // m_defaultAIBuild
                 DecodeType(36, buf, out_slots); // m_cacheHandles
-                DecodeType(13, buf, out_slots); // m_hasExtensionMod
+                { bool extension = buf.read_bits(1) != 0; if (s_current_extension) *s_current_extension = extension; } // m_hasExtensionMod
                 DecodeType(13, buf, out_slots); // m_hasNonBlizzardExtensionMod
                 DecodeType(13, buf, out_slots); // m_isBlizzardMap
                 DecodeType(13, buf, out_slots); // m_isPremadeFFA
@@ -470,7 +476,7 @@ private:
         // 0: m_control (type 10: int 8 bits)
         slot.control = static_cast<int>(DecodeInt(0, 8, buf));
         // 1: m_userId (type 60: optional 1)
-        if (buf.read_bits(1) != 0) DecodeInt(0, 4, buf);
+        if (buf.read_bits(1) != 0) slot.user_id = static_cast<int>(DecodeInt(0, 4, buf));
         // 2: m_teamId (type 1: int 4 bits)
         DecodeInt(0, 4, buf);
         // 3: m_colorPref (type 62: struct m_color optional 2)
@@ -558,7 +564,7 @@ private:
         }
         // 28: m_retryMutationIndexes (type 66: array (0,3) of 6)
         int64_t ret_count = DecodeInt(0, 3, buf);
-        for (int64_t rt = 0; rt < ret_count; ++rt) DecodeInt(0, 32, buf);
+        for (int64_t rt = 0; rt < ret_count; ++rt) slot.retry_mutators.push_back(static_cast<int>(DecodeInt(0, 32, buf)));
         // 29: m_aCEnemyRace (type 6: int 32 bits)
         DecodeInt(0, 32, buf);
         // 30: m_aCEnemyWaveType (type 6: int 32 bits)

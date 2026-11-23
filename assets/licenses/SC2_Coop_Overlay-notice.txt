@@ -1,0 +1,9 @@
+The unmodified contribution icons in assets/icons/contributions originate from
+Layouts/Icons in Maguro's SC2 Coop Overlay 2.47:
+https://github.com/FluffyMaguro/SC2_Coop_Overlay
+The upstream distribution includes the GNU General Public License version 3,
+reproduced in SC2_Coop_Overlay-GPL.txt. Game imagery belongs to its respective
+owners. These third-party assets are separate from the Native MIT license.
+
+Co-op unit costs, display names and unit associations in tracker_reference_data.h
+use reference data from SCOFunctions/SC2Dictionaries in the same distribution.

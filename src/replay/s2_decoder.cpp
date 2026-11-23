@@ -10,16 +10,21 @@ namespace sc2 {
 std::vector<DecodedSlot> S2Decoder::DecodeInitDataSlots(const std::vector<uint8_t>& initdata_bytes,
                                                         std::vector<std::string>& out_cache_handles,
                                                         std::vector<std::string>& out_mutators,
-                                                        bool& out_is_weekly) {
+                                                        bool& out_is_weekly, bool* out_extension) {
     std::vector<DecodedSlot> slots;
+    if (out_extension) *out_extension = false;
+    out_is_weekly = false;
+    out_mutators.clear();
     if (initdata_bytes.empty()) return slots;
 
     // 1. Try bit-packed initData decoder
     std::vector<DecodedInitSlot> raw_slots;
-    if (S2InitDataDecoder::Decode(initdata_bytes, raw_slots, out_mutators, out_is_weekly) && !raw_slots.empty()) {
+    if (S2InitDataDecoder::Decode(initdata_bytes, raw_slots, out_mutators, out_is_weekly, out_extension) && !raw_slots.empty()) {
         for (const auto& rs : raw_slots) {
             DecodedSlot s;
             s.control = rs.control;
+            s.user_id = rs.user_id;
+            s.retry_mutators = rs.retry_mutators;
             s.commander = rs.commander;
             s.commander_level = rs.commander_level;
             s.commander_mastery_level = rs.commander_mastery_level;

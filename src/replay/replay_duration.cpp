@@ -16,10 +16,12 @@ namespace {
 constexpr int kLoopsPerSecond = 16;
 
 enum class Kind { Integer, Blob, BitArray, Optional, Array, Struct, Choice };
-enum class Signal { Other, Order, Dialogue, Achievement, Leave };
+enum class Signal { Other, Order, Dialogue, Achievement, Leave, Retarget, Control };
 
 struct LayoutNode { Kind kind; int bits; int64_t offset; size_t first; size_t count; };
-struct LayoutChild { int tag; uint16_t type; };
+enum class Field { Ignore, Ability, Target, Control, EventType, Choice };
+struct LayoutChild { int tag; uint16_t type; Field field = Field::Ignore; };
+struct ActionFields { int64_t values[6] = {}; };
 struct EventLayout { int event; uint16_t type; Signal signal; };
 struct GameLayout { uint16_t delta; uint16_t user; uint16_t event; std::span<const EventLayout> events; };
 struct BuildLayout { int build; size_t layout; };
@@ -33,10 +35,11 @@ public:
     bool Done() const { return buffer_.Done(); }
     void Align() { buffer_.ByteAlign(); }
 
-    int64_t Read(uint16_t type, bool capture) {
+    int64_t Read(uint16_t type, bool capture, ActionFields* action = nullptr, Field field = Field::Ignore) {
         const auto& node = kNodes[type];
         switch (node.kind) {
             case Kind::Integer:
+                if (action && field != Field::Ignore) return action->values[static_cast<int>(field)] = ReadInteger(node);
                 if (capture) return ReadInteger(node);
                 Skip(node.bits);
                 break;
@@ -54,7 +57,7 @@ public:
                 break;
             }
             case Kind::Optional:
-                if (Bits(1) != 0) return Read(kChildren[node.first].type, capture);
+                if (Bits(1) != 0) return Read(kChildren[node.first].type, capture, action);
                 break;
             case Kind::Array: {
                 const auto length = ReadInteger(node);
@@ -65,16 +68,18 @@ public:
             case Kind::Struct: {
                 int64_t first = 0;
                 for (size_t index = 0; index < node.count; ++index) {
-                    const auto value = Read(kChildren[node.first + index].type, capture && index == 0);
+                    const auto& child = kChildren[node.first + index];
+                    const auto value = Read(child.type, capture && index == 0, action, child.field);
                     if (index == 0) first = value;
                 }
                 return first;
             }
             case Kind::Choice: {
                 const auto tag = ReadInteger(node);
+                if (action && field == Field::Choice) action->values[static_cast<int>(field)] = tag;
                 for (size_t index = 0; index < node.count; ++index) {
                     const auto& child = kChildren[node.first + index];
-                    if (tag == child.tag) return Read(child.type, capture);
+                    if (tag == child.tag) return Read(child.type, capture, action);
                 }
                 Fail();
             }
@@ -102,28 +107,46 @@ private:
     BitBuffer buffer_;
 };
 
-struct GameSignals {
-    std::vector<int> dialogue;
-    std::vector<std::pair<int, unsigned int>> achievements;
-    int last_order = -1;
-    int last_exit = -1;
-};
-
 bool DecodeGame(const GameLayout& layout, const std::vector<uint8_t>& bytes,
-                int max_loop, GameSignals& signals) {
+                int max_loop, std::array<int, 2> swann_users, bool read_lobby, GameSignals& signals) {
     LayoutReader reader(bytes);
     int loop = 0;
+    std::array<bool, 16> drone_order{};
+    int64_t control_offset = 0;
+    bool lobby_calibrated = false;
     try {
         while (!reader.Done()) {
             const int64_t delta = reader.Read(layout.delta, true);
             if (delta < 0 || delta > max_loop - loop) return false;
             loop += static_cast<int>(delta);
-            reader.Read(layout.user, false);
+            const auto user = reader.Read(layout.user, true);
             const auto event = reader.Read(layout.event, true);
             const auto spec = std::lower_bound(layout.events.begin(), layout.events.end(), event,
                 [](const EventLayout& entry, int64_t id) { return entry.event < id; });
             if (spec == layout.events.end() || spec->event != event) return false;
-            const auto value = reader.Read(spec->type, spec->signal == Signal::Achievement);
+            const bool swann = user >= 0 && user < 16 && (user == swann_users[0] || user == swann_users[1]);
+            const bool command = swann && (spec->signal == Signal::Order || spec->signal == Signal::Retarget);
+            const bool lobby = read_lobby && spec->signal == Signal::Control && user == 0;
+            ActionFields action;
+            const auto value = reader.Read(spec->type, spec->signal == Signal::Achievement, command || lobby ? &action : nullptr);
+            auto get = [&](Field field) { return action.values[static_cast<int>(field)]; };
+            if (command) {
+                if (spec->signal == Signal::Order) drone_order[user] = get(Field::Ability) == 2536;
+                if (drone_order[user] && get(Field::Target) > 0) {
+                    signals.drones.push_back({loop, static_cast<uint32_t>(get(Field::Target))});
+                }
+            }
+            if (lobby) {
+                if (loop == 0 && get(Field::EventType) == 3 && get(Field::Choice) == 3) {
+                    control_offset = 129 - get(Field::Control);
+                    lobby_calibrated = true;
+                }
+                const auto control = get(Field::Control) + control_offset;
+                if (lobby_calibrated && loop > 0 && get(Field::Choice) && control >= 41 && control <= 124 &&
+                    (signals.lobby_actions.empty() || signals.lobby_actions.back().loop != loop)) {
+                    signals.lobby_actions.push_back({loop, static_cast<int>(control)});
+                }
+            }
             reader.Align();
 
             switch (spec->signal) {
@@ -138,7 +161,7 @@ bool DecodeGame(const GameLayout& layout, const std::vector<uint8_t>& bytes,
                         signals.achievements.back().second |= 1u << (value - 693);
                     }
                     break;
-                case Signal::Other: break;
+                default: break;
             }
         }
     } catch (const std::runtime_error&) {
@@ -192,18 +215,16 @@ bool CanEstimateReplayDuration(std::string_view map, bool victory, int recorded_
     return victory || IsParts(title) || IsTrains(title);
 }
 
-int EstimateReplayDuration(int recorded_seconds, std::string_view base_build, std::string_view map,
-                           bool victory, const std::vector<uint8_t>& game_events,
-                           const ReplayObjectives& objectives) {
-    if (game_events.empty() || !CanEstimateReplayDuration(map, victory, recorded_seconds) ||
-        recorded_seconds >= std::numeric_limits<int>::max() / kLoopsPerSecond - 2) return recorded_seconds;
-
+GameSignals DecodeGameSignals(int recorded_seconds, std::string_view base_build, const std::vector<uint8_t>& game_events,
+                              std::array<int, 2> swann_users, bool read_lobby) {
+    if (game_events.empty() || recorded_seconds <= 0 ||
+        recorded_seconds >= std::numeric_limits<int>::max() / kLoopsPerSecond - 2) return {};
     if (base_build.starts_with("Base")) base_build.remove_prefix(4);
-    if (base_build.empty()) return recorded_seconds;
+    if (base_build.empty()) return {};
     int build = 0;
     const auto [end, error] = std::from_chars(base_build.data(), base_build.data() + base_build.size(), build);
     if (error != std::errc{} || end != base_build.data() + base_build.size() ||
-        build < kBuilds[0].build || build > kBuilds[std::size(kBuilds) - 1].build + 5000) return recorded_seconds;
+        build < kBuilds[0].build || build > kBuilds[std::size(kBuilds) - 1].build + 5000) return {};
 
     // Regional builds can fall between published schemas. Try nearby layouts in
     // version order and accept a layout only after decoding the entire stream.
@@ -215,17 +236,38 @@ int EstimateReplayDuration(int recorded_seconds, std::string_view base_build, st
     };
     std::partial_sort(order.begin(), order.begin() + 4, order.end(), closer);
     const int max_loop = (recorded_seconds + 2) * kLoopsPerSecond;
-    const auto title = LowerAscii(map);
+
     for (size_t candidate = 0; candidate < 4; ++candidate) {
         GameSignals signals;
         const auto layout = kBuilds[order[candidate]].layout;
-        if (!DecodeGame(kLayouts[layout], game_events, max_loop, signals)) continue;
-        const int tick = SelectEndLoop(title, victory, signals, objectives);
-        if (tick <= 0 || (signals.last_exit >= 0 && tick > signals.last_exit + kLoopsPerSecond)) return recorded_seconds;
-        const int estimated = (tick + kLoopsPerSecond / 2) / kLoopsPerSecond;
-        return estimated > 0 && estimated <= recorded_seconds ? estimated : recorded_seconds;
+        if (!DecodeGame(kLayouts[layout], game_events, max_loop, swann_users, read_lobby, signals)) continue;
+        return signals;
     }
-    return recorded_seconds;
+    return {};
+}
+
+int MatchEndLoop(int recorded_seconds, std::string_view map, bool victory,
+                 const GameSignals& signals, const ReplayObjectives& objectives) {
+    if (!CanEstimateReplayDuration(map, victory, recorded_seconds)) return -1;
+    const int tick = SelectEndLoop(LowerAscii(map), victory, signals, objectives);
+    if (tick <= 0 || tick > int64_t(recorded_seconds) * kLoopsPerSecond ||
+        (signals.last_exit >= 0 && tick > signals.last_exit + kLoopsPerSecond)) return -1;
+    return tick;
+}
+
+int MatchDuration(int recorded_seconds, std::string_view map, bool victory,
+                  const GameSignals& signals, const ReplayObjectives& objectives) {
+    const int tick = MatchEndLoop(recorded_seconds, map, victory, signals, objectives);
+    if (tick < 0) return recorded_seconds;
+    const int estimated = (tick + kLoopsPerSecond / 2) / kLoopsPerSecond;
+    return estimated > 0 && estimated <= recorded_seconds ? estimated : recorded_seconds;
+}
+
+int EstimateReplayDuration(int recorded_seconds, std::string_view base_build, std::string_view map,
+                           bool victory, const std::vector<uint8_t>& game_events, const ReplayObjectives& objectives) {
+    if (!CanEstimateReplayDuration(map, victory, recorded_seconds)) return recorded_seconds;
+    return MatchDuration(recorded_seconds, map, victory,
+                         DecodeGameSignals(recorded_seconds, base_build, game_events, {-1, -1}, false), objectives);
 }
 
 } // namespace sc2

@@ -7,11 +7,29 @@
 #include "../replay/mpq_reader.h"
 #include "../replay/s2_decoder.h"
 #include "../data/weekly_mutations.h"
+#include "../replay/match_mutators.h"
 #include <nlohmann/json.hpp>
+#include <algorithm>
+#include <cctype>
 
 namespace sc2 {
 
 namespace {
+
+static bool MutatorMatchesJson(const std::string& mutators_json, const std::string& target_mutator) {
+    std::string norm = NormalizeMutation(target_mutator);
+    if (mutators_json.find(norm) != std::string::npos) return true;
+    if (target_mutator != norm && mutators_json.find(target_mutator) != std::string::npos) return true;
+
+    auto it = std::search(
+        mutators_json.begin(), mutators_json.end(),
+        norm.begin(), norm.end(),
+        [](char a, char b) {
+            return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b));
+        }
+    );
+    return it != mutators_json.end();
+}
 
 static int DiffRank(const std::string& d) {
     if (d == "Brutal+6") return 10;
@@ -48,7 +66,7 @@ Database::WeeklyRecord Database::QueryWeeklyRecord(const std::string& map_name, 
     int pidx = 1;
     stmt.BindText(pidx++, map_name);
     for (const auto& m : mutators) {
-        std::string pat = "%" + m + "%";
+        std::string pat = "%" + NormalizeMutation(m) + "%";
         stmt.BindText(pidx++, pat);
     }
 
@@ -84,7 +102,7 @@ std::unordered_map<int, Database::WeeklyRecord> Database::QueryAllWeeklyRecords(
     std::unordered_map<int, WeeklyRecord> result;
     if (!m_db) return result;
 
-    const char* sql = "SELECT result, difficulty, file_path, map_name, mutators_json, duration_seconds FROM replays WHERE is_weekly = 1 OR (mutators_json IS NOT NULL AND mutators_json != '[]' AND mutators_json != '');";
+    const char* sql = "SELECT result, difficulty, file_path, map_name, mutators_json, duration_seconds FROM replays WHERE is_weekly = 1;";
     SqliteStmt stmt(m_db, sql);
     if (!stmt.IsValid()) {
         return result;
@@ -119,7 +137,7 @@ std::unordered_map<int, Database::WeeklyRecord> Database::QueryAllWeeklyRecords(
             if (item.map_name != wm.map_name) continue;
             bool all_matched = true;
             for (const char* mut : wm.mutators) {
-                if (item.mutators_json.find(mut) == std::string::npos) {
+                if (!MutatorMatchesJson(item.mutators_json, mut)) {
                     all_matched = false;
                     break;
                 }
@@ -185,6 +203,9 @@ void Database::RepairWeeklyMutationsIfNeeded() {
                 bool is_weekly = false;
                 S2Decoder::DecodeInitDataSlots(initdata, handles, mutators, is_weekly);
                 if (is_weekly && !mutators.empty()) {
+                    for (auto& m : mutators) {
+                        m = NormalizeMutation(m);
+                    }
                     nlohmann::json j = mutators;
                     updates.emplace_back(j.dump(), path);
                 }

@@ -582,7 +582,7 @@ bool Database::LoadReplayDetails(ReplayRecord& replay, int64_t* row_id) {
     std::lock_guard<std::recursive_mutex> lock(m_mutex);
     if (!m_db || replay.file_path.empty()) return false;
 
-    SqliteStmt stmt(m_db, "SELECT details_blob, details_format, details_json, rowid FROM replays WHERE file_path = ? LIMIT 1;");
+    SqliteStmt stmt(m_db, "SELECT details_blob, details_format, details_json, rowid, p1_kills, p2_kills, is_weekly, mutators_json FROM replays WHERE file_path = ? LIMIT 1;");
     if (!stmt.IsValid()) return false;
     stmt.BindText(1, replay.file_path);
     bool loaded = false;
@@ -600,6 +600,12 @@ bool Database::LoadReplayDetails(ReplayRecord& replay, int64_t* row_id) {
                 loaded = replay.DetailsFromJson(legacy);
             }
         }
+        if (loaded && replay.has_summary_data) {
+            replay.p1.kills = stmt.ColumnInt(4);
+            replay.p2.kills = stmt.ColumnInt(5);
+            replay.is_weekly = stmt.ColumnInt(6) != 0;
+            replay.MutatorsFromJson(stmt.ColumnText(7));
+        }
     }
     return loaded;
 }
@@ -609,14 +615,21 @@ bool Database::UpdateReplayDetails(const ReplayRecord& replay, int64_t row_id) {
     std::lock_guard<std::recursive_mutex> lock(m_mutex);
     if (!m_db || blob.empty()) return false;
     // Imports replace the entire row. Only update the version we originally loaded.
-    SqliteStmt stmt(m_db, "UPDATE replays SET details_blob=?, details_format=1, details_json=NULL "
-                          "WHERE file_path=? AND rowid=? AND file_mtime=? AND (details_blob IS NOT NULL OR details_json IS NOT NULL);");
+    SqliteStmt stmt(m_db, "UPDATE replays SET details_blob=?, details_format=1, details_json=NULL, "
+                          "p1_kills=?, p2_kills=?, is_weekly=?, mutators_json=? "
+                          "WHERE file_path=? AND rowid=? AND file_mtime=?;");
     if (!stmt.IsValid()) return false;
     stmt.BindBlob(1, blob);
-    stmt.BindText(2, replay.file_path);
-    stmt.BindInt64(3, row_id);
-    stmt.BindInt64(4, replay.file_mtime);
-    return stmt.Step() == SQLITE_DONE && sqlite3_changes(m_db) == 1;
+    stmt.BindInt(2, replay.p1.kills);
+    stmt.BindInt(3, replay.p2.kills);
+    stmt.BindInt(4, replay.is_weekly ? 1 : 0);
+    stmt.BindText(5, replay.MutatorsToJson());
+    stmt.BindText(6, replay.file_path);
+    stmt.BindInt64(7, row_id);
+    stmt.BindInt64(8, replay.file_mtime);
+    if (stmt.Step() != SQLITE_DONE || sqlite3_changes(m_db) != 1) return false;
+    BumpRevision();
+    return true;
 }
 
 bool Database::ClearReplayDetails(const std::string& file_path) {

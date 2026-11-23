@@ -144,8 +144,22 @@ void TabSettings::Render(AppState& state) {
         state.SaveSettings();
     }
     ImGui::Indent(24.0f);
+    if (ImGui::Checkbox(TR("Show charts"), &state.hud_show_charts)) state.SaveSettings();
+    if (ImGui::Checkbox(TR("Show total kills"), &state.hud_show_total_kills)) state.SaveSettings();
+    if (ImGui::Checkbox(TR("Show session record"), &state.hud_show_session)) state.SaveSettings();
+    if (ImGui::Checkbox(TR("Show randomized commander and prestige"), &state.hud_randomizer)) {
+        state.RollRandomCommander();
+        state.SaveSettings();
+    }
+    if (state.hud_randomizer) {
+        if (ImGui::Button(TR("Roll commander"))) state.RollRandomCommander();
+        ImGui::SameLine();
+        ImGui::Text("%s (%s)", TR(state.session_random_commander.c_str()), TR(state.session_random_prestige.c_str()));
+    }
     if (ImGui::Button(TR("Toggle Summary Preview"), ImVec2(0, 28))) {
-        SummaryOverlay::Instance().Toggle();
+        auto& summary = SummaryOverlay::Instance();
+        if (summary.IsActive()) summary.Hide();
+        else summary.ShowPreview();
     }
     ImGui::Unindent(24.0f);
     ImGui::Spacing();
@@ -278,7 +292,7 @@ void TabSettings::Render(AppState& state) {
     ImGui::Spacing();
 
     // 6. About & Version Info
-    ImGui::TextDisabled("StarCraft II Co-op Native v1.0.22 (DirectX 11 + Dear ImGui + SQLite3)");
+    ImGui::TextDisabled("StarCraft II Co-op Native v1.0.23 (DirectX 11 + Dear ImGui + SQLite3)");
     ImGui::TextDisabled("%s", TR("About_Description"));
 }
 

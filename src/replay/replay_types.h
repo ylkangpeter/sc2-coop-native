@@ -27,6 +27,12 @@ struct PlayerTimeSeries {
     std::vector<float> collection_rate;
 };
 
+struct Contribution {
+    std::string icon;
+    int count = 0; // Ordered portraits use zero, counters use a positive value.
+};
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Contribution, icon, count)
+
 struct PlayerInfo {
     int player_id = 0;
     std::string name;
@@ -42,6 +48,7 @@ struct PlayerInfo {
     std::string result; // "Win" or "Loss"
     std::vector<int> masteries = {0, 0, 0, 0, 0, 0}; // 6 mastery values
     std::vector<UnitStat> units;
+    std::vector<Contribution> contributions;
 
     std::string FormatLevel() const {
         if (commander.empty() || commander == "Unknown") return "";
@@ -73,6 +80,7 @@ struct ChatRecord {
 };
 
 struct ReplayRecord {
+    static constexpr int kSummaryCacheVersion = 2;
     static constexpr size_t kMaxStoredSeriesPoints = 256;
 
     std::string file_path;
@@ -94,10 +102,13 @@ struct ReplayRecord {
     std::vector<ChatRecord> chat;
 
     // Detailed Post-Game Summary Fields
+    bool has_summary_data = false; // Detail cache produced by the event-based summary parser.
+    bool is_custom_mutation = false;
+    std::string ally_difficulty; // Present when the two lobby difficulties differ.
     bool has_level_data = false;
     std::string enemy_comp;
     std::vector<UnitStat> amon_units;
-    int bonus_earned = 0;
+    int bonus_earned = -1;
     int bonus_total = 0;
     PlayerTimeSeries p1_series;
     PlayerTimeSeries p2_series;
@@ -139,6 +150,11 @@ struct ReplayRecord {
 
     std::string DetailsToJson() const {
         nlohmann::json j;
+        j["summary_version"] = has_summary_data ? kSummaryCacheVersion : 0;
+        j["is_custom_mutation"] = is_custom_mutation;
+        j["ally_difficulty"] = ally_difficulty;
+        j["p1_contributions"] = p1.contributions;
+        j["p2_contributions"] = p2.contributions;
         j["enemy_comp"] = enemy_comp;
         j["bonus_earned"] = bonus_earned;
         j["bonus_total"] = bonus_total;
@@ -230,8 +246,13 @@ struct ReplayRecord {
         if (json_str.empty()) return false;
         try {
             auto j = nlohmann::json::parse(json_str);
+            has_summary_data = j.value("summary_version", 0) >= kSummaryCacheVersion;
+            is_custom_mutation = j.value("is_custom_mutation", false);
+            ally_difficulty = j.value("ally_difficulty", "");
+            p1.contributions = j.value("p1_contributions", std::vector<Contribution>{});
+            p2.contributions = j.value("p2_contributions", std::vector<Contribution>{});
             enemy_comp = j.value("enemy_comp", "");
-            bonus_earned = j.value("bonus_earned", 0);
+            bonus_earned = has_summary_data ? j.value("bonus_earned", -1) : -1;
             bonus_total = j.value("bonus_total", 0);
 
             auto DeserializeUnits = [](const nlohmann::json& arr) {
@@ -296,6 +317,22 @@ struct ReplayRecord {
 
             if (j.contains("p1_series")) DeserializeSeries(j["p1_series"], p1_series);
             if (j.contains("p2_series")) DeserializeSeries(j["p2_series"], p2_series);
+            // Older releases stored a deterministic eleven-point demo when
+            // tracker samples were missing. Preserve genuine offline samples.
+            if (!has_summary_data && p1_series.army_value.size() == 11 && p2_series.army_value.size() == 11) {
+                bool synthetic = true;
+                for (int i = 0; i <= 10; ++i) {
+                    const float progress = static_cast<float>(i) / 10.0f;
+                    if (p1_series.army_value[i] != 2000.0f * progress || p2_series.army_value[i] != 1800.0f * progress) {
+                        synthetic = false;
+                        break;
+                    }
+                }
+                if (synthetic) {
+                    p1_series = {};
+                    p2_series = {};
+                }
+            }
             return true;
         } catch (...) {
             return false;

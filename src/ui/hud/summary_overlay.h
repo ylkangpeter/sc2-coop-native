@@ -21,8 +21,9 @@ public:
     void Init(HINSTANCE hInstance);
     void Shutdown();
 
-    void ShowMatch(const ReplayRecord& rec, bool is_best_time = false, float duration = 15.0f);
+    void ShowMatch(const ReplayRecord& rec, bool is_best_time = false, float duration = 15.0f, bool live = false);
     void ShowLatest();
+    void ShowPreview();
     void ShowPrevious();
     void ShowNext();
     void Toggle();
@@ -60,6 +61,12 @@ private:
 
     ReplayRecord m_current_record;
     bool m_is_best_time = false;
+    bool m_live = false;
+    bool m_show_session = false;
+    int m_session_wins = 0;
+    int m_session_games = 0;
+    std::string m_random_commander;
+    std::string m_random_prestige;
     int m_browse_index = 0;
     std::vector<ReplayRecord> m_cached_recent;
 

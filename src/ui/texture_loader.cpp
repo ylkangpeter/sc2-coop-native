@@ -1,4 +1,5 @@
 #include "texture_loader.h"
+#include "../replay/match_mutators.h"
 #include "../utils/win32_utils.h"
 #include <windows.h>
 
@@ -126,8 +127,9 @@ ImTextureID TextureLoader::GetCommanderIcon(const std::string& commander_name) {
 }
 
 ImTextureID TextureLoader::GetMutatorIcon(const std::string& mutator_name) {
-    if (!IsSafeAssetName(mutator_name)) return (ImTextureID)0;
-    std::string path = "assets/icons/mutators/" + mutator_name + ".png";
+    std::string norm = NormalizeMutation(mutator_name);
+    if (!IsSafeAssetName(norm)) return (ImTextureID)0;
+    std::string path = "assets/icons/mutators/" + norm + ".png";
     return GetTexture(path);
 }
 

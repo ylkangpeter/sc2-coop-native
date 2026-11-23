@@ -328,8 +328,13 @@ void UIManager::ProcessPendingMatches() {
     for (const auto& m : matches) {
         LogDiagnostic("ui", std::string("processing match; auto_show_summary=") +
             (AppState::Instance().auto_show_summary ? "1" : "0"));
-        if (AppState::Instance().auto_show_summary) {
-            SummaryOverlay::Instance().ShowMatch(m.record, m.is_best_time, (float)AppState::Instance().hud_duration_seconds);
+        auto& state = AppState::Instance();
+        if (m.record.result == "Victory" || m.record.result == "Defeat") {
+            ++state.session_games;
+            if (m.record.result == "Victory") ++state.session_wins;
+        }
+        if (state.auto_show_summary) {
+            SummaryOverlay::Instance().ShowMatch(m.record, m.is_best_time, (float)state.hud_duration_seconds, true);
         }
         bool p2_is_me = (!m.record.p2.handle.empty() && m.record.file_path.find(m.record.p2.handle) != std::string::npos) ||
                         (!m.record.p2.handle.empty() && AppState::Instance().HasUserHandle(m.record.p2.handle));
@@ -379,7 +384,7 @@ bool UIManager::Init(HINSTANCE hInstance, int nCmdShow) {
     int win_x = mi.rcWork.left + (mon_w - win_w) / 2;
     int win_y = mi.rcWork.top + (mon_h - win_h) / 2;
 
-    m_hwnd = CreateWindowW(m_wc.lpszClassName, L"StarCraft II Co-op Native v1.0.22",
+    m_hwnd = CreateWindowW(m_wc.lpszClassName, L"StarCraft II Co-op Native v1.0.23",
                            WS_OVERLAPPEDWINDOW, win_x, win_y, win_w, win_h,
                            nullptr, nullptr, m_wc.hInstance, nullptr);
 

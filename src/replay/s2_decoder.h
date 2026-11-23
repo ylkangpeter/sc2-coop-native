@@ -21,6 +21,7 @@ struct DecodedPlayer {
 };
 
 struct DecodedSlot {
+    int user_id = -1;
     int control = 0; // 2=Human, 3=Computer
     std::string commander;
     int commander_level = 0;
@@ -50,6 +51,13 @@ struct TrackerSummary {
     int p1_kills = 0;
     int p2_kills = 0;
     ReplayObjectives objectives;
+    std::vector<Contribution> p1_contributions;
+    std::vector<Contribution> p2_contributions;
+    std::vector<int> bonus_loops;
+    bool bonus_known = false;
+    bool complete = false;
+    std::vector<std::string> tracker_mutators;
+    int start_loop = -1; // Start of play, to exclude subsequent UI clicks from the mutation lobby.
 };
 
 class S2Decoder {
@@ -61,7 +69,7 @@ public:
     static std::vector<DecodedSlot> DecodeInitDataSlots(const std::vector<uint8_t>& initdata_bytes,
                                                         std::vector<std::string>& out_cache_handles,
                                                         std::vector<std::string>& out_mutators,
-                                                        bool& out_is_weekly);
+                                                        bool& out_is_weekly, bool* out_extension = nullptr);
 
     static std::vector<DecodedSlot> DecodeInitDataSlots(const std::vector<uint8_t>& initdata_bytes,
                                                         std::vector<std::string>& out_cache_handles) {
@@ -75,6 +83,10 @@ public:
                                             const std::string& commander);
 
     // Decode tracker events stream (player stats, unit born/init/died, enemy waves)
+    static TrackerSummary DecodeTrackerEvents(const std::vector<uint8_t>& tracker_bytes,
+                                              const PlayerInfo& p1, const PlayerInfo& p2,
+                                              const std::string& map_name, const std::vector<DroneOrder>& drones = {},
+                                              int end_loop = -1);
     static TrackerSummary DecodeTrackerEvents(const std::vector<uint8_t>& tracker_bytes,
                                               int p1_total_kills, int p2_total_kills,
                                               const std::string& p1_cmdr, const std::string& p2_cmdr);

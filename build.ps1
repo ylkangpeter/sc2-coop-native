@@ -4,7 +4,7 @@ param(
     [string]$TestFilter = '',
     [switch]$Package,
     [switch]$PackageOnly,
-    [string]$Version = 'v1.0.22',
+    [string]$Version = 'v1.0.23',
     [string]$CompilerBin = '',
     [string]$OutputDirectory = 'dist/sc2_coop',
     [switch]$Clean
@@ -81,7 +81,7 @@ function Package-Release {
         [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $exe, 'sc2_coop/sc2_coop.exe', 'Optimal') | Out-Null
         foreach ($file in Get-ChildItem $assets -Recurse -File | Sort-Object FullName) {
             $languageAsset = $file.DirectoryName -eq (Join-Path $assets 'lang') -and $file.Name -in 'en_US.json','zh_CN.json'
-            $licenseAsset = $file.DirectoryName -eq (Join-Path $assets 'licenses') -and $file.Name -eq 's2protocol.txt'
+            $licenseAsset = $file.DirectoryName -eq (Join-Path $assets 'licenses') -and $file.Name -in 's2protocol.txt','SC2_Coop_Overlay-notice.txt','SC2_Coop_Overlay-GPL.txt'
             if (!$languageAsset -and !$licenseAsset -and $file.Extension.ToLowerInvariant() -notin '.png','.jpg','.jpeg','.otf','.ttf','.ico') { continue }
             $relative = $file.FullName.Substring($outputDir.Length + 1).Replace('\','/')
             [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $file.FullName, "sc2_coop/$relative", 'Optimal') | Out-Null

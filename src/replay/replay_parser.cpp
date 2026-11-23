@@ -2,7 +2,7 @@
 #include "mpq_reader.h"
 #include "s2_decoder.h"
 #include "../data/sc2_constants.h"
-#include "../data/weekly_mutations.h"
+#include "match_mutators.h"
 #include "../utils/win32_utils.h"
 #include "../app_state.h"
 
@@ -70,58 +70,51 @@ bool ReplayParser::RefreshCommanderLevels(ReplayRecord& record) {
     return true;
 }
 
-static void DecodeMatchEvents(const std::wstring& replay_path, const nlohmann::json& meta_json, ReplayRecord& record) {
-    // 4. Read replay.tracker.events (Player Stats, Units, Enemy Comps)
-    ReplayObjectives objectives;
-    std::vector<uint8_t> tracker_bytes;
-    if (MpqReader::ReadFile(replay_path, "replay.tracker.events", tracker_bytes)) {
-        auto summary = S2Decoder::DecodeTrackerEvents(tracker_bytes,
-                                                      record.p1.kills, record.p2.kills,
-                                                      record.p1.commander, record.p2.commander);
+static void DecodeMatchEvents(const std::wstring& path, const nlohmann::json& metadata,
+                              const std::vector<DecodedSlot>& slots, bool extension,
+                              bool weekly, const std::vector<std::string>& cache_mutators, ReplayRecord& record) {
+    const bool victory = record.result == "Victory";
+    std::array<int, 2> swann_users{-1, -1};
+    for (size_t i = 0; i < std::min(slots.size(), swann_users.size()); ++i) {
+        if (slots[i].commander == "Swann") swann_users[i] = slots[i].user_id;
+    }
+    GameSignals signals;
+    const bool read_lobby = extension && !weekly;
+    if (read_lobby || swann_users[0] >= 0 || swann_users[1] >= 0 ||
+        CanEstimateReplayDuration(record.raw_map_name, victory, record.duration_seconds)) {
+        std::vector<uint8_t> bytes;
+        const auto build = metadata.find("BaseBuild");
+        if (build != metadata.end() && build->is_string() && MpqReader::ReadFile(path, "replay.game.events", bytes)) {
+            signals = DecodeGameSignals(record.duration_seconds, build->get_ref<const std::string&>(), bytes,
+                                        swann_users, read_lobby);
+        }
+    }
+
+    std::vector<uint8_t> tracker;
+    TrackerSummary summary;
+    if (MpqReader::ReadFile(path, "replay.tracker.events", tracker)) {
+        const int end_loop = MatchEndLoop(record.duration_seconds, record.raw_map_name, victory, signals, {});
+        summary = S2Decoder::DecodeTrackerEvents(tracker, record.p1, record.p2, record.map_name, signals.drones, end_loop);
+    }
+    record.has_summary_data = summary.complete;
+    if (summary.complete) {
         record.p1_series = std::move(summary.p1_series);
         record.p2_series = std::move(summary.p2_series);
         record.p1.units = std::move(summary.p1_units);
         record.p2.units = std::move(summary.p2_units);
+        record.p1.contributions = std::move(summary.p1_contributions);
+        record.p2.contributions = std::move(summary.p2_contributions);
         record.amon_units = std::move(summary.amon_units);
         record.enemy_comp = std::move(summary.enemy_comp);
-        if (record.p1.kills <= 0) record.p1.kills = summary.p1_kills;
-        if (record.p2.kills <= 0) record.p2.kills = summary.p2_kills;
-        objectives = summary.objectives;
-    }
-
-    const bool victory = record.result == "Victory";
-    if (CanEstimateReplayDuration(record.raw_map_name, victory, record.duration_seconds)) {
-        const auto build = meta_json.find("BaseBuild");
-        std::vector<uint8_t> game_bytes;
-        if (build != meta_json.end() && build->is_string() &&
-            MpqReader::ReadFile(replay_path, "replay.game.events", game_bytes)) {
-            record.duration_seconds = EstimateReplayDuration(record.duration_seconds, build->get_ref<const std::string&>(),
-                                                            record.raw_map_name, victory, game_bytes, objectives);
+        record.p1.kills = summary.p1_kills;
+        record.p2.kills = summary.p2_kills;
+        if (summary.bonus_known && record.bonus_total > 0) {
+            record.bonus_earned = std::min(record.bonus_total, static_cast<int>(summary.bonus_loops.size()));
         }
     }
-
-    // Fallback series if tracker events were missing or empty
-    if (record.p1_series.time_stamps.empty()) {
-        int dur = record.duration_seconds > 0 ? record.duration_seconds : 900;
-        for (int i = 0; i <= 10; ++i) {
-            float t = (dur * i) / 10.0f;
-            float progress = static_cast<float>(i) / 10.0f;
-            record.p1_series.time_stamps.push_back(t);
-            record.p2_series.time_stamps.push_back(t);
-
-            record.p1_series.kill_count.push_back(record.p1.kills * progress);
-            record.p2_series.kill_count.push_back(record.p2.kills * progress);
-
-            record.p1_series.supply_used.push_back(std::min(200.0f, 15.0f + 160.0f * progress));
-            record.p2_series.supply_used.push_back(std::min(200.0f, 15.0f + 140.0f * progress));
-
-            record.p1_series.army_value.push_back(2000.0f * progress);
-            record.p2_series.army_value.push_back(1800.0f * progress);
-
-            record.p1_series.collection_rate.push_back(progress > 0.1f ? 1800.0f : 400.0f);
-            record.p2_series.collection_rate.push_back(progress > 0.1f ? 1600.0f : 400.0f);
-        }
-    }
+    record.duration_seconds = MatchDuration(record.duration_seconds, record.raw_map_name, victory, signals, summary.objectives);
+    ApplyMatchMutators(record, slots, extension, weekly, cache_mutators, signals.lobby_actions,
+                       summary.start_loop, summary.tracker_mutators);
 }
 
 std::optional<ReplayRecord> ReplayParser::ParseFile(const std::wstring& replay_path, ReplayParseDepth depth) {
@@ -209,15 +202,12 @@ std::optional<ReplayRecord> ReplayParser::ParseFile(const std::wstring& replay_p
     std::vector<uint8_t> initdata_bytes;
     std::vector<std::string> cache_handles;
     std::vector<std::string> init_mutators;
+    bool extension = false;
     bool is_weekly = false;
     std::vector<DecodedSlot> slots;
     if (MpqReader::ReadFile(replay_path, "replay.initData", initdata_bytes)) {
-        slots = S2Decoder::DecodeInitDataSlots(initdata_bytes, cache_handles, init_mutators, is_weekly);
+        slots = S2Decoder::DecodeInitDataSlots(initdata_bytes, cache_handles, init_mutators, is_weekly, &extension);
         ApplyCommanderLevels(record, slots);
-        if (is_weekly) {
-            record.is_weekly = true;
-            record.mutators = init_mutators;
-        }
         int bp0 = 0, bp1 = 0;
         if (slots.size() >= 1) {
             record.p1.commander = slots[0].commander.empty() ? "Unknown" : slots[0].commander;
@@ -285,24 +275,26 @@ std::optional<ReplayRecord> ReplayParser::ParseFile(const std::wstring& replay_p
         if (!diff_str.empty()) {
             record.difficulty = diff_str;
         } else {
-            record.difficulty = "Brutal"; // Standard fallback
+            record.difficulty = "Unknown";
         }
+    }
+
+    if (record.brutal_plus == 0 && slots.size() >= 4 && slots[2].control == 3 && slots[3].control == 3) {
+        const auto first = DifficultyFromInt(slots[2].difficulty);
+        const auto second = DifficultyFromInt(slots[3].difficulty);
+        if (!first.empty() && !second.empty() && first != second) record.ally_difficulty = second;
     }
 
     // Map bonus objectives count
     auto b_it = kMapBonusCounts.find(record.map_name);
     if (b_it != kMapBonusCounts.end()) {
         record.bonus_total = b_it->second;
-    } else {
-        record.bonus_total = 2;
     }
-    // replay.tracker.events currently does not expose a reliable bonus-objective
-    // completion event. Preserve the existing HUD behavior: a completed victory
-    // is treated as earning all map bonuses, while defeat/unknown stays at zero.
-    record.bonus_earned = (record.result == "Victory") ? record.bonus_total : 0;
 
     if (depth == ReplayParseDepth::Full) {
-        DecodeMatchEvents(replay_path, meta_json, record);
+        DecodeMatchEvents(replay_path, meta_json, slots, extension, is_weekly, init_mutators, record);
+    } else {
+        ApplyMatchMutators(record, slots, extension, is_weekly, init_mutators, {}, -1, {});
     }
     record.form_length = FormatDuration(record.duration_seconds);
 
@@ -325,28 +317,6 @@ std::optional<ReplayRecord> ReplayParser::ParseFile(const std::wstring& replay_p
             }
             cr.text = m.text;
             record.chat.push_back(cr);
-        }
-    }
-
-    // 5. Match Weekly Mutation catalog or keep mutators if already detected
-    if (record.is_weekly && !record.mutators.empty()) {
-        // Mutators and is_weekly successfully identified via cache handles!
-    } else {
-        for (const auto& wm : kWeeklyMutations) {
-            if (wm.map_name == record.map_name) {
-                // Check if replay path or raw name mentions mutation or if weekly
-                if (record.file_path.find("[CM]") != std::string::npos ||
-                    record.file_path.find("突变") != std::string::npos ||
-                    record.file_path.find("Mutation") != std::string::npos) {
-                    record.is_weekly = true;
-                    if (record.mutators.empty()) {
-                        for (const char* mut : wm.mutators) {
-                            record.mutators.emplace_back(mut);
-                        }
-                    }
-                    break;
-                }
-            }
         }
     }
 

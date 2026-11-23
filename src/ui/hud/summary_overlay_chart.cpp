@@ -1,4 +1,6 @@
 #include "summary_overlay_types.h"
+#include "../../i18n/i18n.h"
+#include "../../utils/win32_utils.h"
 #include <cmath>
 #include <algorithm>
 
@@ -42,6 +44,15 @@ void DrawSummaryChart(HDC hdc, const SummaryOverlayFonts& fonts,
     SetTextColor(hdc, RGB(225, 230, 240));
     RECT rcTitle = { px, cy, px + pw, cy + 24 };
     DrawTextW(hdc, title.c_str(), -1, &rcTitle, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+
+    if ((times1.empty() || vals1.empty()) && (times2.empty() || vals2.empty())) {
+        SelectObject(hdc, fonts.hFontAxis);
+        SetTextColor(hdc, RGB(170, 170, 170));
+        RECT empty = {px, py, px + pw, py + ph};
+        const std::wstring message = Win32Utils::Utf8ToWide(TR("No data"));
+        DrawTextW(hdc, message.c_str(), -1, &empty, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        return;
+    }
 
     float max_time = duration_seconds > 0 ? duration_seconds : 900.0f;
     if (max_time < 60.0f) max_time = 60.0f;

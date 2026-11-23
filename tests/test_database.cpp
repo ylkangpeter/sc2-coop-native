@@ -3,8 +3,10 @@
 #include <chrono>
 #include <vector>
 #include <filesystem>
+#include "../vendor/sqlite3/sqlite3.h"
 #include "../src/db/database.h"
 #include "../src/app_state.h"
+#include "../src/replay/replay_summary_cache.h"
 
 int main() {
     std::cout << "[TEST] Running SQLite Database tests..." << std::endl;
@@ -384,6 +386,43 @@ int main() {
                   << " fastest_win=" << wr.fastest_win_seconds << "s winrate=" << wr.winrate << "%" << std::endl;
     }
 
+    // The weekly catalog must exclude custom mutations with the same map and mutators.
+    {
+        sc2::ReplayRecord weekly;
+        weekly.file_path = "catalog_weekly_win.SC2Replay";
+        weekly.map_name = "Rifts to Korhal";
+        weekly.raw_map_name = weekly.map_name;
+        weekly.result = "Victory";
+        weekly.difficulty = "Hard";
+        weekly.duration_seconds = 1000;
+        weekly.is_weekly = true;
+        weekly.MutatorsFromJson("[\"Twister\", \"Void Rifts\"]");
+
+        auto loss = weekly;
+        loss.file_path = "catalog_weekly_loss.SC2Replay";
+        loss.result = "Defeat";
+
+        auto custom = weekly;
+        custom.file_path = "catalog_custom_win.SC2Replay";
+        custom.is_weekly = false;
+        custom.difficulty = "Brutal+6";
+        custom.duration_seconds = 100;
+
+        auto custom_loss = custom;
+        custom_loss.file_path = "catalog_custom_loss.SC2Replay";
+        custom_loss.result = "Defeat";
+        assert(db.BatchSaveReplays({weekly, loss, custom, custom_loss}));
+
+        const auto records = db.QueryAllWeeklyRecords();
+        assert(records.count(4) == 1);
+        const auto& record = records.at(4);
+        assert(record.wins == 1 && record.losses == 1);
+        assert(record.winrate == 50.0);
+        assert(record.highest_diff == "Hard");
+        assert(record.fastest_win_seconds == 1000);
+        assert(record.replay_files.size() == 2);
+    }
+
     // 11. Verify compressed details round-trip and series downsampling.
     {
         sc2::ReplayRecord detailed;
@@ -396,6 +435,10 @@ int main() {
         detailed.p1.name = "MyPlayer";
         detailed.p1.commander = "Raynor";
         detailed.has_level_data = true;
+        detailed.has_summary_data = true;
+        detailed.bonus_total = 3;
+        detailed.bonus_earned = 1;
+        detailed.p1.contributions = {{"TychusCoop", 0}, {"TychusReaper", 0}, {"voidrifts", 26}};
         detailed.p1.commander_level = 15;
         detailed.p1.commander_mastery_level = 523;
         detailed.p2.name = "Ally_Alice";
@@ -421,6 +464,9 @@ int main() {
         loaded.p1.commander = detailed.p1.commander;
         loaded.p2.commander = detailed.p2.commander;
         assert(db.LoadReplayDetails(loaded));
+        assert(loaded.has_summary_data && loaded.bonus_earned == 1 && loaded.bonus_total == 3);
+        assert(loaded.p1.contributions.size() == 3 && loaded.p1.contributions[1].icon == "TychusReaper");
+        assert(loaded.p1.contributions[2].count == 26 && loaded.p2.contributions.empty());
         assert(loaded.has_level_data == true);
         assert(loaded.p1.units.size() == 1);
         assert(loaded.p1.commander_level == 15);
@@ -460,6 +506,45 @@ int main() {
         json["has_level_data"] = false;
         assert(legacy.DetailsFromJson(json.dump()) && !legacy.has_level_data);
         std::cout << "Compressed details round-trip verified." << std::endl;
+    }
+
+    // A historical v1 summary is reparsed through the same entry used by the overlay.
+    {
+        const auto fixture = std::filesystem::path(L"tests/fixtures/sample.SC2Replay");
+        auto parsed = sc2::ReplayParser::ParseFile(fixture.wstring());
+        assert(parsed && parsed->has_summary_data);
+        assert(db.SaveReplay(*parsed));
+        auto stale_json = nlohmann::json::parse(parsed->DetailsToJson());
+        assert(stale_json["summary_version"] == sc2::ReplayRecord::kSummaryCacheVersion);
+        stale_json["summary_version"] = 1;
+        stale_json["bonus_earned"] = 99;
+        stale_json["enemy_comp"] = "stale cache sentinel";
+        const auto stale_text = stale_json.dump();
+        sqlite3* raw_db = nullptr;
+        assert(sqlite3_open(test_db.c_str(), &raw_db) == SQLITE_OK);
+        sqlite3_stmt* stmt = nullptr;
+        assert(sqlite3_prepare_v2(raw_db, "UPDATE replays SET details_blob=NULL, details_format=0, details_json=? WHERE file_path=?", -1, &stmt, nullptr) == SQLITE_OK);
+        sqlite3_bind_text(stmt, 1, stale_text.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 2, parsed->file_path.c_str(), -1, SQLITE_TRANSIENT);
+        assert(sqlite3_step(stmt) == SQLITE_DONE && sqlite3_changes(raw_db) == 1);
+        sqlite3_finalize(stmt);
+        sqlite3_close(raw_db);
+
+        int total = 0;
+        auto history = db.QueryReplays("", 1000, 0, total);
+        auto entry = std::find_if(history.begin(), history.end(), [&](const auto& r) {
+            return r.file_path == parsed->file_path;
+        });
+        assert(entry != history.end());
+        sc2::LoadSummaryDetails(*entry, db);
+        assert(entry->has_summary_data && entry->enemy_comp == parsed->enemy_comp);
+        assert(entry->p1.kills == parsed->p1.kills && entry->p2.kills == parsed->p2.kills);
+        sc2::ReplayRecord reloaded;
+        reloaded.file_path = parsed->file_path;
+        assert(db.LoadReplayDetails(reloaded));
+        assert(reloaded.has_summary_data && reloaded.enemy_comp == parsed->enemy_comp);
+        assert(reloaded.bonus_earned == parsed->bonus_earned && reloaded.bonus_total == parsed->bonus_total);
+        assert(reloaded.p1.kills == parsed->p1.kills && reloaded.p2.kills == parsed->p2.kills);
     }
 
     // Legacy epoch placeholders must not move the career calendar to 1970.
