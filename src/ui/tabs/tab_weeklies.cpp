@@ -1,4 +1,5 @@
 #include "tab_weeklies.h"
+#include "mutator_badge.h"
 #include "../../app_state.h"
 #include "../../db/database.h"
 #include "../../data/weekly_mutations.h"
@@ -31,43 +32,6 @@ static ImVec4 GetTierColor(const char* tier) {
     return ImVec4(0.8f, 0.8f, 0.8f, 1.0f);
 }
 
-static void RenderMutatorBadge(const char* mut, bool show_points = true) {
-    ImTextureID icon = TextureLoader::Instance().GetMutatorIcon(mut);
-    if (icon) {
-        ImGui::Image(icon, ImVec2(18, 18));
-        ImGui::SameLine();
-    }
-    int pts = GetMutatorPoint(mut);
-    if (show_points && pts >= 0) {
-        ImGui::Text("%s (%d %s)", TR(mut), pts, TR("pts"));
-    } else {
-        ImGui::Text("%s", TR(mut));
-    }
-    if (ImGui::IsItemHovered()) {
-        ImGui::BeginTooltip();
-        if (pts >= 0) {
-            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "%s  [%d %s]", TR(mut), pts, TR("pts"));
-        } else {
-            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "%s", TR(mut));
-        }
-        ImGui::Separator();
-        std::string desc_key = std::string("mut_desc_") + mut;
-        const char* localized_desc = TR(desc_key.c_str());
-        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 26.0f);
-        if (std::strcmp(localized_desc, desc_key.c_str()) != 0) {
-            ImGui::TextUnformatted(localized_desc);
-        } else {
-            auto desc_it = kMutators.find(mut);
-            if (desc_it != kMutators.end()) {
-                ImGui::TextUnformatted(desc_it->second.c_str());
-            } else {
-                ImGui::TextDisabled("%s", TR("Special event mutator"));
-            }
-        }
-        ImGui::PopTextWrapPos();
-        ImGui::EndTooltip();
-    }
-}
 
 void TabWeeklies::Render(AppState& state) {
     uint64_t current_rev = Database::Instance().GetRevision();

@@ -1,4 +1,7 @@
 #include "tab_games.h"
+#include "mutator_badge.h"
+#include "../../data/weekly_mutations.h"
+#include "../../replay/match_mutators.h"
 #include "../../app_state.h"
 #include "../../i18n/i18n.h"
 #include "../../db/database.h"
@@ -20,6 +23,22 @@ std::string TabGames::s_last_search = "";
 int TabGames::s_last_page = -1;
 int TabGames::s_cached_total_records = 0;
 std::vector<ReplayRecord> TabGames::s_cached_replays;
+
+
+static const WeeklyMutation* FindWeeklyMutation(const ReplayRecord& replay) {
+    if (!replay.is_weekly || replay.mutators.empty()) return nullptr;
+    std::vector<std::string> actual;
+    for (const auto& mutator : replay.mutators) actual.push_back(NormalizeMutation(mutator));
+    std::sort(actual.begin(), actual.end());
+    for (const auto& weekly : kWeeklyMutations) {
+        if (replay.map_name != weekly.map_name || actual.size() != weekly.mutators.size()) continue;
+        std::vector<std::string> expected;
+        for (const char* mutator : weekly.mutators) expected.push_back(NormalizeMutation(mutator));
+        std::sort(expected.begin(), expected.end());
+        if (actual == expected) return &weekly;
+    }
+    return nullptr;
+}
 
 void TabGames::Render(AppState& state) {
     // 1. Search Bar & Controls Header
@@ -74,8 +93,8 @@ void TabGames::Render(AppState& state) {
 
     auto& replays = s_cached_replays;
 
-    // 3. Render Table (10 columns: Map, Mode, Result, P1, P2, Enemy, Length, Difficulty, Date, Actions)
-    const ImGuiTableFlags table_flags = ImGuiTableFlags_ScrollY |
+    // 3. Render Table
+    const ImGuiTableFlags table_flags = ImGuiTableFlags_ScrollY | ImGuiTableFlags_ScrollX |
                                         ImGuiTableFlags_RowBg |
                                         ImGuiTableFlags_BordersOuter |
                                         ImGuiTableFlags_BordersInnerH |
@@ -84,13 +103,15 @@ void TabGames::Render(AppState& state) {
 
     float footer_h = ImGui::GetFrameHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y + 12.0f;
     float table_height = ImGui::GetContentRegionAvail().y - footer_h;
-    if (ImGui::BeginTable("GamesTable", 10, table_flags, ImVec2(0, table_height))) {
+    if (ImGui::BeginTable("GamesTable", 12, table_flags, ImVec2(0, table_height))) {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn(TR("Map"), ImGuiTableColumnFlags_WidthFixed, 130.0f);
         ImGui::TableSetupColumn(TR("Mode"), ImGuiTableColumnFlags_WidthFixed, 70.0f);
+        ImGui::TableSetupColumn(TR("Mutation Name"), ImGuiTableColumnFlags_WidthFixed, 150.0f);
+        ImGui::TableSetupColumn(TR("Mutators"), ImGuiTableColumnFlags_WidthFixed, 300.0f);
         ImGui::TableSetupColumn(TR("Result"), ImGuiTableColumnFlags_WidthFixed, 60.0f);
-        ImGui::TableSetupColumn(TR("Player 1"), ImGuiTableColumnFlags_WidthStretch, 1.0f);
-        ImGui::TableSetupColumn(TR("Player 2"), ImGuiTableColumnFlags_WidthStretch, 1.0f);
+        ImGui::TableSetupColumn(TR("Player 1"), ImGuiTableColumnFlags_WidthFixed, 170.0f);
+        ImGui::TableSetupColumn(TR("Player 2"), ImGuiTableColumnFlags_WidthFixed, 170.0f);
         ImGui::TableSetupColumn(TR("Enemy"), ImGuiTableColumnFlags_WidthFixed, 55.0f);
         ImGui::TableSetupColumn(TR("Length"), ImGuiTableColumnFlags_WidthFixed, 55.0f);
         ImGui::TableSetupColumn(TR("Difficulty"), ImGuiTableColumnFlags_WidthFixed, 75.0f);
@@ -124,8 +145,24 @@ void TabGames::Render(AppState& state) {
                 ImGui::TextColored(ImVec4(0.65f, 0.65f, 0.65f, 1.0f), "%s", TR("Regular"));
             }
 
-            // Col 2: Result (Victory, Defeat, Tie, Unknown)
+            // Weekly names are only shown when the full mutator set matches.
             ImGui::TableSetColumnIndex(2);
+            const auto* weekly = FindWeeklyMutation(r);
+            if (weekly) ImGui::TextUnformatted(TR(weekly->title));
+            else ImGui::TextDisabled("-");
+
+            ImGui::TableSetColumnIndex(3);
+            if (r.mutators.empty()) {
+                ImGui::TextDisabled("-");
+            } else {
+                for (size_t m = 0; m < r.mutators.size(); ++m) {
+                    if (m > 0) ImGui::SameLine(0.0f, 2.0f);
+                    RenderMutatorBadge(r.mutators[m].c_str(), false, true);
+                }
+            }
+
+            // Col 2: Result (Victory, Defeat, Tie, Unknown)
+            ImGui::TableSetColumnIndex(4);
             if (r.result == "Victory") {
                 ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.4f, 1.0f), "%s", TR("Victory"));
             } else if (r.result == "Defeat") {
@@ -137,7 +174,7 @@ void TabGames::Render(AppState& state) {
             }
 
             // Col 3: Player 1
-            ImGui::TableSetColumnIndex(3);
+            ImGui::TableSetColumnIndex(5);
             std::string p1_clean = Win32Utils::CleanPlayerName(r.p1.name);
             if (p1_is_me) {
                 ImGui::TextColored(ImVec4(0.3f, 0.85f, 1.0f, 1.0f), "%s (Me)", p1_clean.c_str());
@@ -152,7 +189,7 @@ void TabGames::Render(AppState& state) {
             }
 
             // Col 4: Player 2
-            ImGui::TableSetColumnIndex(4);
+            ImGui::TableSetColumnIndex(6);
             if (!r.p2.name.empty()) {
                 std::string p2_clean = Win32Utils::CleanPlayerName(r.p2.name);
                 if (p2_is_me) {
@@ -171,16 +208,19 @@ void TabGames::Render(AppState& state) {
             }
 
             // Col 5: Enemy Race
-            ImGui::TableSetColumnIndex(5);
+            ImGui::TableSetColumnIndex(7);
             ImGui::TextUnformatted(TR(r.enemy_race.c_str()));
 
             // Col 6: Length
-            ImGui::TableSetColumnIndex(6);
+            ImGui::TableSetColumnIndex(8);
             ImGui::TextUnformatted(r.form_length.c_str());
 
             // Col 7: Difficulty
-            ImGui::TableSetColumnIndex(7);
-            if (r.brutal_plus >= 1 && r.brutal_plus <= 6) {
+            ImGui::TableSetColumnIndex(9);
+            if (r.difficulty == "Brutal" && weekly && weekly->score >= 0 &&
+                std::string(weekly->tier).rfind("Brutal+", 0) == 0) {
+                ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.4f, 1.0f), "%s", TR(weekly->tier));
+            } else if (r.brutal_plus >= 1 && r.brutal_plus <= 6) {
                 ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f), "%s", TR(r.difficulty.c_str()));
             } else if (r.brutal_plus > 6 || r.brutal_plus < 0) {
                 ImGui::TextUnformatted(TR("Brutal"));
@@ -189,11 +229,11 @@ void TabGames::Render(AppState& state) {
             }
 
             // Col 8: Date
-            ImGui::TableSetColumnIndex(8);
+            ImGui::TableSetColumnIndex(10);
             ImGui::TextUnformatted(r.game_date.c_str());
 
             // Col 9: Actions
-            ImGui::TableSetColumnIndex(9);
+            ImGui::TableSetColumnIndex(11);
             ImGui::PushID(static_cast<int>(i));
             ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4.0f, 0.0f));
 
