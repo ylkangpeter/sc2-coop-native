@@ -298,7 +298,8 @@ void TabStats::Render(AppState& state) {
         float left_w = (avail_w - ImGui::GetStyle().ItemSpacing.x) * 0.52f;
 
         ImGui::BeginChild("MyComTablePane", ImVec2(left_w, 0), false);
-        if (ImGui::BeginTable("MyComTable", 8, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersOuter | ImGuiTableFlags_ScrollY | ImGuiTableFlags_ScrollX | ImGuiTableFlags_Resizable)) {
+        const float commander_inner_width = std::max(650.0f, ImGui::GetContentRegionAvail().x);
+        if (ImGui::BeginTable("MyComTable", 8, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersOuter | ImGuiTableFlags_ScrollY | ImGuiTableFlags_ScrollX | ImGuiTableFlags_Resizable, ImVec2(0, 0), commander_inner_width)) {
             ImGui::TableSetupColumn(TR("Commander"), ImGuiTableColumnFlags_WidthStretch);
             ImGui::TableSetupColumn(TR("Games"), ImGuiTableColumnFlags_WidthFixed, 65.0f);
             ImGui::TableSetupColumn(TR("Wins"), ImGuiTableColumnFlags_WidthFixed, 60.0f);

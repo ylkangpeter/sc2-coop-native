@@ -157,7 +157,7 @@ std::unordered_map<int, Database::WeeklyRecord> Database::QueryAllWeeklyRecords(
                 wr.replay_files.push_back(item.file_path);
             }
         }
-        if (wr.wins > 0 || wr.losses > 0) {
+        if (!wr.replay_files.empty()) {
             int tot = wr.wins + wr.losses;
             wr.winrate = tot > 0 ? (100.0 * wr.wins / tot) : 0.0;
             if (wr.highest_diff.empty()) wr.highest_diff = "Brutal";

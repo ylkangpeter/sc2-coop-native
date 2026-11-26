@@ -132,19 +132,21 @@ void TabWeeklies::Render(AppState& state) {
                                         ImGuiTableFlags_RowBg |
                                         ImGuiTableFlags_BordersOuter |
                                         ImGuiTableFlags_BordersInnerH |
-                                        ImGuiTableFlags_Resizable;
+                                        ImGuiTableFlags_Resizable | ImGuiTableFlags_NoSavedSettings;
 
-    // Table with 9 columns: Week, Rotation, Title, Map, Mutators, Score, Tier, Personal Record, Action
-    if (ImGui::BeginTable("WeekliesTable", 9, table_flags, ImVec2(0, 0))) {
+    if (ImGui::BeginTable("WeekliesTable", 12, table_flags, ImVec2(0, 0))) {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn(TR("Week"), ImGuiTableColumnFlags_WidthFixed, 45.0f);
         ImGui::TableSetupColumn(TR("Rotation"), ImGuiTableColumnFlags_WidthFixed, 95.0f);
         ImGui::TableSetupColumn(TR("Title"), ImGuiTableColumnFlags_WidthStretch, 1.2f);
-        ImGui::TableSetupColumn(TR("Map"), ImGuiTableColumnFlags_WidthFixed, 135.0f);
+        ImGui::TableSetupColumn(TR("Map"), ImGuiTableColumnFlags_WidthStretch, 1.0f);
         ImGui::TableSetupColumn(TR("Mutators"), ImGuiTableColumnFlags_WidthStretch, 2.0f);
         ImGui::TableSetupColumn(TR("Score"), ImGuiTableColumnFlags_WidthFixed, 50.0f);
         ImGui::TableSetupColumn(TR("Tier"), ImGuiTableColumnFlags_WidthFixed, 70.0f);
         ImGui::TableSetupColumn(TR("Personal Record"), ImGuiTableColumnFlags_WidthFixed, 110.0f);
+        ImGui::TableSetupColumn(TR("Match Count"), ImGuiTableColumnFlags_WidthFixed, 60.0f);
+        ImGui::TableSetupColumn(TR("Win/Loss"), ImGuiTableColumnFlags_WidthFixed, 75.0f);
+        ImGui::TableSetupColumn(TR("Winrate"), ImGuiTableColumnFlags_WidthFixed, 70.0f);
         ImGui::TableSetupColumn(TR("Action"), ImGuiTableColumnFlags_WidthFixed, 75.0f);
         ImGui::TableHeadersRow();
 
@@ -256,8 +258,33 @@ void TabWeeklies::Render(AppState& state) {
                 ImGui::TextDisabled("%s", TR("Unplayed"));
             }
 
-            // Col 8: Action
+            // Col 8: Games
             ImGui::TableSetColumnIndex(8);
+            const int games = it != s_cached_records.end() ? static_cast<int>(it->second.replay_files.size()) : 0;
+            const int wins = it != s_cached_records.end() ? it->second.wins : 0;
+            const int losses = it != s_cached_records.end() ? it->second.losses : 0;
+            ImGui::Text("%d", games);
+
+            // Col 9: Wins and losses
+            ImGui::TableSetColumnIndex(9);
+            ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.4f, 1.0f), "%d", wins);
+            ImGui::SameLine(0.0f, 2.0f);
+            ImGui::TextDisabled(":");
+            ImGui::SameLine(0.0f, 2.0f);
+            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%d", losses);
+
+            // Col 10: Win rate among decided games
+            ImGui::TableSetColumnIndex(10);
+            if (wins + losses > 0) {
+                const double rate = it->second.winrate;
+                const ImVec4 color = rate >= 50.0 ? ImVec4(0.3f, 1.0f, 0.4f, 1.0f) : ImVec4(1.0f, 0.65f, 0.3f, 1.0f);
+                ImGui::TextColored(color, "%.1f%%", rate);
+            } else {
+                ImGui::TextDisabled("-");
+            }
+
+            // Col 11: Action
+            ImGui::TableSetColumnIndex(11);
             ImGui::PushID(static_cast<int>(i));
             if (ImGui::SmallButton(TR("View Games"))) {
                 strncpy_s(state.games_search_buf, wm.map_name, sizeof(state.games_search_buf) - 1);

@@ -103,15 +103,16 @@ void TabGames::Render(AppState& state) {
 
     float footer_h = ImGui::GetFrameHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y + 12.0f;
     float table_height = ImGui::GetContentRegionAvail().y - footer_h;
-    if (ImGui::BeginTable("GamesTable", 12, table_flags, ImVec2(0, table_height))) {
+    const float inner_width = std::max(1500.0f, ImGui::GetContentRegionAvail().x);
+    if (ImGui::BeginTable("GamesTable", 12, table_flags, ImVec2(0, table_height), inner_width)) {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn(TR("Map"), ImGuiTableColumnFlags_WidthFixed, 130.0f);
         ImGui::TableSetupColumn(TR("Mode"), ImGuiTableColumnFlags_WidthFixed, 70.0f);
         ImGui::TableSetupColumn(TR("Mutation Name"), ImGuiTableColumnFlags_WidthFixed, 150.0f);
-        ImGui::TableSetupColumn(TR("Mutators"), ImGuiTableColumnFlags_WidthFixed, 300.0f);
+        ImGui::TableSetupColumn(TR("Mutators"), ImGuiTableColumnFlags_WidthFixed, 220.0f);
         ImGui::TableSetupColumn(TR("Result"), ImGuiTableColumnFlags_WidthFixed, 60.0f);
-        ImGui::TableSetupColumn(TR("Player 1"), ImGuiTableColumnFlags_WidthFixed, 170.0f);
-        ImGui::TableSetupColumn(TR("Player 2"), ImGuiTableColumnFlags_WidthFixed, 170.0f);
+        ImGui::TableSetupColumn(TR("Player 1"), ImGuiTableColumnFlags_WidthStretch, 1.0f);
+        ImGui::TableSetupColumn(TR("Player 2"), ImGuiTableColumnFlags_WidthStretch, 1.0f);
         ImGui::TableSetupColumn(TR("Enemy"), ImGuiTableColumnFlags_WidthFixed, 55.0f);
         ImGui::TableSetupColumn(TR("Length"), ImGuiTableColumnFlags_WidthFixed, 55.0f);
         ImGui::TableSetupColumn(TR("Difficulty"), ImGuiTableColumnFlags_WidthFixed, 75.0f);

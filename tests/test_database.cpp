@@ -402,6 +402,10 @@ int main() {
         loss.file_path = "catalog_weekly_loss.SC2Replay";
         loss.result = "Defeat";
 
+        auto tie = weekly;
+        tie.file_path = "catalog_weekly_tie.SC2Replay";
+        tie.result = "Tie";
+
         auto custom = weekly;
         custom.file_path = "catalog_custom_win.SC2Replay";
         custom.is_weekly = false;
@@ -411,7 +415,13 @@ int main() {
         auto custom_loss = custom;
         custom_loss.file_path = "catalog_custom_loss.SC2Replay";
         custom_loss.result = "Defeat";
-        assert(db.BatchSaveReplays({weekly, loss, custom, custom_loss}));
+
+        auto unknown = weekly;
+        unknown.file_path = "catalog_unknown.SC2Replay";
+        unknown.map_name = "Oblivion Express";
+        unknown.result = "Unknown";
+        unknown.MutatorsFromJson("[\"Darkness\", \"Outbreak\", \"Walking Infested\"]");
+        assert(db.BatchSaveReplays({weekly, loss, tie, custom, custom_loss, unknown}));
 
         const auto records = db.QueryAllWeeklyRecords();
         assert(records.count(4) == 1);
@@ -420,7 +430,10 @@ int main() {
         assert(record.winrate == 50.0);
         assert(record.highest_diff == "Hard");
         assert(record.fastest_win_seconds == 1000);
-        assert(record.replay_files.size() == 2);
+        assert(record.replay_files.size() == 3);
+        assert(records.count(1) == 1);
+        assert(records.at(1).replay_files.size() == 1);
+        assert(records.at(1).wins == 0 && records.at(1).losses == 0);
     }
 
     // 11. Verify compressed details round-trip and series downsampling.
