@@ -472,6 +472,18 @@ int main() {
         detailed.p1.units.push_back({"Marine", 10, 1, 8, 0.5f});
         assert(db.SaveReplay(detailed));
 
+        int history_total = 0;
+        auto history_levels = db.QueryReplays("MyPlayer", 1000, 0, history_total);
+        auto history_it = std::find_if(history_levels.begin(), history_levels.end(), [&](const auto& row) {
+            return row.file_path == detailed.file_path;
+        });
+        assert(history_it != history_levels.end());
+        const auto original_result = history_it->result;
+        sc2::LoadHistoryLevels(*history_it, db);
+        assert(history_it->p1.FormatLevel() == "{523}" && history_it->p1.IsLevelMaxed());
+        assert(history_it->p2.FormatLevel() == "{12}" && !history_it->p2.IsLevelMaxed());
+        assert(history_it->result == original_result && history_it->p1.units.empty());
+
         sc2::ReplayRecord loaded;
         loaded.file_path = detailed.file_path;
         loaded.p1.commander = detailed.p1.commander;

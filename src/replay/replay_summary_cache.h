@@ -7,6 +7,22 @@
 
 namespace sc2 {
 
+// Load only the level fields needed by the history list, leaving its row data intact.
+inline void LoadHistoryLevels(ReplayRecord& record, Database& db) {
+    if (record.file_path.empty()) return;
+    ReplayRecord details = record;
+    int64_t row_id = 0;
+    const bool loaded = db.LoadReplayDetails(details, &row_id);
+    if (!details.has_level_data && ReplayParser::RefreshCommanderLevels(details) && loaded && row_id) {
+        db.UpdateReplayDetails(details, row_id);
+    }
+    record.p1.commander_level = details.p1.commander_level;
+    record.p1.commander_mastery_level = details.p1.commander_mastery_level;
+    record.p2.commander_level = details.p2.commander_level;
+    record.p2.commander_mastery_level = details.p2.commander_mastery_level;
+    record.has_level_data = details.has_level_data;
+}
+
 // Resolve details for an entry from the history list, refreshing stale caches.
 inline void LoadSummaryDetails(ReplayRecord& record, Database& db) {
     if (record.file_path.empty()) return;

@@ -2,6 +2,7 @@
 #include "mutator_badge.h"
 #include "../../data/weekly_mutations.h"
 #include "../../replay/match_mutators.h"
+#include "../../replay/replay_summary_cache.h"
 #include "../../app_state.h"
 #include "../../i18n/i18n.h"
 #include "../../db/database.h"
@@ -40,6 +41,15 @@ static const WeeklyMutation* FindWeeklyMutation(const ReplayRecord& replay) {
     return nullptr;
 }
 
+static void RenderPlayerLevel(const PlayerInfo& player) {
+    const auto level = player.FormatLevel();
+    if (level.empty()) return;
+    ImGui::SameLine();
+    const ImVec4 color = player.IsLevelMaxed() ? ImVec4(1.0f, 0.75f, 0.0f, 1.0f)
+                                              : ImVec4(0.31f, 0.71f, 1.0f, 1.0f);
+    ImGui::TextColored(color, "%s", level.c_str());
+}
+
 void TabGames::Render(AppState& state) {
     // 1. Search Bar & Controls Header
     float clear_w = ImGui::CalcTextSize(TR("Clear")).x + ImGui::GetStyle().FramePadding.x * 2.0f + 16.0f;
@@ -74,6 +84,7 @@ void TabGames::Render(AppState& state) {
     if (s_last_revision != current_rev || current_search != s_last_search || s_current_page != s_last_page) {
         int offset = s_current_page * kPageSize;
         s_cached_replays = Database::Instance().QueryReplays(current_search, kPageSize, offset, s_cached_total_records);
+        for (auto& replay : s_cached_replays) LoadHistoryLevels(replay, Database::Instance());
         s_last_search = current_search;
         s_last_page = s_current_page;
         s_last_revision = current_rev;
@@ -86,6 +97,7 @@ void TabGames::Render(AppState& state) {
         if (s_current_page != s_last_page) {
             int offset = s_current_page * kPageSize;
             s_cached_replays = Database::Instance().QueryReplays(current_search, kPageSize, offset, s_cached_total_records);
+            for (auto& replay : s_cached_replays) LoadHistoryLevels(replay, Database::Instance());
             s_last_page = s_current_page;
         }
     }
@@ -182,6 +194,7 @@ void TabGames::Render(AppState& state) {
             } else {
                 ImGui::Text("%s", p1_clean.c_str());
             }
+            RenderPlayerLevel(r.p1);
             ImGui::SameLine();
             if (r.p1.prestige >= 0 && r.p1.prestige <= 3) {
                 ImGui::TextDisabled("(%s P%d)", TR(r.p1.commander.c_str()), r.p1.prestige);
@@ -198,6 +211,7 @@ void TabGames::Render(AppState& state) {
                 } else {
                     ImGui::Text("%s", p2_clean.c_str());
                 }
+                RenderPlayerLevel(r.p2);
                 ImGui::SameLine();
                 if (r.p2.prestige >= 0 && r.p2.prestige <= 3) {
                     ImGui::TextDisabled("(%s P%d)", TR(r.p2.commander.c_str()), r.p2.prestige);
